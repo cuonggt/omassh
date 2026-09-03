@@ -136,3 +136,7 @@ render in 256 colours, and `mono` exists for terminals with less than that.
 skipped rather than guessed at: their address means something only from the far
 side of the proxy, so dialling it from here would report on a different machine
 entirely.
+
+## License
+
+[MIT](LICENSE) © Cuong Giang
