@@ -3,6 +3,8 @@
 A keyboard-driven SSH client for the terminal — Termius's data model, lazygit's
 interaction model, running on top of real OpenSSH.
 
+![Omassh](demo.gif)
+
 ## Status
 
 Feature-complete against the original plan: hosts and groups, credentials,
@@ -90,6 +92,10 @@ go install github.com/cuonggt/omassh/cmd/omassh@latest
 Releases are built with [GoReleaser](https://goreleaser.com) for macOS and
 Linux on both amd64 and arm64. `goreleaser release --snapshot --clean` produces
 the archives, checksums and a Homebrew cask locally without publishing.
+
+The demo above is recorded with [VHS](https://github.com/charmbracelet/vhs):
+`go run ./hack/seed /tmp/omassh-demo.db withlocal` to lay down sample
+infrastructure, then `vhs demo.tape`.
 
 ## Run
 

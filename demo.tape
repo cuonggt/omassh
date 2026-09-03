@@ -1,29 +1,49 @@
 # A VHS tape for the README demo: vhs demo.tape
+# Expects a seeded database at /tmp/omassh-demo.db (see hack/seed).
 # https://github.com/charmbracelet/vhs
 
 Output demo.gif
 
 Set Shell zsh
-Set FontSize 15
-Set Width 1200
-Set Height 700
-Set Padding 20
+Set FontSize 14
+Set Width 1180
+Set Height 600
+Set Padding 18
 Set Theme "TokyoNight"
+Set TypingSpeed 60ms
 
 Hide
-Type "go build -o /tmp/omassh-demo ./cmd/omassh && /tmp/omassh-demo -db /tmp/omassh-demo.db" Enter
+Type "clear && /tmp/omassh-demo -db /tmp/omassh-demo.db -secrets=memory" Enter
 Sleep 3s
 Show
 
-Sleep 1s
-Type "j"       Sleep 700ms
-Type "j"       Sleep 700ms
-Type "p"       Sleep 2s
-Type "/"       Sleep 500ms
-Type "web"     Sleep 1500ms
-Escape         Sleep 700ms
-Type "3"       Sleep 1s
-Type "2"       Sleep 700ms
-Type "?"       Sleep 3s
-Escape         Sleep 700ms
-Type "q"       Sleep 1s
+Sleep 1500ms
+
+# reachability: one host up, the rest unreachable
+Type "p"    Sleep 2500ms
+
+# jump to Production, whose hosts inherit a user and a bastion from the group
+Type "1"    Sleep 700ms
+Type "j"    Sleep 1400ms
+Type "2"    Sleep 700ms
+Type "j"    Sleep 1000ms
+Type "j"    Sleep 1600ms
+
+# port forwards attached to this host
+Type "3"    Sleep 1800ms
+Type "2"    Sleep 600ms
+
+# fuzzy search reaches every host, not just this group
+Type "/"    Sleep 500ms
+Type "web"  Sleep 2000ms
+Escape      Sleep 900ms
+
+# saved commands
+Type "S"    Sleep 2200ms
+Escape      Sleep 700ms
+
+# the cheatsheet
+Type "?"    Sleep 3000ms
+Escape      Sleep 800ms
+
+Type "q"    Sleep 1200ms
