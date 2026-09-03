@@ -19,6 +19,9 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "omassh"
+	if m.mode == modePane {
+		v.Cursor = m.paneCursor()
+	}
 	return v
 }
 
@@ -43,6 +46,8 @@ func (m Model) render() string {
 		return box("Snippets", true, m.w, content, m.snippetsBody(m.w-4)) + "\n" + m.statusBar()
 	case modeResults:
 		return m.resultsView(content) + "\n" + m.statusBar()
+	case modePane:
+		return m.paneView(content) + "\n" + m.statusBar()
 	}
 
 	side := clamp(sidebarWidth, 20, m.w/2)
@@ -236,6 +241,7 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.Probe), "probe reachability of the hosts in this group"},
 			{m.keys.Key(keymap.Reload), "reload the store and re-read ~/.ssh/config"},
 			{m.keys.Key(keymap.Credentials), "credentials: keys, stored secrets and the ssh-agent"},
+			{m.keys.Key(keymap.Pane), "open the session in an embedded pane instead of handing over"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 			{m.keys.Key(keymap.Snippets), "snippets: saved commands, run here or across a group"},
 		}},
@@ -308,6 +314,8 @@ func (m Model) statusBar() string {
 			sep() + hint("n/e/d", "new/edit/delete") + sep() + hint("esc", "back")
 	case modeResults:
 		hints = hint("j/k", "host") + sep() + hint("ctrl+d/u", "scroll") + sep() + hint("esc", "back")
+	case modePane:
+		hints = hint(detachKey, "detach") + sep() + theme.Dim.Render("every other key goes to the remote")
 	default:
 		if m.focus == panelForwards {
 			hints = hint("↵", "start/stop") + sep() + hint("n/e/d", "new/edit/delete") +

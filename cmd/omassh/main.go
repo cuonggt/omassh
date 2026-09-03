@@ -118,10 +118,10 @@ func run() error {
 
 	opts := ui.Options{Keys: km, Fanout: cfg.Fanout, ProbeTimeout: probeTimeout}
 	final, err := tea.NewProgram(ui.New(st, vault, sup, opts)).Run()
-	// An open SFTP session owns an ssh child of its own; close it explicitly
-	// rather than relying on process exit to reap it.
+	// An SFTP session or an embedded pane owns an ssh child of its own; close
+	// them explicitly rather than relying on process exit to reap them.
 	if m, ok := final.(ui.Model); ok {
-		m.CloseSFTP()
+		m.Close()
 	}
 	return err
 }

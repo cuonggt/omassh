@@ -20,6 +20,7 @@ import (
 	"github.com/cuonggt/omassh/internal/sftpx"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
+	"github.com/cuonggt/omassh/internal/term"
 )
 
 type panel int
@@ -43,6 +44,7 @@ const (
 	modeSFTP
 	modeSnippets
 	modeResults
+	modePane
 )
 
 const (
@@ -111,6 +113,7 @@ type Model struct {
 	runLabel   string
 	runCancel  context.CancelFunc
 
+	pane      *term.Pane
 	sftpSess  *sftpx.Session
 	panes     [2]filePane
 	paneFocus int
@@ -182,6 +185,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case probeEvent:
 		return m.handleProbeEvent(msg)
 
+	case paneTickMsg:
+		return m.handlePaneTick()
+
 	case sftpConnectedMsg:
 		return m.sftpConnected(msg)
 
@@ -231,6 +237,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSnippetsKey(msg)
 	case modeResults:
 		return m.handleResultsKey(msg)
+	case modePane:
+		return m.handlePaneKey(msg)
 	}
 	return m.handleBrowseKey(msg)
 }
@@ -301,6 +309,8 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openIdentities()
 	case keymap.SFTP:
 		return m.openSFTP()
+	case keymap.Pane:
+		return m.openPane()
 	case keymap.Snippets:
 		return m.openSnippets()
 	case keymap.Reload:

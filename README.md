@@ -23,6 +23,7 @@ reachability probes.
 | `K` | credentials: keys, stored secrets, ssh-agent |
 | `3`, `↵` | forwards panel; start or stop a tunnel |
 | `p` | probe reachability of the hosts in this group |
+| `t` | open the session in an embedded pane |
 | `s` | sftp: browse and transfer files |
 | `S` | snippets: run a saved command here, or `f` across a group |
 | `r` | reload store and re-read `~/.ssh/config` |
@@ -55,6 +56,13 @@ hosts; a command matching a destructive pattern (`rm -rf`, `mkfs`, `dd of=`,
 `DROP DATABASE`, …) escalates to a typed confirmation where you must enter the
 number of hosts — the blast radius is the thing you have to type. It is a
 speed bump for obvious mistakes, not a security control.
+
+Sessions can also run **embedded in a pane** (`t`) rather than taking over the
+terminal. A pty runs `ssh`, its output feeds a VT emulator, and keys are
+encoded back — so the remote gets a real terminal that happens to be the size
+of the pane, `SIGWINCH` and all. `ctrl+\` detaches; every other key belongs to
+the remote. The full-screen handoff (`enter`) remains the default, because it
+is correct by construction rather than by emulation.
 
 SFTP needs no SSH client of its own. Omassh runs `ssh -s <host> sftp` and
 speaks the SFTP protocol over that child's stdio, so OpenSSH performs the

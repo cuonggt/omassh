@@ -123,11 +123,15 @@ func localStart(l sftpx.Local) string {
 	return l.Home()
 }
 
-// CloseSFTP releases any live SFTP session. It is exported so main can tear
-// one down after the program loop ends.
-func (m Model) CloseSFTP() {
+// Close releases the child processes the interface owns — an SFTP session and
+// an embedded pane both hold an ssh of their own. Exported so main can tear
+// them down after the program loop ends.
+func (m Model) Close() {
 	if m.sftpSess != nil {
 		m.sftpSess.Close()
+	}
+	if m.pane != nil {
+		m.pane.Close()
 	}
 }
 
