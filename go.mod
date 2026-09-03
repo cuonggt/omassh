@@ -2,6 +2,11 @@ module github.com/cuonggt/omassh
 
 go 1.26.1
 
+// The v0.2.0 release was deleted; its code is identical to v0.2.1 apart
+// from the demo recording. Retracted so the module proxy, which caches
+// versions permanently, stops offering a version that has no release.
+retract v0.2.0
+
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/bubbletea/v2 v2.0.9
