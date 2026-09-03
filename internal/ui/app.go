@@ -127,6 +127,12 @@ type Model struct {
 
 	status string
 	failed bool
+
+	// ready gates input until the first frame has been sized. Anything the
+	// terminal delivers before then — a buffered newline from the shell that
+	// launched us, a bracketed-paste remnant, a replayed key — would otherwise
+	// be acted on, and enter now opens an SSH connection.
+	ready bool
 }
 
 func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Options) Model {
@@ -181,6 +187,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		m.ready = true
 		// The search box lives in the sidebar, so size it to that, not the screen.
 		m.filter.SetWidth(max(clamp(sidebarWidth, 20, m.w/2)-8, 8))
 
@@ -226,6 +233,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.reload()
 
 	case tea.KeyPressMsg:
+		if !m.ready {
+			// Nothing is drawn yet; there is no selection to act on and no way
+			// for the user to have meant this.
+			return m, nil
+		}
 		return m.handleKey(msg)
 	}
 	return m, nil
