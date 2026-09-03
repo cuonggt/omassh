@@ -2,14 +2,17 @@ module github.com/cuonggt/omassh
 
 go 1.26.1
 
-// Deleted release, superseded by v0.2.1 — upgrade, nothing else is affected.
-//
-// Only the first line above reaches the user: `go get` prints one line of a
-// retraction comment and truncates the rest, so it has to stand alone.
-// Retracted because the module proxy caches versions permanently, leaving a
-// deleted release installable unless the toolchain is told otherwise. The code
-// was identical to v0.2.1 apart from the demo recording.
-retract v0.2.0
+// Deleted releases. Only the first comment line of each entry reaches the
+// user — `go get` prints one line and truncates the rest — so each has to
+// stand alone. Retracted because the module proxy caches versions
+// permanently, leaving a deleted release installable unless the toolchain is
+// told otherwise. Both were functionally identical to their successors.
+retract (
+	// Deleted release, superseded by v0.2.3 — upgrade, nothing else is affected.
+	v0.2.2
+	// Deleted release, superseded by v0.2.1 — upgrade, nothing else is affected.
+	v0.2.0
+)
 
 require (
 	charm.land/bubbles/v2 v2.2.1
