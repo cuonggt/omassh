@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -36,8 +37,15 @@ type Pane struct {
 	pty xpty.Pty
 	cmd *exec.Cmd
 
-	mu       sync.Mutex
-	w, h     int
+	mu     sync.Mutex
+	w, h   int
+	scroll int // lines scrolled up from the live view
+
+	// emMu serialises emulator mutation against scrollback reads.
+	// SafeEmulator locks each of its own methods, but Scrollback() returns a
+	// raw pointer after releasing the lock, so walking those lines while the
+	// pty goroutine is writing is a data race. Every write goes through this.
+	emMu     sync.RWMutex
 	exited   bool
 	exitErr  error
 	exitCode int
@@ -80,9 +88,21 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 	}
 	p.em.SetScrollbackSize(scrollback)
 
-	// Remote output into the emulator.
+	// Remote output into the emulator, under the pane's lock so a concurrent
+	// scrollback read cannot observe a half-applied update.
 	go func() {
-		io.Copy(p.em, p.pty)
+		buf := make([]byte, 32*1024)
+		for {
+			n, err := p.pty.Read(buf)
+			if n > 0 {
+				p.emMu.Lock()
+				p.em.Write(buf[:n])
+				p.emMu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
 	}()
 	// Whatever the emulator wants to say back — encoded keys, replies to
 	// device queries — goes to the pty. Its Read blocks, so it needs a
@@ -116,6 +136,7 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 // characters; only control keys need encoding, which is what Shift being the
 // sole modifier distinguishes.
 func (p *Pane) SendKey(k tea.KeyPressMsg) {
+	p.ScrollToBottom()
 	if k.Text != "" && k.Mod&^tea.ModShift == 0 {
 		p.em.SendText(k.Text)
 		return
@@ -151,14 +172,86 @@ func (p *Pane) Resize(w, h int) {
 	if same {
 		return
 	}
+	p.emMu.Lock()
 	p.em.Resize(w, h)
+	p.emMu.Unlock()
 	// Without this the remote keeps drawing to the old geometry, and anything
 	// full-screen renders into the wrong shape.
 	p.pty.Resize(w, h)
 }
 
-// Render returns the pane's screen as a styled string.
-func (p *Pane) Render() string { return p.em.Render() }
+// Render returns the pane's screen as a styled string. When scrolled back it
+// composes the visible window from scrollback lines followed by the top of the
+// live screen, so the join is seamless.
+func (p *Pane) Render() string {
+	p.emMu.RLock()
+	defer p.emMu.RUnlock()
+
+	p.mu.Lock()
+	off, height := p.scroll, p.h
+	p.mu.Unlock()
+
+	if off <= 0 {
+		return p.em.Render()
+	}
+
+	sb := p.em.Scrollback()
+	n := sb.Len()
+	if off > n {
+		off = n
+	}
+	live := strings.Split(p.em.Render(), "\n")
+
+	out := make([]string, 0, height)
+	start := n - off
+	for i := range height {
+		switch idx := start + i; {
+		case idx < 0 || idx >= n+len(live):
+			out = append(out, "")
+		case idx < n:
+			out = append(out, sb.Line(idx).Render())
+		default:
+			out = append(out, live[idx-n])
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// ScrollUp moves the view back through the scrollback.
+func (p *Pane) ScrollUp(lines int) {
+	p.emMu.RLock()
+	max := p.em.ScrollbackLen()
+	p.emMu.RUnlock()
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.scroll = min(p.scroll+lines, max)
+}
+
+// ScrollDown moves the view back toward the live screen.
+func (p *Pane) ScrollDown(lines int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.scroll = max(p.scroll-lines, 0)
+}
+
+// ScrollToBottom returns to the live view. Sending input calls this, because a
+// terminal that stayed scrolled while you typed would hide your own output.
+func (p *Pane) ScrollToBottom() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.scroll = 0
+}
+
+// ScrollOffset is how many lines back the view is, and how many exist.
+func (p *Pane) ScrollOffset() (offset, available int) {
+	p.emMu.RLock()
+	available = p.em.ScrollbackLen()
+	p.emMu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.scroll, available
+}
 
 // CursorPosition is where the remote put the cursor, in pane coordinates.
 func (p *Pane) CursorPosition() (x, y int) {

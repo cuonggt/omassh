@@ -62,6 +62,11 @@ speed bump for obvious mistakes, not a security control.
 it. While that pane has focus every key goes to the remote, so `ctrl+\ w`
 returns to the list — the session keeps running — and `ctrl+\ d` disconnects.
 
+Panes keep 2000 lines of scrollback: `ctrl+\ k` and `ctrl+\ j` page back and
+forward through it, `ctrl+\ G` returns to the live view, and typing anything
+snaps back on its own — a terminal that stayed scrolled while you typed would
+hide your own output.
+
 `o` hands the whole terminal to `ssh` instead. That path is emulation-free and
 remains the highest-fidelity way to work on a single host.
 

@@ -194,6 +194,23 @@ func (m Model) handlePrefixCommand(key string, msg tea.KeyPressMsg) (tea.Model, 
 		}
 	case "x":
 		return m.closeFocusedPane()
+	case "k", "up", "pgup":
+		if p := m.focusedPane(); p != nil {
+			_, h := p.Size()
+			p.ScrollUp(max(h-1, 1))
+			m.prefixArmed = true
+		}
+	case "j", "down", "pgdown":
+		if p := m.focusedPane(); p != nil {
+			_, h := p.Size()
+			p.ScrollDown(max(h-1, 1))
+			m.prefixArmed = true
+		}
+	case "G", "end":
+		if p := m.focusedPane(); p != nil {
+			p.ScrollToBottom()
+			m.setStatus("live view")
+		}
 	}
 	return m, nil
 }
@@ -299,12 +316,12 @@ func (m Model) termPaneTitle(i int, p *term.Pane) string {
 	}
 	if i == m.termFocus {
 		if m.broadcast {
-			return name + "  " + theme.Fg(theme.Red).Render("BROADCAST")
+			return name + "  " + theme.Fg(theme.Red).Render("BROADCAST") + scrollIndicator(p)
 		}
 		if m.prefixArmed {
-			return name + "  " + theme.Fg(theme.Yellow).Render("prefix…")
+			return name + "  " + theme.Fg(theme.Yellow).Render("prefix…") + scrollIndicator(p)
 		}
-		return name
+		return name + scrollIndicator(p)
 	}
 	if m.broadcast {
 		return name + "  " + theme.Fg(theme.Red).Render("broadcast")
@@ -398,10 +415,20 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case prefixKey:
 			m.attached.SendKey(msg) // pressed twice: the remote wanted it
 		case "w", "esc":
+			m.attached.ScrollToBottom()
 			m.focus = panelHosts
 			m.setStatus("host list — " + m.attached.Host.Name + " still connected")
 		case "d":
 			return m.detachSession("disconnected from " + m.attached.Host.Name)
+		case "k", "up", "pgup":
+			m.scrollAttached(-1)
+			m.prefixArmed = true // stay armed so repeated presses page through
+		case "j", "down", "pgdown":
+			m.scrollAttached(1)
+			m.prefixArmed = true
+		case "G", "end":
+			m.attached.ScrollToBottom()
+			m.setStatus("live view")
 		}
 		return m, nil
 	}
@@ -416,6 +443,31 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// scrollAttached pages the attached session's view; d is -1 for up, 1 down.
+func (m *Model) scrollAttached(d int) {
+	_, h := m.attached.Size()
+	page := max(h-1, 1)
+	if d < 0 {
+		m.attached.ScrollUp(page)
+	} else {
+		m.attached.ScrollDown(page)
+	}
+	if off, avail := m.attached.ScrollOffset(); off > 0 {
+		m.setStatus(fmt.Sprintf("scrolled back %d of %d lines — G for the live view", off, avail))
+	} else {
+		m.setStatus("live view")
+	}
+}
+
+// scrollIndicator labels a pane that is not showing live output.
+func scrollIndicator(p *term.Pane) string {
+	off, avail := p.ScrollOffset()
+	if off == 0 {
+		return ""
+	}
+	return "  " + theme.Fg(theme.Yellow).Render(fmt.Sprintf("scrolled %d/%d", off, avail))
+}
+
 // sessionTitle labels the main pane while a session is attached.
 func (m Model) sessionTitle() string {
 	name := m.attached.Host.Name
@@ -423,11 +475,11 @@ func (m Model) sessionTitle() string {
 	case !m.attached.Alive():
 		return name + "  " + m.attached.Status()
 	case m.prefixArmed && m.focus == panelSession:
-		return name + "  " + theme.Fg(theme.Yellow).Render("prefix…")
+		return name + "  " + theme.Fg(theme.Yellow).Render("prefix…") + scrollIndicator(m.attached)
 	case m.focus == panelSession:
-		return name + "  " + theme.Dim.Render(prefixKey+" w for the host list")
+		return name + "  " + theme.Dim.Render(prefixKey+" w for the host list") + scrollIndicator(m.attached)
 	default:
-		return name + "  " + theme.Fg(theme.Green).Render("connected")
+		return name + "  " + theme.Fg(theme.Green).Render("connected") + scrollIndicator(m.attached)
 	}
 }
 

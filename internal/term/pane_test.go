@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -211,9 +213,103 @@ func TestOpenRejectsTinyPanes(t *testing.T) {
 	}
 }
 
+// lineNumbers pulls the N out of every "line-N" on screen.
+func lineNumbers(screen string) []int {
+	var out []int
+	for _, m := range regexp.MustCompile(`line-(\d+)`).FindAllStringSubmatch(screen, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 func type_(p *term.Pane, s string) {
 	for _, r := range s {
 		p.SendKey(tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
 	fmt.Fprint(io.Discard, "")
+}
+
+// Scrollback is the point of keeping 2000 lines: without a way to reach them
+// a long command's output is simply gone.
+func TestScrollback(t *testing.T) {
+	sshx.SetGlobalOptions([]string{
+		"StrictHostKeyChecking=no", "UserKnownHostsFile=/dev/null", "IdentitiesOnly=yes",
+	})
+	t.Cleanup(func() { sshx.SetGlobalOptions(nil) })
+
+	h := testHost(t)
+	p, err := term.Open(h, 60, 10)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { p.Close() })
+
+	// Produce far more output than the 10-line viewport.
+	type_(p, "for i in $(seq 1 60); do echo line-$i; done")
+	p.SendKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	waitFor(t, p, "line-60", 15*time.Second)
+
+	// The earliest lines have scrolled off the live view.
+	if strings.Contains(visible(p.Render()), "line-1\n") {
+		t.Fatal("line-1 should have scrolled off a 10-line viewport")
+	}
+	if off, avail := p.ScrollOffset(); off != 0 || avail == 0 {
+		t.Fatalf("offset/available = %d/%d, want 0 and a non-empty scrollback", off, avail)
+	}
+
+	t.Run("scrolling up reveals earlier output", func(t *testing.T) {
+		p.ScrollUp(40)
+		off, _ := p.ScrollOffset()
+		if off == 0 {
+			t.Fatal("ScrollUp did not move the view")
+		}
+		// Assert the intent rather than a specific line: whichever window the
+		// scroll lands on must be strictly earlier than the live one.
+		screen := visible(p.Render())
+		nums := lineNumbers(screen)
+		if len(nums) == 0 {
+			t.Fatalf("scrolled view shows no output at all:\n%s", screen)
+		}
+		if highest := slices.Max(nums); highest >= 55 {
+			t.Errorf("scrolled view still shows recent output (highest line-%d):\n%s", highest, screen)
+		}
+	})
+
+	t.Run("the view stays the right height", func(t *testing.T) {
+		if got := len(strings.Split(p.Render(), "\n")); got != 10 {
+			t.Errorf("rendered %d lines, want 10", got)
+		}
+	})
+
+	t.Run("scrolling down returns to the live view", func(t *testing.T) {
+		p.ScrollDown(1000)
+		if off, _ := p.ScrollOffset(); off != 0 {
+			t.Errorf("offset = %d, want 0", off)
+		}
+		if !strings.Contains(visible(p.Render()), "line-60") {
+			t.Error("live view does not show the newest output")
+		}
+	})
+
+	t.Run("scrolling up is clamped to what exists", func(t *testing.T) {
+		p.ScrollUp(1_000_000)
+		off, avail := p.ScrollOffset()
+		if off > avail {
+			t.Errorf("offset %d exceeds the %d available lines", off, avail)
+		}
+		if got := len(strings.Split(p.Render(), "\n")); got != 10 {
+			t.Errorf("rendered %d lines at the top, want 10", got)
+		}
+	})
+
+	// Typing must snap back, or your own output would be hidden.
+	t.Run("input returns to the live view", func(t *testing.T) {
+		p.ScrollUp(30)
+		p.SendKey(tea.KeyPressMsg{Code: 'x', Text: "x"})
+		if off, _ := p.ScrollOffset(); off != 0 {
+			t.Errorf("offset = %d after typing, want 0", off)
+		}
+	})
 }

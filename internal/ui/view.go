@@ -256,6 +256,8 @@ func (m Model) helpBody() string {
 		}},
 		{"Attached session (" + prefixKey + " prefix)", [][2]string{
 			{"prefix w", "back to the host list; the session keeps running"},
+			{"prefix k / j", "scroll back and forward a page through the output"},
+			{"prefix G", "return to the live view"},
 			{"prefix d", "disconnect"},
 			{"", "while the main pane has focus every other key goes to"},
 			{"", "the remote, so the prefix is the way back out"},
@@ -263,6 +265,7 @@ func (m Model) helpBody() string {
 		{"Full-screen panes (" + prefixKey + " prefix)", [][2]string{
 			{"prefix d", "detach and close every pane"},
 			{"prefix o", "focus the next pane"},
+			{"prefix k / j", "scroll the focused pane; prefix G returns to live"},
 			{"prefix b", "broadcast: send every key to all panes at once"},
 			{"prefix x", "close the focused pane"},
 			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
@@ -341,8 +344,9 @@ func (m Model) statusBar() string {
 	case modePane:
 		if m.prefixArmed {
 			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
-				hint("d", "detach") + sep() + hint("o", "next pane") +
-				sep() + hint("b", "broadcast") + sep() + hint("x", "close pane")
+				hint("k/j", "scroll") + sep() + hint("G", "live") + sep() +
+				hint("d", "detach") + sep() + hint("o", "pane") +
+				sep() + hint("b", "broadcast") + sep() + hint("x", "close")
 		} else {
 			hints = hint(prefixKey, "prefix") + sep() +
 				theme.Dim.Render("every other key goes to the remote")
@@ -351,8 +355,8 @@ func (m Model) statusBar() string {
 		switch {
 		case m.focus == panelSession && m.prefixArmed:
 			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
-				hint("w", "host list") + sep() + hint("d", "disconnect") +
-				sep() + hint(prefixKey, "send literally")
+				hint("k/j", "scroll") + sep() + hint("G", "live") + sep() +
+				hint("w", "host list") + sep() + hint("d", "disconnect")
 		case m.focus == panelSession:
 			hints = hint(prefixKey+" w", "host list") + sep() +
 				theme.Dim.Render("every other key goes to the remote")
