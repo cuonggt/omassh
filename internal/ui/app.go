@@ -631,10 +631,21 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 		m.setStatus("ssh_config hosts are read-only — edit ~/.ssh/config to remove")
 		return m, nil
 	}
+	detail := "session history is kept"
+	if m.d.hasSession(h) {
+		// Otherwise the session keeps running with nothing left in the UI that
+		// can reach it.
+		detail = "its running session is ended too; session history is kept"
+	}
 	m.confirm = &confirmation{
 		prompt: "Delete host " + h.Name + "?",
-		detail: "session history is kept",
+		detail: detail,
 		run: func() (string, error) {
+			if m.d.hasSession(h) {
+				if err := term.KillSession(term.SessionName(h)); err != nil {
+					return "", err
+				}
+			}
 			return "deleted " + h.Name, m.st.DeleteHost(h.ID)
 		},
 	}

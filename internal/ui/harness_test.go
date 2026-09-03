@@ -14,6 +14,7 @@ import (
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/secrets"
 	"github.com/cuonggt/omassh/internal/store"
+	"github.com/cuonggt/omassh/internal/term"
 )
 
 // The Bubble Tea model is an ordinary value with pure Update and View, so it
@@ -142,3 +143,7 @@ func (h *harness) addHost(name, addr string) store.Host {
 func writeFile(path, body string) error {
 	return os.WriteFile(path, []byte(body), 0o600)
 }
+
+// sessionNameFor exposes the tmux session name a host maps to, so a test can
+// pretend one is running without starting tmux.
+func sessionNameFor(h store.Host) string { return term.SessionName(h) }

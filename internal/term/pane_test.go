@@ -191,7 +191,7 @@ func TestPaneRunsAnInteractiveSession(t *testing.T) {
 		waitFor(t, p, "after-interrupt", 10*time.Second)
 	})
 
-	t.Run("closing ends the session", func(t *testing.T) {
+	t.Run("closing releases the pane", func(t *testing.T) {
 		if err := p.Close(); err != nil {
 			t.Logf("Close returned %v", err)
 		}
@@ -203,7 +203,9 @@ func TestPaneRunsAnInteractiveSession(t *testing.T) {
 		if p.Alive() {
 			t.Error("pane still reports alive after Close")
 		}
-		t.Logf("final status: %s", p.Status())
+		// Whether the session behind it survives is the persistence question,
+		// covered separately; here the pane itself must simply let go.
+		t.Logf("final status: %s (persistent=%v)", p.Status(), p.Persistent())
 	})
 }
 

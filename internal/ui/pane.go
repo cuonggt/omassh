@@ -183,7 +183,7 @@ func (m Model) handlePrefixCommand(key string, msg tea.KeyPressMsg) (tea.Model, 
 			p.SendKey(msg)
 		}
 	case "d", "esc":
-		return m.closeAllPanes("detached — sessions closed")
+		return m.closeAllPanes(m.detachAllMessage())
 	case "o", "tab":
 		m.termFocus = (m.termFocus + 1) % len(m.termPanes)
 	case "b":
@@ -245,6 +245,26 @@ func (m Model) closeFocusedPane() (tea.Model, tea.Cmd) {
 	m.termFocus = clamp(m.termFocus, 0, len(m.termPanes)-1)
 	m.setStatus("closed " + name)
 	return m, nil
+}
+
+// detachAllMessage reports what detaching actually did. Saying "closed" when
+// the sessions are still running would be worse than saying nothing.
+func (m Model) detachAllMessage() string {
+	persistent := 0
+	for _, p := range m.termPanes {
+		if p.Persistent() {
+			persistent++
+		}
+	}
+	switch {
+	case persistent == len(m.termPanes) && persistent > 0:
+		return fmt.Sprintf("detached — %d session%s still running", persistent, plural(persistent))
+	case persistent > 0:
+		return fmt.Sprintf("detached — %d of %d session%s still running",
+			persistent, len(m.termPanes), plural(len(m.termPanes)))
+	default:
+		return "detached — sessions closed"
+	}
 }
 
 func (m Model) closeAllPanes(reason string) (tea.Model, tea.Cmd) {
