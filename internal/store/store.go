@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -44,6 +45,12 @@ func Open(path string) (*Store, error) {
 	}
 	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: 3 * time.Second})
 	if err != nil {
+		// bbolt takes an exclusive lock, so a second instance fails with a
+		// bare "timeout" that says nothing about the cause. Name it: the
+		// usual reason is another Omassh already running.
+		if errors.Is(err, bolt.ErrTimeout) {
+			return nil, fmt.Errorf("%s is already in use by another omassh — close it, or pass -db to use a different database", path)
+		}
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {

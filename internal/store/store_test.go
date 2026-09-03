@@ -2,6 +2,7 @@ package store
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -204,4 +205,32 @@ func TestDeleteIdentityUnbindsReferences(t *testing.T) {
 	if len(ids) != 0 {
 		t.Errorf("Identities = %v, want empty", ids)
 	}
+}
+
+// A second instance must say why it cannot start. bbolt's own error is a bare
+// "timeout", which gives the user nothing to act on.
+func TestSecondInstanceExplainsTheLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "locked.db")
+	first, err := Open(path)
+	if err != nil {
+		t.Fatalf("first Open: %v", err)
+	}
+	defer first.Close()
+
+	_, err = Open(path)
+	if err == nil {
+		t.Fatal("second Open succeeded while the database was locked")
+	}
+	if !strings.Contains(err.Error(), "already in use") {
+		t.Errorf("error = %q, want it to name the cause", err)
+	}
+	t.Logf("reported: %v", err)
+
+	// And it must recover once the holder lets go.
+	first.Close()
+	second, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open after the lock was released: %v", err)
+	}
+	second.Close()
 }
