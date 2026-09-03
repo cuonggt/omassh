@@ -13,6 +13,8 @@ import (
 	"github.com/sahilm/fuzzy"
 
 	"github.com/cuonggt/omassh/internal/forward"
+	"github.com/cuonggt/omassh/internal/keymap"
+	"github.com/cuonggt/omassh/internal/probe"
 	"github.com/cuonggt/omassh/internal/runner"
 	"github.com/cuonggt/omassh/internal/secrets"
 	"github.com/cuonggt/omassh/internal/sftpx"
@@ -55,12 +57,21 @@ type confirmation struct {
 	run    func() (string, error)
 }
 
+// Options are the settings the interface takes from the config file.
+type Options struct {
+	Keys         keymap.Map
+	Fanout       int
+	ProbeTimeout time.Duration
+}
+
 // Model is the root Bubble Tea model.
 type Model struct {
 	w, h  int
 	focus panel
 	mode  mode
 
+	opts  Options
+	keys  keymap.Map
 	st    *store.Store
 	vault secrets.Vault
 	sup   *forward.Supervisor
@@ -82,6 +93,10 @@ type Model struct {
 	// returnTo is the view a modal came from, so closing one does not always
 	// dump the user back at the host list.
 	returnTo mode
+
+	probes  map[string]probe.State
+	probeCh chan probeEvent
+	probing bool
 
 	snippetIdx int
 	pending    pendingRun
@@ -106,7 +121,7 @@ type Model struct {
 	failed bool
 }
 
-func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor) Model {
+func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Options) Model {
 	ti := textinput.New()
 	ti.Prompt = ""
 	ti.Placeholder = "fuzzy search all hosts"
@@ -114,9 +129,17 @@ func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor) Model {
 	index := newHostIndex()
 	sup.SetBuilder(forwardBuilder(index))
 
-	m := Model{st: st, vault: vault, sup: sup, index: index,
+	if opts.Fanout < 1 {
+		opts.Fanout = runner.DefaultLimit
+	}
+	if opts.ProbeTimeout <= 0 {
+		opts.ProbeTimeout = 2 * time.Second
+	}
+
+	m := Model{opts: opts, keys: opts.Keys, st: st, vault: vault, sup: sup, index: index,
 		focus: panelHosts, filter: ti, agentKeys: map[string]bool{},
-		transfers: make(chan transferMsg, 32), resultsCh: make(chan runEvent, 64)}
+		transfers: make(chan transferMsg, 32), resultsCh: make(chan runEvent, 64),
+		probeCh: make(chan probeEvent, 64), probes: map[string]probe.State{}}
 	m.reload()
 	if m.status == "" {
 		m.status = fmt.Sprintf("%d host%s", len(m.d.hosts), plural(len(m.d.hosts)))
@@ -155,6 +178,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case runEvent:
 		return m.handleRunEvent(msg)
+
+	case probeEvent:
+		return m.handleProbeEvent(msg)
 
 	case sftpConnectedMsg:
 		return m.sftpConnected(msg)
@@ -209,67 +235,75 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleBrowseKey(msg)
 }
 
+// handleBrowseKey dispatches on the configured action rather than the raw key,
+// so bindings can be changed without the handlers knowing.
 func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
-	case "ctrl+c", "q":
+	key := msg.String()
+	// esc is not an action: it always backs out of whatever is in effect.
+	if key == "esc" {
+		if m.filtering() {
+			m.clearFilter()
+		}
+		return m, nil
+	}
+
+	switch m.keys.Lookup(key) {
+	case keymap.Quit:
 		return m, tea.Quit
-	case "?":
+	case keymap.Help:
 		m.mode = modeHelp
-	case "tab":
+	case keymap.NextPanel:
 		m.focus = (m.focus + 1) % numPanels
-	case "shift+tab":
+	case keymap.PrevPanel:
 		m.focus = (m.focus + numPanels - 1) % numPanels
-	case "1":
+	case keymap.PanelGroups:
 		m.focus = panelGroups
-	case "2":
+	case keymap.PanelHosts:
 		m.focus = panelHosts
-	case "3":
+	case keymap.PanelForwards:
 		m.focus = panelForwards
-	case "j", "down":
+	case keymap.Down:
 		m.move(1)
-	case "k", "up":
+	case keymap.Up:
 		m.move(-1)
 
-	case "/":
+	case keymap.Search:
 		m.mode = modeFilter
 		m.focus = panelHosts
 		return m, m.filter.Focus()
 
-	case "esc":
-		if m.filtering() {
-			m.clearFilter()
-		}
-
-	case "enter":
+	case keymap.Connect:
 		if m.focus == panelForwards {
 			return m.toggleForward()
 		}
 		return m.connect()
-
-	case "n":
+	case keymap.NewItem:
 		if m.focus == panelForwards {
 			return m.openNewForwardForm()
 		}
 		return m.openNewForm()
-	case "e":
+	case keymap.Edit:
 		if m.focus == panelForwards {
 			return m.openEditForwardForm()
 		}
 		return m.openEditForm()
-	case "d":
+	case keymap.Delete:
 		if m.focus == panelForwards {
 			return m.askDeleteForward()
 		}
 		return m.askDelete()
-	case "i":
+
+	case keymap.Import:
 		return m.importSelected()
-	case "K":
+	case keymap.Probe:
+		return m.startProbe()
+	case keymap.Credentials:
 		return m.openIdentities()
-	case "s":
+	case keymap.SFTP:
 		return m.openSFTP()
-	case "S":
+	case keymap.Snippets:
 		return m.openSnippets()
-	case "r":
+	case keymap.Reload:
 		m.reload()
 		m.setStatus(fmt.Sprintf("reloaded — %d host%s", len(m.d.hosts), plural(len(m.d.hosts))))
 	}

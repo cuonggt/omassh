@@ -161,10 +161,10 @@ func (m Model) startRun() (tea.Model, tea.Cmd) {
 	m.mode = modeResults
 
 	ch := m.resultsCh
-	hosts, command := pr.hosts, pr.snippet.Command
+	hosts, command, limit := pr.hosts, pr.snippet.Command, m.opts.Fanout
 	go func() {
 		defer cancel()
-		runner.RunAll(ctx, hosts, command, runner.DefaultLimit, func(r runner.Result) {
+		runner.RunAll(ctx, hosts, command, limit, func(r runner.Result) {
 			ch <- runEvent{result: r}
 		})
 		ch <- runEvent{done: true}

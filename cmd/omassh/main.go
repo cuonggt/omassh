@@ -9,15 +9,24 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/cuonggt/omassh/internal/config"
 	"github.com/cuonggt/omassh/internal/forward"
 	"github.com/cuonggt/omassh/internal/secrets"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui"
+	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
 // keyringService namespaces Omassh's entries in the OS credential store.
 const keyringService = "omassh"
+
+// Build information, set by the linker at release time.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
 
 // multiFlag collects a repeatable string flag.
 type multiFlag []string
@@ -42,17 +51,55 @@ func main() {
 }
 
 func run() error {
-	defaultPath, err := store.DefaultPath()
+	defaultDB, err := store.DefaultPath()
 	if err != nil {
 		return err
 	}
+	defaultCfg, err := config.DefaultPath()
+	if err != nil {
+		return err
+	}
+
 	var sshOpts multiFlag
 	flag.Var(&sshOpts, "o", "ssh option applied to every connection, as in ssh -o (repeatable)")
-	dbPath := flag.String("db", defaultPath, "path to the omassh database")
+	dbPath := flag.String("db", defaultDB, "path to the omassh database")
+	cfgPath := flag.String("config", defaultCfg, "path to the config file")
+	printCfg := flag.Bool("print-config", false, "write a documented example config to stdout and exit")
+	showVer := flag.Bool("version", false, "print version information and exit")
 	secretStore := flag.String("secrets", "keyring",
 		"where identity secrets live: keyring (OS credential store) or memory (this run only)")
 	flag.Parse()
-	sshx.SetGlobalOptions(sshOpts)
+
+	if *showVer {
+		fmt.Printf("omassh %s (%s, built %s)\n", version, commit, date)
+		return nil
+	}
+	if *printCfg {
+		fmt.Print(config.Example)
+		return nil
+	}
+
+	// A broken config is reported rather than ignored: settings that silently
+	// do nothing are worse than a startup error that says why.
+	cfg, err := config.Load(*cfgPath)
+	if err != nil {
+		return err
+	}
+	palette, err := cfg.Palette()
+	if err != nil {
+		return err
+	}
+	theme.Apply(palette)
+	km, err := cfg.Keymap()
+	if err != nil {
+		return err
+	}
+	probeTimeout, err := cfg.ProbeDuration()
+	if err != nil {
+		return err
+	}
+	// Command-line options come last so they win over the config file.
+	sshx.SetGlobalOptions(append(append([]string{}, cfg.SSHOptions...), sshOpts...))
 
 	vault, err := secrets.Open(*secretStore, keyringService)
 	if err != nil {
@@ -69,7 +116,8 @@ func run() error {
 	sup := forward.New(nil)
 	defer sup.StopAll()
 
-	final, err := tea.NewProgram(ui.New(st, vault, sup)).Run()
+	opts := ui.Options{Keys: km, Fanout: cfg.Fanout, ProbeTimeout: probeTimeout}
+	final, err := tea.NewProgram(ui.New(st, vault, sup, opts)).Run()
 	// An open SFTP session owns an ssh child of its own; close it explicitly
 	// rather than relying on process exit to reap it.
 	if m, ok := final.(ui.Model); ok {

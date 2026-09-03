@@ -1,0 +1,58 @@
+# GoReleaser configuration. Run `goreleaser check` before relying on it.
+version: 2
+
+project_name: omassh
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: omassh
+    main: ./cmd/omassh
+    binary: omassh
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w
+      - -X main.version={{ .Version }}
+      - -X main.commit={{ .ShortCommit }}
+      - -X main.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: omassh
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+# Requires a github.com/cuonggt/homebrew-tap repository to push to.
+brews:
+  - name: omassh
+    repository:
+      owner: cuonggt
+      name: homebrew-tap
+    homepage: https://github.com/cuonggt/omassh
+    description: A keyboard-driven SSH client for the terminal
+    # Omassh drives the system ssh rather than embedding a client, so OpenSSH
+    # is a genuine runtime requirement rather than a build-time one.
+    dependencies:
+      - name: openssh
+        type: optional
+    test: |
+      system "#{bin}/omassh", "-version"

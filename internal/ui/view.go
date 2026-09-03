@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui/theme"
@@ -115,6 +116,7 @@ func (m Model) hostsBody(w int) string {
 	}
 
 	for i, h := range hosts {
+		mark, markColour := m.hostMarker(h.StatKey())
 		label := h.Name
 		if m.filtering() {
 			if g := m.d.groupName(h.GroupID); g != "" {
@@ -122,12 +124,15 @@ func (m Model) hostsBody(w int) string {
 			}
 		}
 		selected := i == m.hostIdx && (m.focus == panelHosts || m.mode == modeFilter)
-		line := row("○ "+label, selected, w)
-		if h.Source == store.SourceSSHConfig && !selected {
-			line = theme.Normal.Render("○ "+h.Name) + theme.Fg(theme.Magenta).Render("  cfg")
-			line = ansi.Truncate(line, w, "…")
+		if selected {
+			lines = append(lines, row(mark+" "+label, true, w))
+			continue
 		}
-		lines = append(lines, line)
+		line := theme.Fg(markColour).Render(mark) + theme.Normal.Render(" "+label)
+		if h.Source == store.SourceSSHConfig {
+			line += theme.Fg(theme.Magenta).Render("  cfg")
+		}
+		lines = append(lines, ansi.Truncate(line, w, "…"))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -217,30 +222,31 @@ func (m Model) helpBody() string {
 		rows  [][2]string
 	}{
 		{"Navigate", [][2]string{
-			{"j / ↓, k / ↑", "move within the focused panel"},
-			{"tab, 1-3", "switch panel: groups, hosts, forwards"},
-			{"/", "fuzzy search every host by name, address or tag"},
+			{m.keys.Key(keymap.Down) + " / ↓, " + m.keys.Key(keymap.Up) + " / ↑", "move within the focused panel"},
+			{m.keys.Key(keymap.NextPanel) + ", 1-3", "switch panel: groups, hosts, forwards"},
+			{m.keys.Key(keymap.Search), "fuzzy search every host by name, address or tag"},
 			{"esc", "clear the search"},
 		}},
 		{"Act", [][2]string{
-			{"enter", "connect — Omassh yields the terminal to OpenSSH"},
-			{"n", "new host, or new group when Groups is focused"},
-			{"e", "edit the selection"},
-			{"d", "delete the selection"},
-			{"i", "import an ssh_config host so it can be edited"},
-			{"r", "reload the store and re-read ~/.ssh/config"},
-			{"K", "credentials: keys, stored secrets and the ssh-agent"},
-			{"s", "sftp: browse and transfer files on the selected host"},
-			{"S", "snippets: saved commands, run here or across a group"},
+			{m.keys.Key(keymap.Connect), "connect — Omassh yields the terminal to OpenSSH"},
+			{m.keys.Key(keymap.NewItem), "new host, or new group when Groups is focused"},
+			{m.keys.Key(keymap.Edit), "edit the selection"},
+			{m.keys.Key(keymap.Delete), "delete the selection"},
+			{m.keys.Key(keymap.Import), "import an ssh_config host so it can be edited"},
+			{m.keys.Key(keymap.Probe), "probe reachability of the hosts in this group"},
+			{m.keys.Key(keymap.Reload), "reload the store and re-read ~/.ssh/config"},
+			{m.keys.Key(keymap.Credentials), "credentials: keys, stored secrets and the ssh-agent"},
+			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
+			{m.keys.Key(keymap.Snippets), "snippets: saved commands, run here or across a group"},
 		}},
-		{"Snippets (S)", [][2]string{
+		{"Snippets (" + m.keys.Key(keymap.Snippets) + ")", [][2]string{
 			{"↵", "run on the selected host"},
 			{"f", "fan out across every host in the selected group"},
 			{"", "a fan-out always confirms; a command matching a"},
 			{"", "destructive pattern makes you type the host count"},
 			{"ctrl+d/u", "scroll one host's output in the results view"},
 		}},
-		{"SFTP (s)", [][2]string{
+		{"SFTP (" + m.keys.Key(keymap.SFTP) + ")", [][2]string{
 			{"tab", "switch between the local and remote pane"},
 			{"↵ / -", "enter a directory / go up"},
 			{"c", "copy the highlighted file to the other pane"},
@@ -254,7 +260,7 @@ func (m Model) helpBody() string {
 			{"", "a dropped tunnel is retried with backoff; tunnels are"},
 			{"", "children of omassh and close when it exits"},
 		}},
-		{"Credentials (K)", [][2]string{
+		{"Credentials (" + m.keys.Key(keymap.Credentials) + ")", [][2]string{
 			{"n / g", "add a credential, or generate a key and a credential"},
 			{"u", "load its key into the ssh-agent, unlocking with the"},
 			{"", "stored passphrase — no prompt, nothing typed"},
@@ -307,8 +313,12 @@ func (m Model) statusBar() string {
 			hints = hint("↵", "start/stop") + sep() + hint("n/e/d", "new/edit/delete") +
 				sep() + hint("1-3", "panel") + sep() + hint("?", "help") + sep() + hint("q", "quit")
 		} else {
-			hints = hint("↵", "connect") + sep() + hint("/", "search") + sep() +
-				hint("n/e/d", "new/edit/delete") + sep() + hint("?", "help") + sep() + hint("q", "quit")
+			hints = hint(m.keys.Key(keymap.Connect), "connect") + sep() +
+				hint(m.keys.Key(keymap.Search), "search") + sep() +
+				hint(m.keys.Key(keymap.Probe), "probe") + sep() +
+				hint("n/e/d", "new/edit/delete") + sep() +
+				hint(m.keys.Key(keymap.Help), "help") + sep() +
+				hint(m.keys.Key(keymap.Quit), "quit")
 		}
 	}
 

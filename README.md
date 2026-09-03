@@ -5,9 +5,9 @@ interaction model, running on top of real OpenSSH.
 
 ## Status
 
-**Phase 5 — snippets.** Feature-complete against the original plan: hosts and
-groups, credentials, port forwarding, SFTP, and saved commands run on one host
-or fanned out across a group. Polish and release remain.
+Feature-complete against the original plan: hosts and groups, credentials,
+port forwarding, SFTP, snippets, plus theming, rebindable keys and
+reachability probes.
 
 ## Keys
 
@@ -20,6 +20,7 @@ or fanned out across a group. Polish and release remain.
 | `i` | import an `ssh_config` host so it can be edited |
 | `K` | credentials: keys, stored secrets, ssh-agent |
 | `3`, `↵` | forwards panel; start or stop a tunnel |
+| `p` | probe reachability of the hosts in this group |
 | `s` | sftp: browse and transfer files |
 | `S` | snippets: run a saved command here, or `f` across a group |
 | `r` | reload store and re-read `~/.ssh/config` |
@@ -91,3 +92,29 @@ go run ./cmd/omassh
 ```sh
 go run ./cmd/omassh -o ConnectTimeout=5
 ```
+
+## Configuration
+
+Everything is optional — Omassh runs with no configuration at all. To see what
+can be set:
+
+```sh
+omassh -print-config > ~/.config/omassh/config.yaml
+```
+
+Themes (`tokyonight`, `gruvbox`, `nord`, `mono`, or your own palette), key
+bindings, ssh options and the fan-out limit all live there. A malformed config
+is reported at startup rather than ignored, because settings that silently do
+nothing are worse than an error that says why. Arrow keys and `ctrl+c` are
+reserved and always work, so no config can trap you in the program.
+
+Colours degrade automatically: on a terminal without truecolor the palettes
+render in 256 colours, and `mono` exists for terminals with less than that.
+
+## Reachability
+
+`p` probes the hosts in the current group with a plain TCP connection —
+`●` up, `✖` down. Hosts behind a jump host or a `ProxyCommand` show `◌` and are
+skipped rather than guessed at: their address means something only from the far
+side of the proxy, so dialling it from here would report on a different machine
+entirely.
