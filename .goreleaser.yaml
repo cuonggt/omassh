@@ -61,3 +61,13 @@ homebrew_casks:
       name: homebrew-tap
     homepage: https://github.com/cuonggt/omassh
     description: A keyboard-driven SSH client for the terminal
+    # The binary is unsigned and unnotarised, and Homebrew's downloader marks
+    # what it fetches with com.apple.quarantine. Without stripping it, macOS
+    # refuses to run the binary with "Apple could not verify omassh is free of
+    # malware" and the install looks fine right up until first use.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/omassh"]
+          end
