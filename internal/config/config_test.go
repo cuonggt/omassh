@@ -52,7 +52,7 @@ themes:
   mine:
     accent: "#ff8800"
 keys:
-  connect: o
+  connect: c
 ssh_options:
   - ConnectTimeout=10
 fanout: 3
@@ -73,8 +73,8 @@ probe_timeout: 750ms
 	if err != nil {
 		t.Fatalf("Keymap: %v", err)
 	}
-	if km.Key("connect") != "o" {
-		t.Errorf("connect bound to %q, want o", km.Key("connect"))
+	if km.Key("connect") != "c" {
+		t.Errorf("connect bound to %q, want c", km.Key("connect"))
 	}
 	if len(c.SSHOptions) != 1 || c.SSHOptions[0] != "ConnectTimeout=10" {
 		t.Errorf("SSHOptions = %v", c.SSHOptions)

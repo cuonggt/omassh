@@ -20,12 +20,12 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestOverrideRebinds(t *testing.T) {
-	m, err := New(map[string]string{"connect": "o", "search": "f"})
+	m, err := New(map[string]string{"connect": "c", "search": "f"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if got := m.Lookup("o"); got != Connect {
-		t.Errorf("o = %q, want connect", got)
+	if got := m.Lookup("c"); got != Connect {
+		t.Errorf("c = %q, want connect", got)
 	}
 	if got := m.Lookup("f"); got != Search {
 		t.Errorf("f = %q, want search", got)
@@ -35,8 +35,8 @@ func TestOverrideRebinds(t *testing.T) {
 	if got := m.Lookup("enter"); got != None {
 		t.Errorf("enter still bound to %q after rebinding connect", got)
 	}
-	if got := m.Key(Connect); got != "o" {
-		t.Errorf("Key(connect) = %q, want o", got)
+	if got := m.Key(Connect); got != "c" {
+		t.Errorf("Key(connect) = %q, want c", got)
 	}
 }
 
