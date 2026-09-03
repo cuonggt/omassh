@@ -33,6 +33,13 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# Named explicitly so the configuration validates and releases predictably
+# without depending on whatever git remote happens to be configured.
+release:
+  github:
+    owner: cuonggt
+    name: omassh
+
 changelog:
   sort: asc
   filters:
@@ -42,17 +49,13 @@ changelog:
       - "^chore:"
 
 # Requires a github.com/cuonggt/homebrew-tap repository to push to.
-brews:
+# Casks rather than formulas: Homebrew now expects pre-built binaries to ship
+# as casks, and goreleaser deprecated `brews` accordingly. Casks are macOS
+# only, so Linux users take the tarball or `go install`.
+homebrew_casks:
   - name: omassh
     repository:
       owner: cuonggt
       name: homebrew-tap
     homepage: https://github.com/cuonggt/omassh
     description: A keyboard-driven SSH client for the terminal
-    # Omassh drives the system ssh rather than embedding a client, so OpenSSH
-    # is a genuine runtime requirement rather than a build-time one.
-    dependencies:
-      - name: openssh
-        type: optional
-    test: |
-      system "#{bin}/omassh", "-version"
