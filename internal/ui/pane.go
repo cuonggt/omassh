@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
 	"github.com/cuonggt/omassh/internal/ui/theme"
@@ -388,6 +389,36 @@ func (m Model) sessionArea() (int, int) {
 	return max(m.w-side-4, 20), max(m.h-statusHeight-2, 5)
 }
 
+// detachMessage says what actually happened, which differs by whether the
+// session outlives us.
+func (m Model) detachMessage() string {
+	name := m.attached.Host.Name
+	if m.attached.Persistent() {
+		return "detached from " + name + " — session still running, " +
+			m.keys.Key(keymap.Connect) + " to reattach"
+	}
+	return "disconnected from " + name
+}
+
+// killSession ends a persistent session rather than leaving it running.
+func (m Model) killSession() (tea.Model, tea.Cmd) {
+	if m.attached == nil {
+		return m, nil
+	}
+	name := m.attached.Host.Name
+	if err := m.attached.Kill(); err != nil {
+		m.setErr(err)
+	}
+	m.attached = nil
+	if m.focus == panelSession {
+		m.focus = panelHosts
+	}
+	m.prefixArmed = false
+	m.reload()
+	m.setStatus("ended the session on " + name)
+	return m, nil
+}
+
 func (m Model) detachSession(reason string) (tea.Model, tea.Cmd) {
 	if m.attached != nil {
 		m.recordPaneSession(m.attached)
@@ -419,7 +450,9 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.focus = panelHosts
 			m.setStatus("host list — " + m.attached.Host.Name + " still connected")
 		case "d":
-			return m.detachSession("disconnected from " + m.attached.Host.Name)
+			return m.detachSession(m.detachMessage())
+		case "X":
+			return m.killSession()
 		case "k", "up", "pgup":
 			m.scrollAttached(-1)
 			m.prefixArmed = true // stay armed so repeated presses page through

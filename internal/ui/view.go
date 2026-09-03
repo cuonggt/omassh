@@ -134,16 +134,39 @@ func (m Model) hostsBody(w int) string {
 		label := h.Name
 		if m.filtering() {
 			if g := m.d.groupName(h.GroupID); g != "" {
-				label += theme.Dim.Render("  " + g)
+				label += "  " + g
 			}
 		}
+
+		// Badges must appear whether or not the row is selected. The selection
+		// style paints the whole line, so a coloured badge would be half
+		// overridden; the selected row gets the same marks unstyled.
+		session, cfg := m.d.hasSession(h), h.Source == store.SourceSSHConfig
 		selected := i == m.hostIdx && (m.focus == panelHosts || m.mode == modeFilter)
+
 		if selected {
-			lines = append(lines, row(mark+" "+label, true, w))
+			text := mark + " " + label
+			if session {
+				text += " ●"
+			}
+			if cfg {
+				text += "  cfg"
+			}
+			lines = append(lines, row(text, true, w))
 			continue
 		}
-		line := theme.Fg(markColour).Render(mark) + theme.Normal.Render(" "+label)
-		if h.Source == store.SourceSSHConfig {
+
+		line := theme.Fg(markColour).Render(mark) + theme.Normal.Render(" "+h.Name)
+		if m.filtering() {
+			if g := m.d.groupName(h.GroupID); g != "" {
+				line += theme.Dim.Render("  " + g)
+			}
+		}
+		if session {
+			// A session is waiting to be reattached, not merely reachable.
+			line += theme.Fg(theme.Green).Render(" ●")
+		}
+		if cfg {
 			line += theme.Fg(theme.Magenta).Render("  cfg")
 		}
 		lines = append(lines, ansi.Truncate(line, w, "…"))
@@ -258,7 +281,9 @@ func (m Model) helpBody() string {
 			{"prefix w", "back to the host list; the session keeps running"},
 			{"prefix k / j", "scroll back and forward a page through the output"},
 			{"prefix G", "return to the live view"},
-			{"prefix d", "disconnect"},
+			{"prefix d", "detach — the session keeps running, reconnect to reattach"},
+			{"prefix X", "end the session for good"},
+			{"", "a green ● beside a host means a session is waiting"},
 			{"", "while the main pane has focus every other key goes to"},
 			{"", "the remote, so the prefix is the way back out"},
 		}},
@@ -356,7 +381,8 @@ func (m Model) statusBar() string {
 		case m.focus == panelSession && m.prefixArmed:
 			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
 				hint("k/j", "scroll") + sep() + hint("G", "live") + sep() +
-				hint("w", "host list") + sep() + hint("d", "disconnect")
+				hint("w", "host list") + sep() + hint("d", "detach") +
+				sep() + hint("X", "end session")
 		case m.focus == panelSession:
 			hints = hint(prefixKey+" w", "host list") + sep() +
 				theme.Dim.Render("every other key goes to the remote")

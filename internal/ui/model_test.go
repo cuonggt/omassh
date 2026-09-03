@@ -214,3 +214,28 @@ func TestQuitKey(t *testing.T) {
 		t.Error("q produced no command, expected quit")
 	}
 }
+
+// Badges have to survive selection: the selected row is where the cursor sits,
+// so hiding information there hides it exactly when it is being looked at.
+func TestBadgesShowOnTheSelectedRow(t *testing.T) {
+	dir := t.TempDir()
+	cfg := dir + "/config"
+	if err := writeFile(cfg, "Host fromconfig\n  HostName 10.1.2.3\n"); err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(o *Options) { o.SSHConfigPath = cfg })
+
+	// Select the config-sourced host and confirm its badge is still rendered.
+	for range len(h.m.d.tree) {
+		if g, ok := h.m.currentGroup(); ok && g.ID == store.SSHConfigGroupID {
+			break
+		}
+		h.press("1")
+		h.m.move(1)
+	}
+	h.press("2")
+	if got, ok := h.m.selectedHost(); !ok || got.Source != store.SourceSSHConfig {
+		t.Skip("could not select the config host in this layout")
+	}
+	h.mustContain("cfg")
+}

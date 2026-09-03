@@ -60,12 +60,21 @@ speed bump for obvious mistakes, not a security control.
 
 `enter` opens a session in the **main pane**, with the host list still beside
 it. While that pane has focus every key goes to the remote, so `ctrl+\ w`
-returns to the list — the session keeps running — and `ctrl+\ d` disconnects.
+returns to the list, `ctrl+\ d` detaches and `ctrl+\ X` ends the session.
 
-Panes keep 2000 lines of scrollback: `ctrl+\ k` and `ctrl+\ j` page back and
-forward through it, `ctrl+\ G` returns to the live view, and typing anything
-snaps back on its own — a terminal that stayed scrolled while you typed would
-hide your own output.
+Sessions are **persistent** where tmux is installed. A pty whose master belongs
+to Omassh dies with it, so each session is instead run as
+`tmux new-session -A -s omassh-<host> ssh …` on a private tmux server — closing
+Omassh detaches rather than disconnects, and reconnecting reattaches with the
+screen and shell state intact. A green `●` beside a host means a session is
+waiting. Without tmux, sessions are ephemeral as before. Those sessions live on
+their own server socket, so `tmux ls` in your shell is unaffected.
+
+Scrollback is `ctrl+\ k` and `ctrl+\ j` to page, `ctrl+\ G` to return live;
+typing anything snaps back on its own, since a terminal that stayed scrolled
+while you typed would hide your own output. For persistent sessions the history
+belongs to tmux — 10000 lines, surviving restarts — and those keys drive its
+copy mode. Without tmux the emulator keeps 2000 lines itself.
 
 `o` hands the whole terminal to `ssh` instead. That path is emulation-free and
 remains the highest-fidelity way to work on a single host.

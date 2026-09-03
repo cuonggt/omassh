@@ -7,6 +7,7 @@ import (
 
 	"github.com/cuonggt/omassh/internal/keys"
 	"github.com/cuonggt/omassh/internal/store"
+	"github.com/cuonggt/omassh/internal/term"
 )
 
 // UngroupedID is the synthetic group holding local hosts with no group.
@@ -24,6 +25,9 @@ type data struct {
 	tree       []store.GroupNode    // display order, including synthetic groups
 	keyInfo    map[string]keys.Info // identity id -> on-disk key metadata
 	resolver   store.Resolver
+	// live maps a tmux session name to whether it is running, so the host
+	// list can show which hosts have a session waiting to be reattached.
+	live map[string]bool
 }
 
 type dataMsg struct {
@@ -85,6 +89,14 @@ func load(s *store.Store, sshConfig string) (data, error) {
 	// still works, and the error surfaces in the status bar.
 	cfgHosts, cfgErr := store.LoadSSHConfig(sshConfig)
 
+	// Which hosts already have a session waiting to be reattached.
+	d.live = map[string]bool{}
+	if sessions, err := term.LiveSessions(); err == nil {
+		for _, s := range sessions {
+			d.live[s.Name] = true
+		}
+	}
+
 	d.resolver = store.NewResolver(d.groups, d.identities)
 	d.tree = store.FlattenGroups(d.groups)
 
@@ -103,6 +115,9 @@ func load(s *store.Store, sshConfig string) (data, error) {
 	}
 	return d, cfgErr
 }
+
+// hasSession reports whether a host has a persistent session running.
+func (d data) hasSession(h store.Host) bool { return d.live[term.SessionName(h)] }
 
 // hostsIn returns the hosts displayed under a group id.
 func (d data) hostsIn(groupID string) []store.Host {
