@@ -8,6 +8,8 @@ go 1.26.1
 // permanently, leaving a deleted release installable unless the toolchain is
 // told otherwise. Both were functionally identical to their successors.
 retract (
+	// Deleted release, superseded by v0.2.4 — upgrade, nothing else is affected.
+	v0.2.3
 	// Deleted release, superseded by v0.2.3 — upgrade, nothing else is affected.
 	v0.2.2
 	// Deleted release, superseded by v0.2.1 — upgrade, nothing else is affected.
