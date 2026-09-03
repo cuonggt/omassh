@@ -109,8 +109,13 @@ Linux on both amd64 and arm64. `goreleaser release --snapshot --clean` produces
 the archives, checksums and a Homebrew cask locally without publishing.
 
 The demo above is recorded with [VHS](https://github.com/charmbracelet/vhs):
-`go run ./hack/seed /tmp/omassh-demo.db withlocal` to lay down sample
-infrastructure, then `vhs demo.tape`.
+
+```sh
+./hack/demo.sh
+```
+
+That starts a throwaway SSH server on loopback so the embedded panes show real
+shells, seeds a database with sample infrastructure, and drives the UI.
 
 ## Run
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/cuonggt/omassh/internal/store"
@@ -13,7 +14,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		log.Fatal("usage: seed <db path> [reachable-port]")
+		log.Fatal("usage: seed <db path> [demo-server-port] [identity]")
 	}
 	os.Remove(os.Args[1])
 	st, err := store.Open(os.Args[1])
@@ -22,15 +23,40 @@ func main() {
 	}
 	defer st.Close()
 
-	prod, _ := st.PutGroup(store.Group{Name: "Production", User: "deploy", ProxyJump: "bastion.corp"})
+	// When a demo server is running, Production points at it so the embedded
+	// panes in the recording show real shells.
+	demoPort, identity := 0, ""
+	if len(os.Args) > 2 {
+		demoPort, _ = strconv.Atoi(os.Args[2])
+	}
+	if len(os.Args) > 3 {
+		identity = os.Args[3]
+	}
+
+	prodGroup := store.Group{Name: "Production", User: "deploy", ProxyJump: "bastion.corp"}
+	if demoPort > 0 {
+		// A jump host would make these unreachable for the recording.
+		prodGroup = store.Group{Name: "Production", User: "deploy", Identity: identity}
+	}
+	prod, _ := st.PutGroup(prodGroup)
 	stg, _ := st.PutGroup(store.Group{Name: "Staging", User: "deploy"})
 	home, _ := st.PutGroup(store.Group{Name: "Homelab"})
 
+	prodAddr, prodPort := "10.0.1.%d", 0
+	if demoPort > 0 {
+		prodAddr, prodPort = "127.0.0.1", demoPort
+	}
+	addr := func(n int) string {
+		if demoPort > 0 {
+			return prodAddr
+		}
+		return fmt.Sprintf(prodAddr, n)
+	}
+
 	hosts := []store.Host{
-		{Name: "web-01", Addr: "10.0.1.11", GroupID: prod.ID, Tags: []string{"web", "eu-west"}},
-		{Name: "web-02", Addr: "10.0.1.12", GroupID: prod.ID, Tags: []string{"web", "eu-west"}},
-		{Name: "db-01", Addr: "10.0.1.20", GroupID: prod.ID, Tags: []string{"postgres"}},
-		{Name: "cache-01", Addr: "10.0.1.30", GroupID: prod.ID, Tags: []string{"redis"}},
+		{Name: "web-01", Addr: addr(11), Port: prodPort, GroupID: prod.ID, Tags: []string{"web", "eu-west"}},
+		{Name: "web-02", Addr: addr(12), Port: prodPort, GroupID: prod.ID, Tags: []string{"web", "eu-west"}},
+		{Name: "db-01", Addr: addr(20), Port: prodPort, GroupID: prod.ID, Tags: []string{"postgres"}},
 		{Name: "stg-web", Addr: "10.0.2.11", GroupID: stg.ID, Tags: []string{"web"}},
 		{Name: "stg-db", Addr: "10.0.2.20", GroupID: stg.ID, Tags: []string{"postgres"}},
 		{Name: "nas", Addr: "192.168.1.10", Port: 2222, User: "cuonggt", GroupID: home.ID, Tags: []string{"storage"}},
