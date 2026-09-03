@@ -113,12 +113,15 @@ type Model struct {
 	runLabel   string
 	runCancel  context.CancelFunc
 
-	pane      *term.Pane
-	sftpSess  *sftpx.Session
-	panes     [2]filePane
-	paneFocus int
-	transfers chan transferMsg
-	transfer  transferMsg
+	termPanes   []*term.Pane
+	termFocus   int
+	broadcast   bool
+	prefixArmed bool
+	sftpSess    *sftpx.Session
+	panes       [2]filePane
+	paneFocus   int
+	transfers   chan transferMsg
+	transfer    transferMsg
 
 	status string
 	failed bool
@@ -311,6 +314,8 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openSFTP()
 	case keymap.Pane:
 		return m.openPane()
+	case keymap.PaneGroup:
+		return m.openPaneGroup()
 	case keymap.Snippets:
 		return m.openSnippets()
 	case keymap.Reload:

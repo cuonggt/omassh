@@ -108,7 +108,18 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 }
 
 // SendKey forwards a key press to the remote session.
+//
+// Printable input is sent as text rather than through the key encoder. Bubble
+// Tea reports an uppercase letter as shift plus the base key, and the encoder
+// emits nothing at all for that combination — so typing anything capitalised
+// silently vanished. A real terminal sends printable characters as
+// characters; only control keys need encoding, which is what Shift being the
+// sole modifier distinguishes.
 func (p *Pane) SendKey(k tea.KeyPressMsg) {
+	if k.Text != "" && k.Mod&^tea.ModShift == 0 {
+		p.em.SendText(k.Text)
+		return
+	}
 	p.em.SendKey(toUV(k))
 }
 

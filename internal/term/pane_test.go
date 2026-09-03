@@ -144,6 +144,23 @@ func TestPaneRunsAnInteractiveSession(t *testing.T) {
 		waitFor(t, p, "pane-works", 15*time.Second)
 	})
 
+	// Bubble Tea reports capitals as shift+<key>, which the key encoder drops.
+	t.Run("capitals and symbols survive", func(t *testing.T) {
+		// Typed the way a terminal reports a shifted key, not as a bare rune.
+		for _, k := range []tea.KeyPressMsg{
+			{Code: 'e', Text: "e"}, {Code: 'c', Text: "c"}, {Code: 'h', Text: "h"},
+			{Code: 'o', Text: "o"}, {Code: ' ', Text: " "},
+			{Code: 'a', ShiftedCode: 'A', Text: "A", Mod: tea.ModShift},
+			{Code: 'b', ShiftedCode: 'B', Text: "B", Mod: tea.ModShift},
+			{Code: '-', Text: "-"},
+			{Code: '1', ShiftedCode: '!', Text: "!", Mod: tea.ModShift},
+		} {
+			p.SendKey(k)
+		}
+		p.SendKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+		waitFor(t, p, "AB-!", 10*time.Second)
+	})
+
 	t.Run("the remote sees the pane size", func(t *testing.T) {
 		type_(p, "stty size")
 		p.SendKey(tea.KeyPressMsg{Code: tea.KeyEnter})

@@ -130,9 +130,7 @@ func (m Model) Close() {
 	if m.sftpSess != nil {
 		m.sftpSess.Close()
 	}
-	if m.pane != nil {
-		m.pane.Close()
-	}
+	m.closePanesForExit()
 }
 
 // --- keys --------------------------------------------------------------

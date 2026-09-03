@@ -23,7 +23,7 @@ reachability probes.
 | `K` | credentials: keys, stored secrets, ssh-agent |
 | `3`, `↵` | forwards panel; start or stop a tunnel |
 | `p` | probe reachability of the hosts in this group |
-| `t` | open the session in an embedded pane |
+| `t` / `T` | embedded pane for this host / split across the group |
 | `s` | sftp: browse and transfer files |
 | `S` | snippets: run a saved command here, or `f` across a group |
 | `r` | reload store and re-read `~/.ssh/config` |
@@ -57,12 +57,19 @@ hosts; a command matching a destructive pattern (`rm -rf`, `mkfs`, `dd of=`,
 number of hosts — the blast radius is the thing you have to type. It is a
 speed bump for obvious mistakes, not a security control.
 
-Sessions can also run **embedded in a pane** (`t`) rather than taking over the
-terminal. A pty runs `ssh`, its output feeds a VT emulator, and keys are
-encoded back — so the remote gets a real terminal that happens to be the size
-of the pane, `SIGWINCH` and all. `ctrl+\` detaches; every other key belongs to
-the remote. The full-screen handoff (`enter`) remains the default, because it
-is correct by construction rather than by emulation.
+Sessions can also run **embedded in panes** — `t` for one host, `T` to split
+across every host in a group. A pty runs `ssh`, its output feeds a VT emulator,
+and keys go back the other way, so each remote gets a real terminal that
+happens to be the size of its pane, `SIGWINCH` and all.
+
+Once panes are live every keystroke belongs to a remote, including `ctrl+c`, so
+workspace commands sit behind a `ctrl+\` prefix the way tmux uses `ctrl+b`:
+`d` detaches, `o` moves focus, `x` closes a pane, and `b` toggles **broadcast**,
+where one keystroke reaches every pane at once. Press the prefix twice to send
+a literal one through.
+
+The full-screen handoff (`enter`) remains the default, because it is correct by
+construction rather than by emulation.
 
 SFTP needs no SSH client of its own. Omassh runs `ssh -s <host> sftp` and
 speaks the SFTP protocol over that child's stdio, so OpenSSH performs the

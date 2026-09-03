@@ -242,6 +242,14 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.Reload), "reload the store and re-read ~/.ssh/config"},
 			{m.keys.Key(keymap.Credentials), "credentials: keys, stored secrets and the ssh-agent"},
 			{m.keys.Key(keymap.Pane), "open the session in an embedded pane instead of handing over"},
+			{m.keys.Key(keymap.PaneGroup), "split panes across every host in the selected group"},
+		}},
+		{"Panes (" + prefixKey + " prefix)", [][2]string{
+			{"prefix d", "detach and close every pane"},
+			{"prefix o", "focus the next pane"},
+			{"prefix b", "broadcast: send every key to all panes at once"},
+			{"prefix x", "close the focused pane"},
+			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 			{m.keys.Key(keymap.Snippets), "snippets: saved commands, run here or across a group"},
 		}},
@@ -315,7 +323,14 @@ func (m Model) statusBar() string {
 	case modeResults:
 		hints = hint("j/k", "host") + sep() + hint("ctrl+d/u", "scroll") + sep() + hint("esc", "back")
 	case modePane:
-		hints = hint(detachKey, "detach") + sep() + theme.Dim.Render("every other key goes to the remote")
+		if m.prefixArmed {
+			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
+				hint("d", "detach") + sep() + hint("o", "next pane") +
+				sep() + hint("b", "broadcast") + sep() + hint("x", "close pane")
+		} else {
+			hints = hint(prefixKey, "prefix") + sep() +
+				theme.Dim.Render("every other key goes to the remote")
+		}
 	default:
 		if m.focus == panelForwards {
 			hints = hint("↵", "start/stop") + sep() + hint("n/e/d", "new/edit/delete") +
