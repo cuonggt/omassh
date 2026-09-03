@@ -331,3 +331,112 @@ func (m Model) closePanesForExit() {
 		p.Close()
 	}
 }
+
+// --- attached session --------------------------------------------------
+//
+// The main pane can hold one live session while the sidebar stays usable, so
+// connecting no longer means losing sight of everything else. It is the same
+// Pane the full-screen view uses, just drawn into the detail area.
+
+// attachSession opens a session for the selected host in the main pane.
+func (m Model) attachSession() (tea.Model, tea.Cmd) {
+	h, ok := m.selectedHost()
+	if !ok {
+		return m, nil
+	}
+	// Connecting somewhere else replaces the session rather than silently
+	// accumulating connections the user cannot see.
+	if m.attached != nil {
+		m.recordPaneSession(m.attached)
+		m.attached.Close()
+		m.attached = nil
+	}
+
+	w, ht := m.sessionArea()
+	p, err := term.Open(m.d.resolver.Resolve(h).Host, w, ht)
+	if err != nil {
+		m.setErr(err)
+		return m, nil
+	}
+	m.attached = p
+	m.focus = panelSession
+	m.prefixArmed = false
+	m.setStatus("connected to " + h.Name + " — " + prefixKey + " w for the host list")
+	return m, paneTick()
+}
+
+// sessionArea is the emulator size for the main pane.
+func (m Model) sessionArea() (int, int) {
+	side := clamp(sidebarWidth, 20, m.w/2)
+	return max(m.w-side-4, 20), max(m.h-statusHeight-2, 5)
+}
+
+func (m Model) detachSession(reason string) (tea.Model, tea.Cmd) {
+	if m.attached != nil {
+		m.recordPaneSession(m.attached)
+		m.attached.Close()
+		m.attached = nil
+		m.reload()
+	}
+	if m.focus == panelSession {
+		m.focus = panelHosts
+	}
+	m.prefixArmed = false
+	m.setStatus(reason)
+	return m, nil
+}
+
+// handleSessionKey routes a key press to the attached session. Everything goes
+// to the remote except the prefix, which introduces the commands that would
+// otherwise be unreachable once the remote owns the keyboard.
+func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+
+	if m.prefixArmed {
+		m.prefixArmed = false
+		switch key {
+		case prefixKey:
+			m.attached.SendKey(msg) // pressed twice: the remote wanted it
+		case "w", "esc":
+			m.focus = panelHosts
+			m.setStatus("host list — " + m.attached.Host.Name + " still connected")
+		case "d":
+			return m.detachSession("disconnected from " + m.attached.Host.Name)
+		}
+		return m, nil
+	}
+	if key == prefixKey {
+		m.prefixArmed = true
+		return m, nil
+	}
+	if !m.attached.Alive() {
+		return m.detachSession(m.attached.Host.Name + " " + m.attached.Status())
+	}
+	m.attached.SendKey(msg)
+	return m, nil
+}
+
+// sessionTitle labels the main pane while a session is attached.
+func (m Model) sessionTitle() string {
+	name := m.attached.Host.Name
+	switch {
+	case !m.attached.Alive():
+		return name + "  " + m.attached.Status()
+	case m.prefixArmed && m.focus == panelSession:
+		return name + "  " + theme.Fg(theme.Yellow).Render("prefix…")
+	case m.focus == panelSession:
+		return name + "  " + theme.Dim.Render(prefixKey+" w for the host list")
+	default:
+		return name + "  " + theme.Fg(theme.Green).Render("connected")
+	}
+}
+
+// sessionCursor puts the real cursor in the main pane when it has focus.
+func (m Model) sessionCursor() *tea.Cursor {
+	if m.attached == nil || !m.attached.Alive() || m.focus != panelSession {
+		return nil
+	}
+	side := clamp(sidebarWidth, 20, m.w/2)
+	x, y := m.attached.CursorPosition()
+	return tea.NewCursor(side+x+2, y+1)
+}

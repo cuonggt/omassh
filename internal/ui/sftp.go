@@ -131,6 +131,9 @@ func (m Model) Close() {
 		m.sftpSess.Close()
 	}
 	m.closePanesForExit()
+	if m.attached != nil {
+		m.attached.Close()
+	}
 }
 
 // --- keys --------------------------------------------------------------

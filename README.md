@@ -16,7 +16,8 @@ reachability probes.
 | key | |
 |---|---|
 | `j`/`k`, `tab`, `1`/`2` | move and switch panel |
-| `enter` | connect |
+| `enter` | connect — the session opens in the main pane |
+| `o` | hand the whole terminal to `ssh` instead |
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete |
 | `i` | import an `ssh_config` host so it can be edited |
@@ -57,7 +58,14 @@ hosts; a command matching a destructive pattern (`rm -rf`, `mkfs`, `dd of=`,
 number of hosts — the blast radius is the thing you have to type. It is a
 speed bump for obvious mistakes, not a security control.
 
-Sessions can also run **embedded in panes** — `t` for one host, `T` to split
+`enter` opens a session in the **main pane**, with the host list still beside
+it. While that pane has focus every key goes to the remote, so `ctrl+\ w`
+returns to the list — the session keeps running — and `ctrl+\ d` disconnects.
+
+`o` hands the whole terminal to `ssh` instead. That path is emulation-free and
+remains the highest-fidelity way to work on a single host.
+
+Sessions can also fill the screen — `t` for one host, `T` to split
 across every host in a group. A pty runs `ssh`, its output feeds a VT emulator,
 and keys go back the other way, so each remote gets a real terminal that
 happens to be the size of its pane, `SIGWINCH` and all.

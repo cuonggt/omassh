@@ -19,8 +19,11 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "omassh"
-	if m.mode == modePane {
+	switch {
+	case m.mode == modePane:
 		v.Cursor = m.paneCursor()
+	case m.mode == modeBrowse:
+		v.Cursor = m.sessionCursor()
 	}
 	return v
 }
@@ -81,7 +84,13 @@ func (m Model) render() string {
 	if m.focus == panelForwards {
 		title, detail = m.forwardDetail()
 	}
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, false, main, content, detail))
+	// A live session takes the main pane; the sidebar stays usable beside it.
+	mainFocused := false
+	if m.attached != nil {
+		title, detail = m.sessionTitle(), m.attached.Render()
+		mainFocused = m.focus == panelSession
+	}
+	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, mainFocused, main, content, detail))
 	return body + "\n" + m.statusBar()
 }
 
@@ -233,7 +242,8 @@ func (m Model) helpBody() string {
 			{"esc", "clear the search"},
 		}},
 		{"Act", [][2]string{
-			{m.keys.Key(keymap.Connect), "connect — Omassh yields the terminal to OpenSSH"},
+			{m.keys.Key(keymap.Connect), "connect — the session opens in the main pane"},
+			{m.keys.Key(keymap.Handoff), "hand the whole terminal to ssh instead (highest fidelity)"},
 			{m.keys.Key(keymap.NewItem), "new host, or new group when Groups is focused"},
 			{m.keys.Key(keymap.Edit), "edit the selection"},
 			{m.keys.Key(keymap.Delete), "delete the selection"},
@@ -244,7 +254,13 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.Pane), "open the session in an embedded pane instead of handing over"},
 			{m.keys.Key(keymap.PaneGroup), "split panes across every host in the selected group"},
 		}},
-		{"Panes (" + prefixKey + " prefix)", [][2]string{
+		{"Attached session (" + prefixKey + " prefix)", [][2]string{
+			{"prefix w", "back to the host list; the session keeps running"},
+			{"prefix d", "disconnect"},
+			{"", "while the main pane has focus every other key goes to"},
+			{"", "the remote, so the prefix is the way back out"},
+		}},
+		{"Full-screen panes (" + prefixKey + " prefix)", [][2]string{
 			{"prefix d", "detach and close every pane"},
 			{"prefix o", "focus the next pane"},
 			{"prefix b", "broadcast: send every key to all panes at once"},
@@ -332,10 +348,18 @@ func (m Model) statusBar() string {
 				theme.Dim.Render("every other key goes to the remote")
 		}
 	default:
-		if m.focus == panelForwards {
+		switch {
+		case m.focus == panelSession && m.prefixArmed:
+			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
+				hint("w", "host list") + sep() + hint("d", "disconnect") +
+				sep() + hint(prefixKey, "send literally")
+		case m.focus == panelSession:
+			hints = hint(prefixKey+" w", "host list") + sep() +
+				theme.Dim.Render("every other key goes to the remote")
+		case m.focus == panelForwards:
 			hints = hint("↵", "start/stop") + sep() + hint("n/e/d", "new/edit/delete") +
 				sep() + hint("1-3", "panel") + sep() + hint("?", "help") + sep() + hint("q", "quit")
-		} else {
+		default:
 			hints = hint(m.keys.Key(keymap.Connect), "connect") + sep() +
 				hint(m.keys.Key(keymap.Search), "search") + sep() +
 				hint(m.keys.Key(keymap.Probe), "probe") + sep() +

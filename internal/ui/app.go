@@ -29,6 +29,7 @@ const (
 	panelGroups panel = iota
 	panelHosts
 	panelForwards
+	panelSession
 	numPanels
 )
 
@@ -113,6 +114,7 @@ type Model struct {
 	runLabel   string
 	runCancel  context.CancelFunc
 
+	attached    *term.Pane
 	termPanes   []*term.Pane
 	termFocus   int
 	broadcast   bool
@@ -189,6 +191,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleProbeEvent(msg)
 
 	case paneTickMsg:
+		if m.attached != nil && m.mode == modeBrowse {
+			w, h := m.sessionArea()
+			m.attached.Resize(w, h)
+			if !m.attached.Alive() && m.focus == panelSession {
+				m.setStatus(m.attached.Host.Name + " " + m.attached.Status())
+			}
+			return m, paneTick()
+		}
 		return m.handlePaneTick()
 
 	case sftpConnectedMsg:
@@ -249,6 +259,10 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // handleBrowseKey dispatches on the configured action rather than the raw key,
 // so bindings can be changed without the handlers knowing.
 func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// A focused session owns the keyboard; its prefix is the way back out.
+	if m.focus == panelSession && m.attached != nil {
+		return m.handleSessionKey(msg)
+	}
 	key := msg.String()
 	// esc is not an action: it always backs out of whatever is in effect.
 	if key == "esc" {
@@ -264,9 +278,9 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.Help:
 		m.mode = modeHelp
 	case keymap.NextPanel:
-		m.focus = (m.focus + 1) % numPanels
+		m.focus = m.nextPanel(1)
 	case keymap.PrevPanel:
-		m.focus = (m.focus + numPanels - 1) % numPanels
+		m.focus = m.nextPanel(-1)
 	case keymap.PanelGroups:
 		m.focus = panelGroups
 	case keymap.PanelHosts:
@@ -287,6 +301,8 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.focus == panelForwards {
 			return m.toggleForward()
 		}
+		return m.attachSession()
+	case keymap.Handoff:
 		return m.connect()
 	case keymap.NewItem:
 		if m.focus == panelForwards {
@@ -421,6 +437,18 @@ func (m *Model) recomputeMatches() {
 		m.matches = append(m.matches, m.d.hosts[r.Index])
 	}
 	m.hostIdx = 0
+}
+
+// nextPanel cycles focus, skipping the session panel when nothing is attached.
+func (m Model) nextPanel(d int) panel {
+	p := m.focus
+	for range int(numPanels) {
+		p = (p + panel(d) + numPanels) % numPanels
+		if p != panelSession || m.attached != nil {
+			return p
+		}
+	}
+	return m.focus
 }
 
 func (m *Model) move(d int) {

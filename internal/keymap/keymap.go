@@ -16,6 +16,7 @@ const (
 	Quit          Action = "quit"
 	Help          Action = "help"
 	Connect       Action = "connect"
+	Handoff       Action = "handoff"
 	Search        Action = "search"
 	NewItem       Action = "new"
 	Edit          Action = "edit"
@@ -39,7 +40,7 @@ const (
 
 // defaults are the rebindable bindings.
 var defaults = map[Action]string{
-	Quit: "q", Help: "?", Connect: "enter", Search: "/",
+	Quit: "q", Help: "?", Connect: "enter", Handoff: "o", Search: "/",
 	NewItem: "n", Edit: "e", Delete: "d", Import: "i", Reload: "r", Probe: "p",
 	Credentials: "K", SFTP: "s", Snippets: "S", Pane: "t", PaneGroup: "T",
 	NextPanel: "tab", PrevPanel: "shift+tab",
