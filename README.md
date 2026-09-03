@@ -79,6 +79,18 @@ hand. They are badged `cfg` and are read-only; `i` imports an editable copy
 without touching the file. Includes are expanded in place, preserving OpenSSH's
 first-match-wins ordering.
 
+## Install
+
+Nothing is published yet. From source:
+
+```sh
+go install github.com/cuonggt/omassh/cmd/omassh@latest
+```
+
+Releases are built with [GoReleaser](https://goreleaser.com) for macOS and
+Linux on both amd64 and arm64. `goreleaser release --snapshot --clean` produces
+the archives, checksums and a Homebrew cask locally without publishing.
+
 ## Run
 
 ```sh

@@ -49,9 +49,10 @@ changelog:
       - "^chore:"
 
 # Requires a github.com/cuonggt/homebrew-tap repository to push to.
-# Casks rather than formulas: Homebrew now expects pre-built binaries to ship
-# as casks, and goreleaser deprecated `brews` accordingly. Casks are macOS
-# only, so Linux users take the tarball or `go install`.
+# Casks rather than formulas: Homebrew expects pre-built binaries to ship as
+# casks, and goreleaser deprecated `brews` accordingly. The generated cask
+# carries URLs for all four targets; Linux users can equally take the tarball
+# from the release or use `go install`.
 homebrew_casks:
   - name: omassh
     repository:
