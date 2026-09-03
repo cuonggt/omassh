@@ -65,6 +65,9 @@ type Options struct {
 	Keys         keymap.Map
 	Fanout       int
 	ProbeTimeout time.Duration
+	// SSHConfigPath is the client config to read hosts from. Injectable so
+	// tests do not depend on whatever the developer has in ~/.ssh/config.
+	SSHConfigPath string
 }
 
 // Model is the root Bubble Tea model.
@@ -149,6 +152,9 @@ func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Opt
 	if opts.ProbeTimeout <= 0 {
 		opts.ProbeTimeout = 2 * time.Second
 	}
+	if opts.SSHConfigPath == "" {
+		opts.SSHConfigPath = DefaultSSHConfigPath()
+	}
 
 	m := Model{opts: opts, keys: opts.Keys, st: st, vault: vault, sup: sup, index: index,
 		focus: panelHosts, filter: ti, agentKeys: map[string]bool{},
@@ -164,7 +170,7 @@ func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Opt
 func (m Model) Init() tea.Cmd { return waitForwardEvent(m.sup.Events()) }
 
 func (m *Model) reload() {
-	d, err := load(m.st)
+	d, err := load(m.st, m.opts.SSHConfigPath)
 	m.d = d
 	// Keep the supervisor's view of hosts current; it resolves them off the
 	// UI goroutine when a tunnel starts or restarts.

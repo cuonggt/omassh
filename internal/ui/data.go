@@ -31,7 +31,8 @@ type dataMsg struct {
 	err  error
 }
 
-func sshConfigPath() string {
+// DefaultSSHConfigPath is where OpenSSH keeps the user's client config.
+func DefaultSSHConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
@@ -45,7 +46,7 @@ func sshConfigPath() string {
 // every time, so Omassh can never show a stale copy of a file the user edits
 // by hand. The cost is that they cannot be edited here, which is why they are
 // badged read-only in the list.
-func load(s *store.Store) (data, error) {
+func load(s *store.Store, sshConfig string) (data, error) {
 	var d data
 	var err error
 
@@ -82,7 +83,7 @@ func load(s *store.Store) (data, error) {
 
 	// A broken ~/.ssh/config must not take the whole app down; the store side
 	// still works, and the error surfaces in the status bar.
-	cfgHosts, cfgErr := store.LoadSSHConfig(sshConfigPath())
+	cfgHosts, cfgErr := store.LoadSSHConfig(sshConfig)
 
 	d.resolver = store.NewResolver(d.groups, d.identities)
 	d.tree = store.FlattenGroups(d.groups)
