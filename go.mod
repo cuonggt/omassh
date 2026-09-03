@@ -2,9 +2,13 @@ module github.com/cuonggt/omassh
 
 go 1.26.1
 
-// The v0.2.0 release was deleted; its code is identical to v0.2.1 apart
-// from the demo recording. Retracted so the module proxy, which caches
-// versions permanently, stops offering a version that has no release.
+// Deleted release, superseded by v0.2.1 — upgrade, nothing else is affected.
+//
+// Only the first line above reaches the user: `go get` prints one line of a
+// retraction comment and truncates the rest, so it has to stand alone.
+// Retracted because the module proxy caches versions permanently, leaving a
+// deleted release installable unless the toolchain is told otherwise. The code
+// was identical to v0.2.1 apart from the demo recording.
 retract v0.2.0
 
 require (
