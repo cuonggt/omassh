@@ -20,10 +20,23 @@ import (
 // rather than reimplement it. A private server socket keeps these sessions out
 // of the user's own tmux, so `tmux ls` in their shell is unaffected.
 const (
-	tmuxSocket  = "omassh"
-	sessionPfx  = "omassh-"
-	attachGrace = 3 * time.Second
+	defaultSocket = "omassh"
+	sessionPfx    = "omassh-"
+	attachGrace   = 3 * time.Second
 )
+
+// SocketEnv overrides the server socket. The tests set it so they can kill a
+// server wholesale without destroying the sessions someone is actually working
+// in — the two used to share one socket, which made `go test ./...` wipe every
+// live session on the machine.
+const SocketEnv = "OMASSH_TMUX_SOCKET"
+
+func tmuxSocket() string {
+	if s := os.Getenv(SocketEnv); s != "" {
+		return s
+	}
+	return defaultSocket
+}
 
 // TmuxAvailable reports whether persistent sessions are possible.
 func TmuxAvailable() bool {
@@ -86,7 +99,7 @@ func tmuxCommand(h store.Host, sshArgs []string) (*exec.Cmd, string, error) {
 		return nil, "", err
 	}
 	name := SessionName(h)
-	args := []string{"-L", tmuxSocket, "-f", conf, "new-session", "-A", "-s", name, "ssh"}
+	args := []string{"-L", tmuxSocket(), "-f", conf, "new-session", "-A", "-s", name, "ssh"}
 	args = append(args, sshArgs...)
 	return exec.Command("tmux", args...), name, nil
 }
@@ -112,7 +125,7 @@ func LiveSessions() ([]LiveSession, error) {
 		"#{session_name}", "#{session_attached}", "#{session_created}",
 	}, fieldSep)
 
-	cmd := exec.Command("tmux", "-L", tmuxSocket, "ls", "-F", format)
+	cmd := exec.Command("tmux", "-L", tmuxSocket(), "ls", "-F", format)
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -157,7 +170,7 @@ func KillSession(name string) error {
 	if !strings.HasPrefix(name, sessionPfx) {
 		return fmt.Errorf("refusing to kill %q: not an omassh session", name)
 	}
-	out, err := exec.Command("tmux", "-L", tmuxSocket, "kill-session", "-t", name).CombinedOutput()
+	out, err := exec.Command("tmux", "-L", tmuxSocket(), "kill-session", "-t", name).CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		// Already gone is the outcome asked for, not a failure.
@@ -180,19 +193,19 @@ func tmuxCopyScroll(session string, up bool) error {
 	}
 	// Entering copy mode is idempotent; -e leaves it automatically when
 	// scrolled back to the bottom.
-	exec.Command("tmux", "-L", tmuxSocket, "copy-mode", "-e", "-t", session).Run()
-	return exec.Command("tmux", "-L", tmuxSocket, "send-keys", "-t", session, "-X", cmd).Run()
+	exec.Command("tmux", "-L", tmuxSocket(), "copy-mode", "-e", "-t", session).Run()
+	return exec.Command("tmux", "-L", tmuxSocket(), "send-keys", "-t", session, "-X", cmd).Run()
 }
 
 // tmuxCopyCancel leaves copy mode, returning to the live view.
 func tmuxCopyCancel(session string) error {
-	return exec.Command("tmux", "-L", tmuxSocket, "send-keys", "-t", session, "-X", "cancel").Run()
+	return exec.Command("tmux", "-L", tmuxSocket(), "send-keys", "-t", session, "-X", "cancel").Run()
 }
 
 // tmuxScrollPosition reports how far back the pane is scrolled, and how much
 // history exists.
 func tmuxScrollPosition(session string) (offset, available int) {
-	out, err := exec.Command("tmux", "-L", tmuxSocket, "display-message", "-p", "-t", session,
+	out, err := exec.Command("tmux", "-L", tmuxSocket(), "display-message", "-p", "-t", session,
 		"-F", "#{scroll_position}"+fieldSep+"#{history_size}").Output()
 	if err != nil {
 		return 0, 0

@@ -1,6 +1,7 @@
 package term_test
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -15,11 +16,23 @@ import (
 
 // killServer removes every session this test created, so a test run never
 // leaves sessions behind on the developer's machine.
+// killServer tears the test's tmux server down afterwards. It refuses to run
+// against the real socket: killing that would end sessions someone is working
+// in, and a silent regression here is exactly the bug this guards.
 func killServer(t *testing.T) {
 	t.Helper()
-	t.Cleanup(func() {
-		exec.Command("tmux", "-L", "omassh", "kill-server").Run()
-	})
+	t.Cleanup(func() { exec.Command("tmux", "-L", testSocket(t), "kill-server").Run() })
+}
+
+// testSocket is the isolated socket TestMain set, and fails the test if it
+// somehow points at the real one.
+func testSocket(t *testing.T) string {
+	t.Helper()
+	s := os.Getenv(term.SocketEnv)
+	if s == "" || s == "omassh" {
+		t.Fatalf("%s = %q — TestMain must point the tests at their own socket", term.SocketEnv, s)
+	}
+	return s
 }
 
 // The whole point: a session must outlive the pane that opened it, and
@@ -139,7 +152,7 @@ func TestLiveSessionsParsesTmuxOutput(t *testing.T) {
 		t.Skip("tmux not installed")
 	}
 	killServer(t)
-	exec.Command("tmux", "-L", "omassh", "new-session", "-d", "-s", "omassh-parse-test", "sleep", "60").Run()
+	exec.Command("tmux", "-L", testSocket(t), "new-session", "-d", "-s", "omassh-parse-test", "sleep", "60").Run()
 
 	live, err := term.LiveSessions()
 	if err != nil {
@@ -168,7 +181,7 @@ func TestLiveSessionsWithNoServer(t *testing.T) {
 	if !term.TmuxAvailable() {
 		t.Skip("tmux not installed")
 	}
-	exec.Command("tmux", "-L", "omassh", "kill-server").Run()
+	exec.Command("tmux", "-L", testSocket(t), "kill-server").Run()
 	live, err := term.LiveSessions()
 	if err != nil {
 		t.Errorf("no server should not be an error, got %v", err)
