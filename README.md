@@ -16,7 +16,7 @@ reachability probes.
 | key | |
 |---|---|
 | `j`/`k`, `tab`, `1`/`2` | move and switch panel |
-| `enter` | connect — the session opens in the main pane |
+| `enter` | connect — the session opens in a new tab |
 | `o` | hand the whole terminal to `ssh` instead |
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete |
@@ -25,7 +25,8 @@ reachability probes.
 | `3`, `↵` | forwards panel; start or stop a tunnel |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
-| `t` / `T` | embedded pane for this host / split across the group |
+| `t` / `T` | same, explicitly / one tab split across the group |
+| `ctrl+\ n`/`p`, `ctrl+\ 1`-`9` | switch tabs; `ctrl+\ w` is always the host list |
 | `s` | sftp: browse and transfer files |
 | `S` | snippets: run a saved command here, or `f` across a group |
 | `r` | reload store and re-read `~/.ssh/config` |
@@ -59,17 +60,25 @@ hosts; a command matching a destructive pattern (`rm -rf`, `mkfs`, `dd of=`,
 number of hosts — the blast radius is the thing you have to type. It is a
 speed bump for obvious mistakes, not a security control.
 
-`enter` opens a session in the **main pane**, with the host list still beside
-it. While that pane has focus every key goes to the remote, so `ctrl+\ w`
-returns to the list, `ctrl+\ d` detaches and `ctrl+\ X` ends the session.
+Sessions live in **tabs**, listed across the top. Tab 1 is the host browser and
+is always there; `enter` on a host opens its session in a tab of its own and
+switches to it, so connecting never costs you the list. Connecting to a host
+that is already open goes to its tab rather than opening a second session to
+the same machine, and the host list marks it — a green `●2` means *open in tab
+2*.
+
+`ctrl+\ n` and `ctrl+\ p` walk the tabs, `ctrl+\ 1`-`9` jump straight to one,
+and `ctrl+\ w` returns to the browser from anywhere. `ctrl+\ x` closes a tab
+(detaching its session) and `ctrl+\ X` ends it for good.
 
 Sessions are **persistent** where tmux is installed. A pty whose master belongs
 to Omassh dies with it, so each session is instead run as
 `tmux new-session -A -s omassh-<host> ssh …` on a private tmux server — closing
 Omassh detaches rather than disconnects, and reconnecting reattaches with the
 screen and shell state intact. A green `●` beside a host means a session is
-waiting. Without tmux, sessions are ephemeral as before. Those sessions live on
-their own server socket, so `tmux ls` in your shell is unaffected.
+waiting for a tab to be opened for it. Without tmux, sessions are ephemeral as
+before. Those sessions live on their own server socket, so `tmux ls` in your
+shell is unaffected.
 
 Scrollback is `ctrl+\ k` and `ctrl+\ j` to page, `ctrl+\ G` to return live;
 typing anything snaps back on its own, since a terminal that stayed scrolled
@@ -80,19 +89,16 @@ copy mode. Without tmux the emulator keeps 2000 lines itself.
 `o` hands the whole terminal to `ssh` instead. That path is emulation-free and
 remains the highest-fidelity way to work on a single host.
 
-Sessions can also fill the screen — `t` for one host, `T` to split
-across every host in a group. A pty runs `ssh`, its output feeds a VT emulator,
-and keys go back the other way, so each remote gets a real terminal that
-happens to be the size of its pane, `SIGWINCH` and all.
+A tab holds one session or several: `T` opens one tab **split** across every
+host in a group. A pty runs `ssh`, its output feeds a VT emulator, and keys go
+back the other way, so each remote gets a real terminal that happens to be the
+size of its pane, `SIGWINCH` and all. Within a split, `ctrl+\ o` moves focus and
+`ctrl+\ b` toggles **broadcast**, where one keystroke reaches every pane at
+once.
 
-Once panes are live every keystroke belongs to a remote, including `ctrl+c`, so
-workspace commands sit behind a `ctrl+\` prefix the way tmux uses `ctrl+b`:
-`d` detaches, `o` moves focus, `x` closes a pane, and `b` toggles **broadcast**,
-where one keystroke reaches every pane at once. Press the prefix twice to send
-a literal one through.
-
-The full-screen handoff (`enter`) remains the default, because it is correct by
-construction rather than by emulation.
+Once a session tab is showing, every keystroke belongs to a remote, `ctrl+c`
+included — which is why the tab commands sit behind a `ctrl+\` prefix, the way
+tmux uses `ctrl+b`. Press the prefix twice to send a literal one through.
 
 SFTP needs no SSH client of its own. Omassh runs `ssh -s <host> sftp` and
 speaks the SFTP protocol over that child's stdio, so OpenSSH performs the
