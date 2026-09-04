@@ -345,8 +345,6 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openSFTP()
 	case keymap.Pane:
 		return m.openSessionTab()
-	case keymap.PaneGroup:
-		return m.openGroupTab()
 	case keymap.Snippets:
 		return m.openSnippets()
 	case keymap.Redraw:

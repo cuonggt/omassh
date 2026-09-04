@@ -1,6 +1,6 @@
 #!/bin/sh
-# Records demo.gif. Starts a throwaway SSH server on loopback so the embedded
-# panes show real shells, seeds a database with plausible infrastructure, then
+# Records demo.gif. Starts a throwaway SSH server on loopback so the session
+# tabs show real shells, seeds a database with plausible infrastructure, then
 # drives the UI with VHS.
 #
 #   ./hack/demo.sh          (needs vhs: brew install vhs)

@@ -20,7 +20,7 @@ func (m Model) View() tea.View {
 	v.AltScreen = true
 	v.WindowTitle = "omassh"
 	if m.mode == modeBrowse {
-		v.Cursor = m.sessionCursor(m.h - statusHeight - tabBarHeight)
+		v.Cursor = m.sessionCursor()
 	}
 	return v
 }
@@ -52,7 +52,7 @@ func (m Model) render() string {
 		return bar + "\n" + m.resultsView(content) + "\n" + m.statusBar()
 	}
 
-	// A session tab shows its panes; the first tab is the host browser.
+	// A session tab shows its session; the first tab is the host browser.
 	if m.activeIsSession() {
 		return bar + "\n" + m.sessionView(content) + "\n" + m.statusBar()
 	}
@@ -280,28 +280,25 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.Reload), "reload the store and re-read ~/.ssh/config"},
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
 			{m.keys.Key(keymap.Credentials), "credentials: keys, stored secrets and the ssh-agent"},
-			{m.keys.Key(keymap.PaneGroup), "one tab holding a split of every host in the group"},
-		}},
-		{"Attached session (" + prefixKey + " prefix)", [][2]string{
-			{"prefix w", "back to the host list; the session keeps running"},
-			{"prefix k / j", "scroll back and forward a page through the output"},
-			{"prefix G", "return to the live view"},
-			{"prefix d", "detach — the session keeps running, reconnect to reattach"},
-			{"prefix X", "end the session for good"},
-			{"prefix r", "redraw the screen"},
-			{"", "green ●2 beside a host means it is open in tab 2;"},
-			{"", "a yellow ● means a detached session is waiting"},
-			{"", "while the main pane has focus every other key goes to"},
-			{"", "the remote, so the prefix is the way back out"},
-		}},
-		{"Within a tab", [][2]string{
-			{"prefix o", "focus the next pane, when a tab holds several"},
-			{"prefix b", "broadcast: every key goes to all panes in the tab"},
-			{"prefix k / j", "scroll; prefix G returns to the live view"},
-			{"prefix r", "redraw, if the terminal cleared the screen"},
-			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 			{m.keys.Key(keymap.Snippets), "snippets: saved commands, run here or across a group"},
+		}},
+		{"Tabs (" + prefixKey + " prefix)", [][2]string{
+			{"prefix n / p", "next and previous tab"},
+			{"prefix 1-9", "jump straight to a tab"},
+			{"prefix w", "back to the host list; the session keeps running"},
+			{"prefix x", "close the tab — the session keeps running, reconnect to reattach"},
+			{"prefix X", "end the session for good"},
+			{"", "green ●2 beside a host means it is open in tab 2;"},
+			{"", "a yellow ● means a detached session is waiting"},
+		}},
+		{"Inside a session", [][2]string{
+			{"prefix k / j", "scroll back and forward a page through the output"},
+			{"prefix G", "return to the live view"},
+			{"prefix r", "redraw the screen"},
+			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
+			{"", "every other key goes to the remote, ctrl+c included,"},
+			{"", "so the prefix is the way back out"},
 		}},
 		{"Snippets (" + m.keys.Key(keymap.Snippets) + ")", [][2]string{
 			{"↵", "run on the selected host"},
@@ -378,7 +375,7 @@ func (m Model) statusBar() string {
 			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
 				hint("n/p", "tab") + sep() + hint("w", "hosts") + sep() +
 				hint("x/X", "close/end") + sep() + hint("k/j", "scroll") +
-				sep() + hint("b", "broadcast") + sep() + hint("o", "pane")
+				sep() + hint("G", "live")
 		case m.activeIsSession():
 			hints = hint(prefixKey+" n/p", "switch tab") + sep() +
 				hint(prefixKey+" w", "hosts") + sep() +

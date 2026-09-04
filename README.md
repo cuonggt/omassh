@@ -25,7 +25,7 @@ reachability probes.
 | `3`, `↵` | forwards panel; start or stop a tunnel |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
-| `t` / `T` | same, explicitly / one tab split across the group |
+| `t` | connect, from whichever panel has focus |
 | `ctrl+\ n`/`p`, `ctrl+\ 1`-`9` | switch tabs; `ctrl+\ w` is always the host list |
 | `s` | sftp: browse and transfer files |
 | `S` | snippets: run a saved command here, or `f` across a group |
@@ -89,14 +89,13 @@ copy mode. Without tmux the emulator keeps 2000 lines itself.
 `o` hands the whole terminal to `ssh` instead. That path is emulation-free and
 remains the highest-fidelity way to work on a single host.
 
-A tab holds one session or several: `T` opens one tab **split** across every
-host in a group. A pty runs `ssh`, its output feeds a VT emulator, and keys go
-back the other way, so each remote gets a real terminal that happens to be the
-size of its pane, `SIGWINCH` and all. Within a split, `ctrl+\ o` moves focus and
-`ctrl+\ b` toggles **broadcast**, where one keystroke reaches every pane at
-once.
+A tab holds exactly one session, filling the frame. A pty runs `ssh`, its
+output feeds a VT emulator, and keys go back the other way, so the remote gets
+a real terminal the size of the tab, `SIGWINCH` and all. Tabs are how you work
+on several hosts at once, which is why a tab is never subdivided: four hosts
+means four tabs, not four panes fighting over eighty columns.
 
-Once a session tab is showing, every keystroke belongs to a remote, `ctrl+c`
+Once a session tab is showing, every keystroke belongs to the remote, `ctrl+c`
 included — which is why the tab commands sit behind a `ctrl+\` prefix, the way
 tmux uses `ctrl+b`. Press the prefix twice to send a literal one through.
 
@@ -143,7 +142,7 @@ The demo above is recorded with [VHS](https://github.com/charmbracelet/vhs):
 ./hack/demo.sh
 ```
 
-That starts a throwaway SSH server on loopback so the embedded panes show real
+That starts a throwaway SSH server on loopback so the session tabs show real
 shells, seeds a database with sample infrastructure, and drives the UI.
 
 ## Run

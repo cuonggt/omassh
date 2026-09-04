@@ -1,5 +1,5 @@
 # Records demo.gif. Run via ./hack/demo.sh, which starts the SSH server the
-# embedded panes connect to. https://github.com/charmbracelet/vhs
+# session tabs connect to. https://github.com/charmbracelet/vhs
 
 Output demo.gif
 
@@ -30,22 +30,26 @@ Type "2"     Sleep 900ms
 Type "S"     Sleep 2000ms
 Escape       Sleep 600ms
 
-# the headline: split a live session across every host in the group
-Type "T"     Sleep 3500ms
-
-# typing reaches the focused pane only
+# the headline: enter opens the session in a tab of its own
+Enter        Sleep 3500ms
 Type "uptime" Enter
 Sleep 1800ms
 
-# broadcast: one keystroke, every pane
+# back to the list without losing the session
 Ctrl+\
-Type "b"     Sleep 1200ms
-Type "echo DEPLOYED" Enter
-Sleep 2200ms
+Type "w"     Sleep 1200ms
 
-# and back out
+# a second host, a second tab
+Type "j"     Sleep 500ms
+Enter        Sleep 3000ms
+Type "df -h /" Enter
+Sleep 1800ms
+
+# tabs switch with the prefix; the first tab is always the host list
 Ctrl+\
-Type "d"     Sleep 1500ms
+Type "p"     Sleep 1600ms
+Ctrl+\
+Type "w"     Sleep 1500ms
 
 Type "?"     Sleep 2500ms
 Escape       Sleep 500ms

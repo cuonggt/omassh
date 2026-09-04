@@ -2,9 +2,10 @@
 //
 // This is the alternative to the full-screen handoff in internal/sshx. The
 // handoff gives a real terminal to a real ssh and is perfect by construction;
-// a pane emulates one, which is what makes splits and side-by-side views
-// possible, at the cost of owning every emulation detail. Both exist, and the
-// handoff remains the default for that reason.
+// a pane emulates one, which is what lets a session live in a tab alongside
+// the rest of the interface, at the cost of owning every emulation detail.
+// Both exist, and the handoff remains the highest-fidelity path for that
+// reason.
 package term
 
 import (
@@ -157,9 +158,6 @@ func (p *Pane) SendKey(k tea.KeyPressMsg) {
 	}
 	p.em.SendKey(toUV(k))
 }
-
-// SendText pastes a string into the session, used for broadcast.
-func (p *Pane) SendText(s string) { p.em.SendText(s) }
 
 // toUV converts a Bubble Tea key press to the ultraviolet event the emulator
 // encodes. The two structs are field-identical; only the named type differs.

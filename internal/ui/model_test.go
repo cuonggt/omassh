@@ -322,8 +322,8 @@ func (h *harness) openPaneTab(name string) {
 	h.press("enter")
 	h.t.Cleanup(func() {
 		for _, t := range h.m.tabs {
-			for _, p := range t.panes {
-				_ = p.Kill()
+			if !t.isBrowser() {
+				_ = t.pane.Kill()
 			}
 		}
 	})
@@ -391,5 +391,48 @@ func TestConnectingTwiceReusesTheTab(t *testing.T) {
 	}
 	if h.m.activeTab != 1 {
 		t.Errorf("activeTab = %d, want 1", h.m.activeTab)
+	}
+}
+
+// Several hosts means several tabs — that is what replaced the group split, so
+// a tab must never end up holding more than the one session.
+func TestEachHostGetsItsOwnTab(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("bravo", "127.0.0.1:1")
+	h.openPaneTab("alpha")
+
+	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
+	h.press("w")
+	h.press("j") // the second host
+	h.press("enter")
+	t.Cleanup(func() {
+		for _, tb := range h.m.tabs {
+			if !tb.isBrowser() {
+				_ = tb.pane.Kill()
+			}
+		}
+	})
+
+	if len(h.m.tabs) != 3 {
+		t.Fatalf("tabs = %d, want 3 (browser + two sessions)", len(h.m.tabs))
+	}
+	if h.m.activeTab != 2 {
+		t.Errorf("activeTab = %d, want 2", h.m.activeTab)
+	}
+	h.mustContain("2 alpha")
+	h.mustContain("3 bravo")
+
+	// prefix 2 goes back to the first session, not to a pane within one.
+	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
+	h.press("2")
+	if got := h.m.tabs[h.m.activeTab].label(); got != "alpha" {
+		t.Errorf("after prefix 2, tab = %q, want alpha", got)
+	}
+}
+
+// The group split is gone, so nothing should still be bound to it.
+func TestGroupSplitIsUnbound(t *testing.T) {
+	if a := keymap.Default().Lookup("T"); a != keymap.None {
+		t.Errorf("T is still bound to %q — the group split was meant to go", a)
 	}
 }
