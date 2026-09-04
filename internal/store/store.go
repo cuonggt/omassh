@@ -30,7 +30,9 @@ type Store struct {
 	db *bolt.DB
 }
 
-// DefaultPath returns ~/.config/omassh/omassh.db.
+// DefaultPath returns the database path: ~/Library/Application Support/omassh
+// /omassh.db on macOS, ~/.config/omassh/omassh.db on Linux. omassh -h prints
+// the resolved path.
 func DefaultPath() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {

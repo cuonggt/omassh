@@ -13,7 +13,11 @@ import (
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
-// Config is the whole of ~/.config/omassh/config.yaml.
+// Config is the whole of the config file. Where that lives follows
+// os.UserConfigDir, so it is ~/Library/Application Support/omassh/config.yaml
+// on macOS and ~/.config/omassh/config.yaml on Linux. Naming only one of them
+// has sent people to edit a file that is never read; omassh -h prints the
+// resolved path.
 type Config struct {
 	Theme        string                   `yaml:"theme"`
 	Themes       map[string]theme.Palette `yaml:"themes"`
@@ -113,9 +117,12 @@ func (c Config) ProbeDuration() (time.Duration, error) {
 	return d, nil
 }
 
-// Example is a documented starting point, written by -print-config.
-const Example = `# ~/.config/omassh/config.yaml
-# Every setting is optional; delete anything you do not want to change.
+// Example is a documented starting point, written by -print-config. It takes
+// the path so the output names the file the user should actually write, which
+// differs by platform.
+func Example(path string) string { return "# " + path + "\n" + exampleBody }
+
+const exampleBody = `# Every setting is optional; delete anything you do not want to change.
 
 # Built in: tokyonight, gruvbox, nord, mono. Or name one defined below.
 theme: tokyonight

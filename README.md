@@ -161,12 +161,19 @@ go run ./cmd/omassh -o ConnectTimeout=5
 
 ## Configuration
 
-Everything is optional — Omassh runs with no configuration at all. To see what
-can be set:
+Everything is optional — Omassh runs with no configuration at all. The config
+file follows the platform convention, so it is
+`~/Library/Application Support/omassh/config.yaml` on macOS and
+`~/.config/omassh/config.yaml` on Linux — `omassh -h` prints the resolved path,
+and so does the first line of `-print-config`. Writing to the wrong one is
+silent, since a missing config is not an error, so let the shell work it out:
 
 ```sh
-omassh -print-config > ~/.config/omassh/config.yaml
+cfg=$(omassh -print-config | head -1 | cut -c3-)
+mkdir -p "$(dirname "$cfg")" && omassh -print-config > "$cfg"
 ```
+
+The database sits beside it, as `omassh.db`.
 
 Themes (`tokyonight`, `gruvbox`, `nord`, `mono`, or your own palette), key
 bindings, ssh options and the fan-out limit all live there. A malformed config

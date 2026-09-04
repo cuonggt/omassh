@@ -75,7 +75,7 @@ func run() error {
 		return nil
 	}
 	if *printCfg {
-		fmt.Print(config.Example)
+		fmt.Print(config.Example(*cfgPath))
 		return nil
 	}
 

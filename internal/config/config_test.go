@@ -131,7 +131,7 @@ func TestBadConfigIsReported(t *testing.T) {
 }
 
 func TestExampleIsValid(t *testing.T) {
-	c, err := Load(write(t, Example))
+	c, err := Load(write(t, Example("/tmp/omassh/config.yaml")))
 	if err != nil {
 		t.Fatalf("the shipped example does not load: %v", err)
 	}
