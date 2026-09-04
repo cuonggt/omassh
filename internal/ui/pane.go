@@ -212,6 +212,8 @@ func (m Model) handlePrefixCommand(key string, msg tea.KeyPressMsg) (tea.Model, 
 			p.ScrollToBottom()
 			m.setStatus("live view")
 		}
+	case "r":
+		return m, tea.ClearScreen
 	}
 	return m, nil
 }
@@ -482,6 +484,10 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "G", "end":
 			m.attached.ScrollToBottom()
 			m.setStatus("live view")
+		case "r":
+			// ctrl+l belongs to the remote shell while a session has focus, so
+			// the redraw lives behind the prefix instead.
+			return m, tea.ClearScreen
 		}
 		return m, nil
 	}

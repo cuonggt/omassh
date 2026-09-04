@@ -352,6 +352,12 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openPaneGroup()
 	case keymap.Snippets:
 		return m.openSnippets()
+	case keymap.Redraw:
+		// The terminal can clear the screen without telling us — iTerm2's
+		// cmd+K, for one. The renderer still believes its last frame is on
+		// screen and writes only deltas, so the display stays blank until
+		// something forces a full repaint.
+		return m, tea.ClearScreen
 	case keymap.Reload:
 		m.reload()
 		m.setStatus(fmt.Sprintf("reloaded — %d host%s", len(m.d.hosts), plural(len(m.d.hosts))))

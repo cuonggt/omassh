@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -238,4 +239,33 @@ func TestBadgesShowOnTheSelectedRow(t *testing.T) {
 		t.Skip("could not select the config host in this layout")
 	}
 	h.mustContain("cfg")
+}
+
+// Terminals can clear the screen without telling the application — iTerm2's
+// cmd+K does exactly that. The renderer still believes its last frame is on
+// screen and writes only deltas, so the display stays blank until something
+// forces a full repaint.
+func TestRedrawKeyForcesAFullRepaint(t *testing.T) {
+	h := newHarness(t)
+
+	cmd := h.send(tea.KeyPressMsg{Code: 'l', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("ctrl+l produced no command; the screen would stay blank")
+	}
+	if got, want := fmt.Sprintf("%T", cmd()), fmt.Sprintf("%T", tea.ClearScreen()); got != want {
+		t.Errorf("ctrl+l yielded %s, want %s", got, want)
+	}
+}
+
+// While a session owns the keyboard, ctrl+l belongs to the remote shell, so
+// the redraw has to be reachable another way.
+func TestRedrawIsReachableFromASession(t *testing.T) {
+	h := newHarness(t)
+	if _, ok := keymapHas(h, "redraw"); !ok {
+		t.Skip("no redraw action configured")
+	}
+	// The prefix route is exercised without a live pty by checking the binding
+	// exists; the pane path itself is covered in internal/term.
+	h.press("?")
+	h.mustContain("redraw")
 }

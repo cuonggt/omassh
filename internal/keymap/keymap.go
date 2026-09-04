@@ -23,6 +23,7 @@ const (
 	Delete        Action = "delete"
 	Import        Action = "import"
 	Reload        Action = "reload"
+	Redraw        Action = "redraw"
 	Probe         Action = "probe"
 	Credentials   Action = "credentials"
 	SFTP          Action = "sftp"
@@ -42,6 +43,7 @@ const (
 var defaults = map[Action]string{
 	Quit: "q", Help: "?", Connect: "enter", Handoff: "o", Search: "/",
 	NewItem: "n", Edit: "e", Delete: "d", Import: "i", Reload: "r", Probe: "p",
+	Redraw:      "ctrl+l",
 	Credentials: "K", SFTP: "s", Snippets: "S", Pane: "t", PaneGroup: "T",
 	NextPanel: "tab", PrevPanel: "shift+tab",
 	PanelGroups: "1", PanelHosts: "2", PanelForwards: "3",

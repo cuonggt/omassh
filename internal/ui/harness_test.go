@@ -147,3 +147,10 @@ func writeFile(path, body string) error {
 // sessionNameFor exposes the tmux session name a host maps to, so a test can
 // pretend one is running without starting tmux.
 func sessionNameFor(h store.Host) string { return term.SessionName(h) }
+
+// keymapHas reports whether an action is bound, for tests that only care that
+// a way in exists.
+func keymapHas(h *harness, action string) (string, bool) {
+	k := h.m.keys.Key(keymap.Action(action))
+	return k, k != "?"
+}

@@ -24,6 +24,7 @@ reachability probes.
 | `K` | credentials: keys, stored secrets, ssh-agent |
 | `3`, `↵` | forwards panel; start or stop a tunnel |
 | `p` | probe reachability of the hosts in this group |
+| `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` / `T` | embedded pane for this host / split across the group |
 | `s` | sftp: browse and transfer files |
 | `S` | snippets: run a saved command here, or `f` across a group |
@@ -170,6 +171,14 @@ reserved and always work, so no config can trap you in the program.
 
 Colours degrade automatically: on a terminal without truecolor the palettes
 render in 256 colours, and `mono` exists for terminals with less than that.
+
+## If the screen goes blank
+
+Some terminals clear the screen without telling the application — iTerm2's
+`cmd+K` is the common one. Omassh's renderer still believes its last frame is
+on screen and writes only the differences, so nothing reappears on its own.
+`ctrl+l` forces a full repaint; from inside a session, where `ctrl+l` belongs
+to the remote shell, use `ctrl+\ r`.
 
 ## Reachability
 
