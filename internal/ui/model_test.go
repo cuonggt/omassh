@@ -190,7 +190,10 @@ func TestFrameGeometry(t *testing.T) {
 	h := newHarness(t)
 	h.addHost("web", "10.0.0.1")
 
-	for _, size := range [][2]int{{100, 30}, {60, 20}, {180, 50}, {41, 13}} {
+	// The small sizes matter: the sidebar splits a fixed budget between
+	// Groups and Hosts, and a terminal short enough to starve one of them
+	// must still produce a frame of exactly the right shape.
+	for _, size := range [][2]int{{100, 30}, {60, 20}, {180, 50}, {41, 13}, {60, 10}, {40, 8}, {30, 6}, {24, 5}, {20, 3}} {
 		h.send(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 		lines := strings.Split(h.screen(), "\n")
 		if len(lines) != size[1] {

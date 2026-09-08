@@ -45,6 +45,11 @@ const (
 const (
 	sidebarWidth = 32
 	statusHeight = 1
+
+	// The smallest frame the layout can be drawn in: narrower or shorter than
+	// this and the boxes cannot fit their own borders.
+	minWidth  = 30
+	minHeight = 5
 )
 
 // confirmation is a yes/no gate in front of a destructive action.

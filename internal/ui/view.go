@@ -32,6 +32,12 @@ func (m Model) render() string {
 
 	content := m.h - statusHeight
 
+	// Below this there is not enough room for a bordered box, and drawing one
+	// anyway spills past the edges of the terminal. Say so instead.
+	if m.w < minWidth || content < minHeight {
+		return tooSmall(m.w, m.h)
+	}
+
 	switch m.mode {
 	case modeHelp:
 		return box("Help", true, m.w, content, m.helpBody()) + "\n" + m.statusBar()
@@ -72,6 +78,19 @@ func (m Model) render() string {
 	}
 	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, mainFocused, main, content, detail))
 	return body + "\n" + m.statusBar()
+}
+
+// tooSmall fills the frame with a single line, since the real layout cannot
+// fit. It still returns exactly h lines of at most w columns, because the
+// renderer's contract does not bend for small terminals.
+func tooSmall(w, h int) string {
+	msg := ansi.Truncate("terminal too small", w, "")
+	lines := make([]string, h)
+	for i := range lines {
+		lines[i] = ""
+	}
+	lines[h/2] = msg
+	return strings.Join(lines, "\n")
 }
 
 func (m Model) groupsBody(w int) string {
