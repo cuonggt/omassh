@@ -82,6 +82,14 @@ Once a session has focus every keystroke belongs to the remote, `ctrl+c`
 included — which is why the session commands sit behind a `ctrl+\` prefix, the
 way tmux uses `ctrl+b`. Press the prefix twice to send a literal one through.
 
+A jump host is named by picking one of your hosts, and the connection to it is
+spelled out rather than left to `ssh -J`. `-J` hands the hop only `-l`, `-p`
+and `-v`, so the jump host's own key would be silently ignored; Omassh emits
+the `ProxyCommand` that `ssh` would build internally, with that host's port and
+identity in it. A jump host that Omassh does not know — `ops@edge.example.com`
+— is passed through as a plain `-J`, since `ssh` already understands it. Chains
+work: a jump host may sit behind another.
+
 SFTP needs no SSH client of its own. Omassh runs `ssh -s <host> sftp` and
 speaks the SFTP protocol over that child's stdio, so OpenSSH performs the
 connection exactly as it would for an interactive session — `ProxyJump`

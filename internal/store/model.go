@@ -1,7 +1,10 @@
 // Package store holds Omassh's data model and its bbolt persistence.
 package store
 
-import "time"
+import (
+	"strconv"
+	"time"
+)
 
 // Group is a named collection of hosts. Groups nest, and a host inherits
 // User, Identity and ProxyJump from its group chain unless it sets its own.
@@ -26,9 +29,25 @@ type Host struct {
 	ProxyJump string   `json:"proxy_jump,omitempty"`
 	GroupID   string   `json:"group_id,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
+
+	// Jump is the resolved jump host, filled in at resolve time and never
+	// persisted. ssh -J passes only -l, -p and -v to the hop, so the jump
+	// host's own key and port would be ignored; carrying the host itself lets
+	// the connection be built with them.
+	Jump *Host `json:"-"`
 }
 
 // Target renders the [user@]host argument passed to ssh.
+// JumpTarget is how this host is named to ssh -J: a destination, with the
+// port only when it is not the default, since -J takes [user@]host[:port].
+func (h Host) JumpTarget() string {
+	t := h.Target()
+	if h.Port != 0 && h.Port != 22 {
+		t += ":" + strconv.Itoa(h.Port)
+	}
+	return t
+}
+
 func (h Host) Target() string {
 	if h.User != "" {
 		return h.User + "@" + h.Addr

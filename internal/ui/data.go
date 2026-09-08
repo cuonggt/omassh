@@ -53,7 +53,7 @@ func load(s *store.Store) (data, error) {
 		}
 	}
 
-	d.resolver = store.NewResolver(d.groups)
+	d.resolver = store.NewResolver(d.groups, d.hosts)
 	d.tree = store.FlattenGroups(d.groups)
 
 	ungrouped := 0
