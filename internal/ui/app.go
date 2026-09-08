@@ -189,6 +189,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.handleKey(msg)
+
+	case tea.PasteMsg:
+		return m.handlePaste(string(msg.Content))
+	}
+	return m, nil
+}
+
+// handlePaste delivers bracketed-paste text to whatever is taking input.
+//
+// The terminal sends a paste as one message rather than as key presses, so
+// without this it is silently dropped — the paste appears to do nothing at
+// all. Text inputs sanitise it themselves, collapsing newlines and tabs to
+// spaces, which is what a single-line field wants.
+func (m Model) handlePaste(text string) (tea.Model, tea.Cmd) {
+	if text == "" {
+		return m, nil
+	}
+	switch {
+	case m.mode == modeForm:
+		return m, m.form.update(tea.PasteMsg{Content: text})
+	case m.mode == modeFilter:
+		var cmd tea.Cmd
+		m.filter, cmd = m.filter.Update(tea.PasteMsg{Content: text})
+		m.recomputeMatches()
+		m.clampSelection()
+		return m, cmd
+	case m.focus == panelSession && m.attached != nil && m.attached.Alive():
+		// A paste into a terminal is just input, newlines and all.
+		m.attached.SendText(text)
+		return m, nil
 	}
 	return m, nil
 }

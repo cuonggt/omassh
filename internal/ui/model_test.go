@@ -439,3 +439,65 @@ func TestDialogGeometry(t *testing.T) {
 		h.press("esc")
 	}
 }
+
+// A terminal delivers a paste as one bracketed-paste message, not as key
+// presses. Nothing routed that message anywhere, so pasting into a form did
+// nothing at all and looked like the clipboard was empty.
+func TestPasteFillsTheFocusedFormField(t *testing.T) {
+	h := newHarness(t)
+	h.press("n") // the new-host form
+	if h.m.mode != modeForm {
+		t.Fatal("n did not open a form")
+	}
+
+	h.send(tea.PasteMsg{Content: "prod-web-01"})
+	if got := h.m.form.value("Name"); got != "prod-web-01" {
+		t.Fatalf("Name = %q, want the pasted text", got)
+	}
+
+	// The next field takes its own paste, so the target follows focus.
+	h.press("tab")
+	h.send(tea.PasteMsg{Content: "10.0.1.14"})
+	if got := h.m.form.value("Address"); got != "10.0.1.14" {
+		t.Errorf("Address = %q, want the pasted text", got)
+	}
+	if got := h.m.form.value("Name"); got != "prod-web-01" {
+		t.Errorf("Name changed to %q; the paste went to the wrong field", got)
+	}
+}
+
+// Copying a host out of a config file or a wiki table brings newlines and tabs
+// with it. A single-line field must absorb that rather than break its layout.
+func TestPasteOfMultipleLinesStaysOnOneLine(t *testing.T) {
+	h := newHarness(t)
+	h.press("n")
+
+	h.send(tea.PasteMsg{Content: "one\ntwo\tthree\r\nfour"})
+
+	got := h.m.form.value("Name")
+	if strings.ContainsAny(got, "\n\t\r") {
+		t.Errorf("field holds control characters: %q", got)
+	}
+	if got == "" {
+		t.Fatal("a multi-line paste was dropped entirely")
+	}
+	// The frame must still be exactly the terminal's shape.
+	lines := strings.Split(h.screen(), "\n")
+	if len(lines) != testH {
+		t.Errorf("frame is %d lines, want %d", len(lines), testH)
+	}
+}
+
+// Search is a text input too, and its results must follow a paste.
+func TestPasteIntoSearchFiltersImmediately(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("alpha", "10.0.0.1")
+	h.addHost("bravo", "10.0.0.2")
+
+	h.press("/")
+	h.send(tea.PasteMsg{Content: "bravo"})
+
+	if got, ok := h.m.selectedHost(); !ok || got.Name != "bravo" {
+		t.Errorf("selected %+v after pasting a search, want bravo", got)
+	}
+}

@@ -159,6 +159,14 @@ func (p *Pane) SendKey(k tea.KeyPressMsg) {
 	p.em.SendKey(toUV(k))
 }
 
+// SendText writes a string to the session as literal input, which is what a
+// bracketed paste is: text the terminal delivers in one piece rather than as
+// key presses.
+func (p *Pane) SendText(s string) {
+	p.ScrollToBottom()
+	p.em.SendText(s)
+}
+
 // toUV converts a Bubble Tea key press to the ultraviolet event the emulator
 // encodes. The two structs are field-identical; only the named type differs.
 func toUV(k tea.KeyPressMsg) uv.KeyPressEvent {
