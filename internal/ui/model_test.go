@@ -598,3 +598,79 @@ func TestPickerDoesNotTrapTheKeyboard(t *testing.T) {
 		t.Errorf("Jump host = %q, want the typed character", got)
 	}
 }
+
+// The Group field arrives pre-filled with the group you are standing in.
+// Typing used to append to that, so one stray keystroke over "Fleet" produced
+// "FleetFleet" — and since unknown group names are created on save, that made
+// a whole group out of a typo.
+func TestTypingReplacesTheSuggestedGroup(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+
+	// Put the host in a group, then stand in it so the suggestion appears.
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.type_("Fleet")
+	h.press("enter")
+
+	h.press("n") // new host, standing in Fleet
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	if got := h.m.form.value("Group"); got != "Fleet" {
+		t.Fatalf("Group = %q, want the current group suggested", got)
+	}
+
+	h.type_("Staging")
+	if got := h.m.form.value("Group"); got != "Staging" {
+		t.Errorf("Group = %q, want the suggestion replaced", got)
+	}
+}
+
+// Arriving with an arrow key means you meant to edit what is there, not
+// discard it.
+func TestNavigatingKeepsTheSuggestedGroup(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.type_("Fleet")
+	h.press("enter")
+
+	h.press("n")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.press("left") // move within the value rather than typing over it
+	h.type_("X")
+	if got := h.m.form.value("Group"); got != "FleeXt" {
+		t.Errorf("Group = %q, want the value edited in place", got)
+	}
+}
+
+// A paste is text too, so it replaces rather than appending.
+func TestPasteReplacesTheSuggestedGroup(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.type_("Fleet")
+	h.press("enter")
+
+	h.press("n")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.send(tea.PasteMsg{Content: "Production"})
+	if got := h.m.form.value("Group"); got != "Production" {
+		t.Errorf("Group = %q, want the pasted text alone", got)
+	}
+}

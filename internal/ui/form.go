@@ -28,6 +28,12 @@ type field struct {
 	// field stays free text — a jump host can be any ssh destination, not only
 	// one Omassh happens to know about.
 	choices []string
+
+	// suggested marks a value that was filled in for you rather than typed.
+	// Typing over it replaces it, the way selected text would: appending to a
+	// suggestion silently produces things like "FleetFleet", and with unknown
+	// group names being created on save, that makes a group out of a typo.
+	suggested bool
 }
 
 // form is the modal used to add and edit hosts and groups.
@@ -91,9 +97,38 @@ func (f *form) move(d int) tea.Cmd {
 }
 
 func (f *form) update(msg tea.Msg) tea.Cmd {
+	x := &f.fields[f.idx]
+	if x.suggested {
+		// Only text replaces. Arriving with an arrow key or backspace means
+		// you intend to edit what is there, so the value stays.
+		if replacesSuggestion(msg) {
+			x.input.SetValue("")
+		}
+		x.suggested = false
+	}
+
 	var cmd tea.Cmd
-	f.fields[f.idx].input, cmd = f.fields[f.idx].input.Update(msg)
+	x.input, cmd = x.input.Update(msg)
 	return cmd
+}
+
+// replacesSuggestion reports whether a message is the user typing text, as
+// opposed to moving around or deleting within the field.
+func replacesSuggestion(msg tea.Msg) bool {
+	switch m := msg.(type) {
+	case tea.KeyPressMsg:
+		return m.Text != ""
+	case tea.PasteMsg:
+		return true
+	}
+	return false
+}
+
+// asSuggestion marks a field's starting value as filled in rather than typed.
+// A field that starts empty has nothing to replace.
+func asSuggestion(f field) field {
+	f.suggested = f.input.Value() != ""
+	return f
 }
 
 func (f *form) render(w int) string {
@@ -169,6 +204,7 @@ func (f *form) movePicker(d int) {
 
 // choosePicked writes the highlighted choice into the field.
 func (f *form) choosePicked() {
+	f.fields[f.idx].suggested = false // now a deliberate value
 	c := f.fields[f.idx].choices[f.pickIdx]
 	if c == noChoice {
 		c = ""

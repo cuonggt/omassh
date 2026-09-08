@@ -696,7 +696,7 @@ func newHostForm(h store.Host, groupName string, jumpHosts []string) *form {
 			newField("Identity", "path to a private key", h.Identity),
 			withChoices(newField("Jump host", "inherited from group — ↓ to pick", h.ProxyJump), jumpHosts),
 			newField("Tags", "prod, web", strings.Join(h.Tags, ", ")),
-			newField("Group", "unknown names are created", groupName),
+			asSuggestion(newField("Group", "unknown names are created", groupName)),
 		},
 	}
 }
