@@ -405,3 +405,37 @@ func TestEnterHandsTheTerminalOverRatherThanOpeningAPane(t *testing.T) {
 	}
 	h.mustContain("connecting to web")
 }
+
+// A dialog is composited over the list rather than replacing it, so every row
+// is rebuilt as left + popup + right. That splice is where a width bug would
+// hide: the frame must still be exactly the terminal's shape at every size,
+// and the list must still be visible around the dialog.
+func TestDialogGeometry(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web", "10.0.0.1")
+
+	for _, size := range [][2]int{{100, 30}, {60, 20}, {46, 14}, {180, 50}, {31, 6}} {
+		h.send(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		h.press("n") // the new-host form
+		if h.m.mode != modeForm {
+			t.Fatalf("%dx%d: n did not open a form", size[0], size[1])
+		}
+
+		lines := strings.Split(h.screen(), "\n")
+		if len(lines) != size[1] {
+			t.Errorf("%dx%d rendered %d lines, want %d", size[0], size[1], len(lines), size[1])
+		}
+		for i, l := range lines {
+			if w := ansiWidth(l); w > size[0] {
+				t.Errorf("%dx%d line %d is %d wide, want at most %d", size[0], size[1], i, w, size[0])
+			}
+		}
+		// The dialog is an overlay, not a replacement. Only assert that where
+		// there is room for context: on a narrow terminal the dialog covers
+		// almost everything, and legitimately so.
+		if size[0] >= 60 && !h.contains("Groups") {
+			t.Errorf("%dx%d: the list vanished behind the dialog", size[0], size[1])
+		}
+		h.press("esc")
+	}
+}

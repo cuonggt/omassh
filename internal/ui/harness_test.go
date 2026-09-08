@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"github.com/charmbracelet/x/ansi"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -142,3 +143,6 @@ func keymapHas(h *harness, action string) (string, bool) {
 	k := h.m.keys.Key(keymap.Action(action))
 	return k, k != "?"
 }
+
+// ansiWidth measures a rendered line in terminal cells, ignoring escapes.
+func ansiWidth(s string) int { return ansi.StringWidth(s) }

@@ -61,3 +61,38 @@ func row(s string, selected bool, w int) string {
 func hint(key, label string) string {
 	return theme.Key.Render(key) + theme.Dim.Render(" "+label)
 }
+
+// overlay composites fg on top of bg with its top-left corner at (x, y),
+// leaving the rest of bg visible around it. This is what makes a form read as
+// a dialog over the list rather than a screen that replaced it.
+//
+// Every row is rebuilt as left-of-popup + popup + right-of-popup, measured in
+// cells rather than bytes, so styled background content survives being cut.
+func overlay(bg, fg string, x, y int) string {
+	bgLines := strings.Split(bg, "\n")
+	fgLines := strings.Split(fg, "\n")
+
+	for i, fgLine := range fgLines {
+		row := y + i
+		if row < 0 || row >= len(bgLines) {
+			continue
+		}
+		line := bgLines[row]
+		fgw := ansi.StringWidth(fgLine)
+
+		left := ansi.Truncate(line, x, "")
+		// A background row shorter than x needs padding, or the popup would
+		// slide left and the frame would lose its rectangular shape.
+		left += strings.Repeat(" ", max(x-ansi.StringWidth(left), 0))
+		right := ansi.TruncateLeft(line, x+fgw, "")
+
+		bgLines[row] = left + fgLine + right
+	}
+	return strings.Join(bgLines, "\n")
+}
+
+// centre returns the top-left corner that puts a w x h box in the middle of a
+// frame, biased upwards so a dialog sits where the eye already is.
+func centre(w, h, frameW, frameH int) (x, y int) {
+	return max((frameW-w)/2, 0), max((frameH-h)/3, 0)
+}

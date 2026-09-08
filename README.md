@@ -17,7 +17,7 @@ theming, rebindable keys and reachability probes.
 | `j`/`k`, `tab`, `1`/`2` | move and switch panel |
 | `enter` | connect — `ssh` takes the whole terminal, exit returns here |
 | `/` | fuzzy search every host by name, address or tag |
-| `n` / `e` / `d` | new / edit / delete |
+| `n` / `e` / `d` | new / edit / delete, in a dialog over the list |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect in the main pane instead, keeping the host list |

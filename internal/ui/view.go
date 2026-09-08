@@ -37,17 +37,50 @@ func (m Model) render() string {
 		return tooSmall(m.w, m.h)
 	}
 
+	// Help and the file browser are whole screens of their own; forms and
+	// confirmations are dialogs, and fall through to be drawn over the list.
 	switch m.mode {
 	case modeHelp:
 		return box("Help", true, m.w, content, m.helpBody()) + "\n" + m.statusBar()
-	case modeForm:
-		return box(m.form.title, true, m.w, content, m.form.render(m.w-4)) + "\n" + m.statusBar()
-	case modeConfirm:
-		return box("Confirm", true, m.w, content, m.confirmBody()) + "\n" + m.statusBar()
 	case modeSFTP:
 		return m.sftpView(content) + "\n" + m.statusBar()
 	}
 
+	body := m.browserBody(content)
+	if d, ok := m.dialog(content); ok {
+		dw := ansi.StringWidth(strings.Split(d, "\n")[0])
+		dh := strings.Count(d, "\n") + 1
+		x, y := centre(dw, dh, m.w, content)
+		body = overlay(body, d, x, y)
+	}
+	return body + "\n" + m.statusBar()
+}
+
+// dialog is the modal drawn over the browser, if one is open.
+func (m Model) dialog(content int) (string, bool) {
+	// Wide enough for a path or a host address, but never edge to edge: the
+	// list showing through around it is what makes it read as a dialog. The
+	// upper bound is the frame itself, so a narrow terminal shrinks the dialog
+	// rather than letting it overhang.
+	w := clamp(64, 20, m.w-4)
+
+	switch m.mode {
+	case modeForm:
+		body := m.form.render(w - 4)
+		return box(m.form.title, true, w, dialogHeight(body, content), body), true
+	case modeConfirm:
+		body := m.confirmBody()
+		return box("Confirm", true, w, dialogHeight(body, content), body), true
+	}
+	return "", false
+}
+
+// dialogHeight sizes a dialog to its content, capped so it always fits.
+func dialogHeight(body string, content int) int {
+	return clamp(strings.Count(body, "\n")+3, 3, content)
+}
+
+func (m Model) browserBody(content int) string {
 	side := clamp(sidebarWidth, 20, m.w/2)
 	main := m.w - side
 
@@ -73,8 +106,7 @@ func (m Model) render() string {
 		title, detail = m.sessionTitle(), m.attached.Render()
 		mainFocused = m.focus == panelSession
 	}
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, mainFocused, main, content, detail))
-	return body + "\n" + m.statusBar()
+	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, mainFocused, main, content, detail))
 }
 
 // tooSmall fills the frame with a single line, since the real layout cannot
