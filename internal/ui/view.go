@@ -338,7 +338,9 @@ func (m Model) helpBody() string {
 		}},
 		{"Forms", [][2]string{
 			{"tab / shift+tab", "next and previous field"},
-			{"↓", "on Jump host or Group, pick from what you already have"},
+			{"↓", "on Jump host, Group or Tags, pick what you already use"},
+			{"", "on Tags a pick adds to the list, so open it again for"},
+			{"", "a second one; the empty choice clears the field"},
 			{"↵ / esc", "save / cancel"},
 			{"", "both stay free text: any ssh destination works as a"},
 			{"", "jump host, and an unknown group name creates it"},

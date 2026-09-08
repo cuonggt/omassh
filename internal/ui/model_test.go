@@ -529,10 +529,12 @@ func TestJumpHostIsPickedFromAList(t *testing.T) {
 	}
 
 	// Walk to a real host and take it.
-	for h.m.form.currentChoice() == noChoice {
-		h.press("down")
-	}
+	h.press("down")
 	want := h.m.form.currentChoice()
+	if want == noChoice {
+		h.press("down")
+		want = h.m.form.currentChoice()
+	}
 	h.press("enter")
 
 	if h.m.form.picking {
@@ -823,9 +825,7 @@ func TestPickingNoGroupClearsTheField(t *testing.T) {
 		h.press("tab")
 	}
 	h.press("down") // opens on the current value
-	for h.m.form.currentChoice() != noChoice {
-		h.press("up")
-	}
+	h.pickUntil(noChoice)
 	h.press("enter")
 
 	if got := h.m.form.value("Group"); got != "" {
@@ -846,4 +846,100 @@ func TestGroupStaysFreeText(t *testing.T) {
 	h.press("enter")
 
 	h.mustContain("BrandNew")
+}
+
+// Tags hold a set, so picking adds to the list rather than replacing it —
+// opening the picker again is how a second tag is added.
+func TestPickingATagAppends(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+
+	// Give the vocabulary something to offer.
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.type_("prod, web")
+	h.press("enter")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.m.form.fields[h.m.form.idx].input.SetValue("prod")
+
+	// Pick "web" out of the list and expect it added, not substituted.
+	h.press("down")
+	h.pickUntil("web")
+	h.press("enter")
+
+	if got := h.m.form.value("Tags"); got != "prod, web" {
+		t.Errorf("Tags = %q, want prod, web", got)
+	}
+}
+
+// Picking a tag that is already there should be a no-op, not a duplicate.
+func TestPickingATagTwiceDoesNotDuplicateIt(t *testing.T) {
+	if got := addToList("prod, web", "web"); got != "prod, web" {
+		t.Errorf("addToList = %q, want the list unchanged", got)
+	}
+	if got := addToList("", "prod"); got != "prod" {
+		t.Errorf("addToList on an empty field = %q, want prod", got)
+	}
+	if got := addToList("prod,web", "api"); got != "prod, web, api" {
+		t.Errorf("addToList = %q, want the list normalised and extended", got)
+	}
+}
+
+// The empty choice clears a list field outright, which is how every tag is
+// removed without deleting characters one at a time.
+func TestPickingNoneClearsTheTags(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.type_("prod, web")
+	h.press("enter")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.press("down")
+	h.pickUntil(noChoice)
+	h.press("enter")
+
+	if got := h.m.form.value("Tags"); got != "" {
+		t.Errorf("Tags = %q, want empty", got)
+	}
+}
+
+// The vocabulary is what is already in use, deduplicated across hosts.
+func TestTagChoicesAreTheTagsInUse(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("a", "10.0.0.1")
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.type_("prod, web")
+	h.press("enter")
+
+	h.addHost("b", "10.0.0.2")
+	h.selectHost("b")
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.type_("prod, api")
+	h.press("enter")
+
+	got := h.m.hostChoices("").tags
+	want := []string{noChoice, "api", "prod", "web"}
+	if !slices.Equal(got, want) {
+		t.Errorf("tags = %v, want %v", got, want)
+	}
 }

@@ -19,7 +19,7 @@ theming, rebindable keys and reachability probes.
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete, in a dialog over the list |
 | paste | fills the focused field; works in search and in a session too |
-| `↓` in a form | on Jump host or Group, pick from what you already have |
+| `↓` in a form | on Jump host, Group or Tags, pick what you already use |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect in the main pane instead, keeping the host list |

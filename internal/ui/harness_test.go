@@ -50,6 +50,38 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 	return h
 }
 
+// selectHost moves the cursor onto a host by name. addHost does not change
+// the selection, so a test that adds two hosts and then presses e would edit
+// the first one both times.
+func (h *harness) selectHost(name string) {
+	h.t.Helper()
+	h.m.focus = panelHosts
+	for i, x := range h.m.visibleHosts() {
+		if x.Name == name {
+			h.m.hostIdx = i
+			return
+		}
+	}
+	h.t.Fatalf("no host named %q", name)
+}
+
+// pickUntil walks the open picker to a choice. It gives up rather than
+// looping forever: a choice that is not in the list is a failure to report,
+// not a test that hangs until the timeout kills the whole package.
+func (h *harness) pickUntil(want string) {
+	h.t.Helper()
+	if !h.m.form.picking {
+		h.t.Fatal("the picker is not open")
+	}
+	for range len(h.m.form.fields[h.m.form.idx].choices) {
+		if h.m.form.currentChoice() == want {
+			return
+		}
+		h.press("down")
+	}
+	h.t.Fatalf("no choice %q in %v", want, h.m.form.fields[h.m.form.idx].choices)
+}
+
 // send delivers a message and keeps the resulting model.
 func (h *harness) send(msg tea.Msg) tea.Cmd {
 	h.t.Helper()

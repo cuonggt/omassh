@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/textinput"
@@ -28,6 +29,11 @@ type field struct {
 	// field stays free text — a jump host can be any ssh destination, not only
 	// one Omassh happens to know about.
 	choices []string
+
+	// list marks a field holding a comma-separated set rather than one value,
+	// so picking adds to it instead of replacing it. Opening the picker again
+	// is then how a second tag is added.
+	list bool
 
 	// suggested marks a value that was filled in for you rather than typed.
 	// Typing over it replaces it, the way selected text would: appending to a
@@ -204,14 +210,38 @@ func (f *form) movePicker(d int) {
 
 // choosePicked writes the highlighted choice into the field.
 func (f *form) choosePicked() {
-	f.fields[f.idx].suggested = false // now a deliberate value
-	c := f.fields[f.idx].choices[f.pickIdx]
-	if c == noChoice {
-		c = ""
+	x := &f.fields[f.idx]
+	x.suggested = false // now a deliberate value
+
+	c := x.choices[f.pickIdx]
+	switch {
+	case c == noChoice:
+		x.input.SetValue("") // the empty choice clears the field either way
+	case x.list:
+		x.input.SetValue(addToList(x.input.Value(), c))
+	default:
+		x.input.SetValue(c)
 	}
-	f.fields[f.idx].input.SetValue(c)
-	f.fields[f.idx].input.CursorEnd()
+	x.input.CursorEnd()
 	f.closePicker()
+}
+
+// addToList appends one entry to a comma-separated field, leaving it alone if
+// it is already there — picking the same tag twice should be a no-op rather
+// than a duplicate.
+func addToList(current, add string) string {
+	items := splitTags(current)
+	if slices.Contains(items, add) {
+		return strings.Join(items, ", ")
+	}
+	return strings.Join(append(items, add), ", ")
+}
+
+// asList marks a field as holding a set, so its picker adds rather than
+// replaces.
+func asList(f field) field {
+	f.list = true
+	return f
 }
 
 // noChoice is the list entry that clears the field.

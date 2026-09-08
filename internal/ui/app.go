@@ -4,6 +4,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -685,6 +686,7 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 type hostChoices struct {
 	jumpHosts []string
 	groups    []string
+	tags      []string
 }
 
 func newHostForm(h store.Host, groupName string, c hostChoices) *form {
@@ -705,7 +707,7 @@ func newHostForm(h store.Host, groupName string, c hostChoices) *form {
 			newField("User", "inherited from group", h.User),
 			newField("Identity", "path to a private key", h.Identity),
 			asSuggestion(withChoices(newField("Jump host", "inherited from group — ↓ to pick", h.ProxyJump), c.jumpHosts)),
-			newField("Tags", "prod, web", strings.Join(h.Tags, ", ")),
+			asList(withChoices(newField("Tags", "prod, web — ↓ to pick", strings.Join(h.Tags, ", ")), c.tags)),
 			asSuggestion(withChoices(newField("Group", "↓ to pick, or type to create", groupName), c.groups)),
 		},
 	}
@@ -812,7 +814,13 @@ func strOr(s, fallback string) string {
 // Groups come from the store, so the synthetic "Ungrouped" heading is not
 // among them — leaving a host ungrouped is what the empty choice is for.
 func (m Model) hostChoices(excludeID string) hostChoices {
-	c := hostChoices{jumpHosts: []string{noChoice}, groups: []string{noChoice}}
+	// Every picker leads with the empty choice, which is how a field is
+	// cleared without deleting characters one at a time.
+	c := hostChoices{
+		jumpHosts: []string{noChoice},
+		groups:    []string{noChoice},
+		tags:      []string{noChoice},
+	}
 	for _, h := range m.d.hosts {
 		if h.ID == excludeID {
 			continue
@@ -822,5 +830,21 @@ func (m Model) hostChoices(excludeID string) hostChoices {
 	for _, g := range m.d.groups {
 		c.groups = append(c.groups, g.Name)
 	}
+
+	// Every tag in use, so the vocabulary stays shared rather than drifting
+	// into prod/Prod/prd. A mistyped tag fails silently — the host simply
+	// stops matching a search — which is what makes picking worth offering.
+	seen := map[string]bool{}
+	var tags []string
+	for _, h := range m.d.hosts {
+		for _, t := range h.Tags {
+			if !seen[t] {
+				seen[t] = true
+				tags = append(tags, t)
+			}
+		}
+	}
+	slices.Sort(tags)
+	c.tags = append(c.tags, tags...)
 	return c
 }
