@@ -15,7 +15,6 @@ import (
 	"github.com/cuonggt/omassh/internal/forward"
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/probe"
-	"github.com/cuonggt/omassh/internal/runner"
 	"github.com/cuonggt/omassh/internal/secrets"
 	"github.com/cuonggt/omassh/internal/sftpx"
 	"github.com/cuonggt/omassh/internal/sshx"
@@ -42,8 +41,6 @@ const (
 	modeHelp
 	modeIdentities
 	modeSFTP
-	modeSnippets
-	modeResults
 )
 
 const (
@@ -61,7 +58,6 @@ type confirmation struct {
 // Options are the settings the interface takes from the config file.
 type Options struct {
 	Keys         keymap.Map
-	Fanout       int
 	ProbeTimeout time.Duration
 	// SSHConfigPath is the client config to read hosts from. Injectable so
 	// tests do not depend on whatever the developer has in ~/.ssh/config.
@@ -102,18 +98,7 @@ type Model struct {
 	probeCh chan probeEvent
 	probing bool
 
-	snippetIdx int
-	pending    pendingRun
-	confirmRun bool
-	results    []runner.Result
-	resultIdx  int
-	outputTop  int
-	resultsCh  chan runEvent
-	running    bool
-	runTotal   int
-	runDone    int
-	runLabel   string
-	runCancel  context.CancelFunc
+	runCancel context.CancelFunc
 
 	// tabs[0] is the host browser; the rest hold live sessions.
 	tabs        []tab
@@ -143,9 +128,6 @@ func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Opt
 	index := newHostIndex()
 	sup.SetBuilder(forwardBuilder(index))
 
-	if opts.Fanout < 1 {
-		opts.Fanout = runner.DefaultLimit
-	}
 	if opts.ProbeTimeout <= 0 {
 		opts.ProbeTimeout = 2 * time.Second
 	}
@@ -156,8 +138,8 @@ func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Opt
 	m := Model{opts: opts, keys: opts.Keys, st: st, vault: vault, sup: sup, index: index,
 		focus: panelHosts, filter: ti, agentKeys: map[string]bool{},
 		tabs:      []tab{{}}, // the host browser
-		transfers: make(chan transferMsg, 32), resultsCh: make(chan runEvent, 64),
-		probeCh: make(chan probeEvent, 64), probes: map[string]probe.State{}}
+		transfers: make(chan transferMsg, 32),
+		probeCh:   make(chan probeEvent, 64), probes: map[string]probe.State{}}
 	m.reload()
 	if m.status == "" {
 		m.status = fmt.Sprintf("%d host%s", len(m.d.hosts), plural(len(m.d.hosts)))
@@ -194,9 +176,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		// The search box lives in the sidebar, so size it to that, not the screen.
 		m.filter.SetWidth(max(clamp(sidebarWidth, 20, m.w/2)-8, 8))
-
-	case runEvent:
-		return m.handleRunEvent(msg)
 
 	case probeEvent:
 		return m.handleProbeEvent(msg)
@@ -254,10 +233,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleIdentitiesKey(msg)
 	case modeSFTP:
 		return m.handleSFTPKey(msg)
-	case modeSnippets:
-		return m.handleSnippetsKey(msg)
-	case modeResults:
-		return m.handleResultsKey(msg)
 	}
 	return m.handleBrowseKey(msg)
 }
@@ -345,8 +320,6 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openSFTP()
 	case keymap.Pane:
 		return m.openSessionTab()
-	case keymap.Snippets:
-		return m.openSnippets()
 	case keymap.Redraw:
 		// The terminal can clear the screen without telling us — iTerm2's
 		// cmd+K, for one. The renderer still believes its last frame is on
@@ -392,11 +365,7 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "y", "Y":
 		status, err := m.confirm.run()
 		back := m.returnTo
-		wasRun := m.confirmRun
-		m.confirm, m.confirmRun, m.mode = nil, false, back
-		if wasRun && err == nil {
-			return m.startRun()
-		}
+		m.confirm, m.mode = nil, back
 		if err != nil {
 			m.setErr(err)
 		} else {
@@ -408,7 +377,7 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.reload()
 		}
 	case "n", "N", "esc", "q":
-		m.confirm, m.confirmRun, m.mode = nil, false, m.returnTo
+		m.confirm, m.mode = nil, m.returnTo
 		m.setStatus("cancelled")
 	}
 	return m, nil
@@ -653,10 +622,6 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 		return m.saveForwardForm()
 	case formMkdir, formRename, formChmod:
 		return m.saveFileForm()
-	case formSnippet:
-		return m.saveSnippetForm()
-	case formTypedRun:
-		return m.saveTypedRunForm()
 	}
 	if f.kind == formGroup {
 		name := f.value("Name")
@@ -825,7 +790,7 @@ func newGroupForm(g store.Group, parentName, identityLabel string) *form {
 // A modal opened from another modal still returns to the underlying view.
 func backFor(current mode) mode {
 	switch current {
-	case modeIdentities, modeSFTP, modeSnippets:
+	case modeIdentities, modeSFTP:
 		return current
 	default:
 		return modeBrowse

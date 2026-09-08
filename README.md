@@ -7,9 +7,8 @@ interaction model, running on top of real OpenSSH.
 
 ## Status
 
-Feature-complete against the original plan: hosts and groups, credentials,
-port forwarding, SFTP, snippets, plus theming, rebindable keys and
-reachability probes.
+Hosts and groups, credentials, port forwarding and SFTP, plus theming,
+rebindable keys and reachability probes.
 
 ## Keys
 
@@ -28,7 +27,6 @@ reachability probes.
 | `t` | connect, from whichever panel has focus |
 | `ctrl+\ n`/`p`, `ctrl+\ 1`-`9` | switch tabs; `ctrl+\ w` is always the host list |
 | `s` | sftp: browse and transfer files |
-| `S` | snippets: run a saved command here, or `f` across a group |
 | `r` | reload store and re-read `~/.ssh/config` |
 | `?` | help |
 
@@ -50,15 +48,6 @@ credential's id. Unlocking a key runs the real `ssh-add`, with the passphrase
 handed over through an `SSH_ASKPASS` helper on a single-use unix socket in a
 0700 directory — it never appears in an environment variable, a command line,
 or a file. Run with `-secrets=memory` to keep secrets in the process only.
-
-Snippets run the same way — `ssh <host> '<command>'` with stdout and stderr
-captured separately, fanned out with bounded concurrency. Every host is
-attempted regardless of what the others do, and output is capped so a stray
-`cat` of a log cannot flood the UI. A fan-out always confirms and names its
-hosts; a command matching a destructive pattern (`rm -rf`, `mkfs`, `dd of=`,
-`DROP DATABASE`, …) escalates to a typed confirmation where you must enter the
-number of hosts — the blast radius is the thing you have to type. It is a
-speed bump for obvious mistakes, not a security control.
 
 Sessions live in **tabs**, listed across the top. Tab 1 is the host browser and
 is always there; `enter` on a host opens its session in a tab of its own and
@@ -176,7 +165,7 @@ mkdir -p "$(dirname "$cfg")" && omassh -print-config > "$cfg"
 The database sits beside it, as `omassh.db`.
 
 Themes (`tokyonight`, `gruvbox`, `nord`, `mono`, or your own palette), key
-bindings, ssh options and the fan-out limit all live there. A malformed config
+bindings and ssh options all live there. A malformed config
 is reported at startup rather than ignored, because settings that silently do
 nothing are worse than an error that says why. Arrow keys and `ctrl+c` are
 reserved and always work, so no config can trap you in the program.

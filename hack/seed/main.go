@@ -87,10 +87,6 @@ func main() {
 	st.PutForward(store.Forward{HostKey: dbHost.StatKey(), Name: "metrics",
 		Kind: store.ForwardLocal, ListenPort: 9090, TargetHost: "localhost", TargetPort: 9090})
 
-	st.PutSnippet(store.Snippet{Name: "disk usage", Command: "df -h /"})
-	st.PutSnippet(store.Snippet{Name: "uptime", Command: "uptime"})
-	st.PutSnippet(store.Snippet{Name: "restart nginx", Command: "sudo systemctl restart nginx"})
-
 	// A little history so the detail pane is not all "never connected".
 	st.RecordSession(dbHost.StatKey(), time.Now().Add(-2*time.Hour))
 	for range 3 {

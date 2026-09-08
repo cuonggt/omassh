@@ -20,8 +20,6 @@ const (
 	formMkdir
 	formRename
 	formChmod
-	formSnippet
-	formTypedRun
 )
 
 type field struct {

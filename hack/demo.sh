@@ -9,6 +9,10 @@ cd "$(dirname "$0")/.."
 
 PORT=42222
 WORK=/tmp/omassh-demo
+
+# The demo's sessions get a tmux server of their own, so recording never lands
+# among the sessions someone is actually using.
+export OMASSH_TMUX_SOCKET=omassh-demo
 rm -rf "$WORK"; mkdir -p "$WORK"
 
 ssh-keygen -t ed25519 -N "" -C demo-host   -f "$WORK/hostkey" -q
@@ -19,7 +23,7 @@ go build -o "$WORK/demoserver" ./hack/demoserver
 
 "$WORK/demoserver" -hostkey "$WORK/hostkey" -addr "127.0.0.1:$PORT" &
 SERVER=$!
-trap 'kill $SERVER 2>/dev/null || true' EXIT
+trap 'kill $SERVER 2>/dev/null; tmux -L omassh-demo kill-server 2>/dev/null || true' EXIT
 
 # Wait for it to accept before seeding hosts that point at it.
 i=0

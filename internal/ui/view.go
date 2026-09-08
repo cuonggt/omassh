@@ -46,10 +46,6 @@ func (m Model) render() string {
 		return bar + "\n" + box("Credentials", true, m.w, content, m.identitiesBody()) + "\n" + m.statusBar()
 	case modeSFTP:
 		return bar + "\n" + m.sftpView(content) + "\n" + m.statusBar()
-	case modeSnippets:
-		return bar + "\n" + box("Snippets", true, m.w, content, m.snippetsBody(m.w-4)) + "\n" + m.statusBar()
-	case modeResults:
-		return bar + "\n" + m.resultsView(content) + "\n" + m.statusBar()
 	}
 
 	// A session tab shows its session; the first tab is the host browser.
@@ -281,7 +277,6 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
 			{m.keys.Key(keymap.Credentials), "credentials: keys, stored secrets and the ssh-agent"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
-			{m.keys.Key(keymap.Snippets), "snippets: saved commands, run here or across a group"},
 		}},
 		{"Tabs (" + prefixKey + " prefix)", [][2]string{
 			{"prefix n / p", "next and previous tab"},
@@ -299,13 +294,6 @@ func (m Model) helpBody() string {
 			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
 			{"", "every other key goes to the remote, ctrl+c included,"},
 			{"", "so the prefix is the way back out"},
-		}},
-		{"Snippets (" + m.keys.Key(keymap.Snippets) + ")", [][2]string{
-			{"↵", "run on the selected host"},
-			{"f", "fan out across every host in the selected group"},
-			{"", "a fan-out always confirms; a command matching a"},
-			{"", "destructive pattern makes you type the host count"},
-			{"ctrl+d/u", "scroll one host's output in the results view"},
 		}},
 		{"SFTP (" + m.keys.Key(keymap.SFTP) + ")", [][2]string{
 			{"tab", "switch between the local and remote pane"},
@@ -364,11 +352,6 @@ func (m Model) statusBar() string {
 	case modeSFTP:
 		hints = hint("tab", "pane") + sep() + hint("c", "copy") +
 			sep() + hint("↵/-", "in/up") + sep() + hint("esc", "close")
-	case modeSnippets:
-		hints = hint("↵", "run here") + sep() + hint("f", "fan out") +
-			sep() + hint("n/e/d", "new/edit/delete") + sep() + hint("esc", "back")
-	case modeResults:
-		hints = hint("j/k", "host") + sep() + hint("ctrl+d/u", "scroll") + sep() + hint("esc", "back")
 	default:
 		switch {
 		case m.prefixArmed:

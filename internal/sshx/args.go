@@ -68,18 +68,3 @@ func SubsystemArgs(h store.Host, subsystem string, opts ...string) []string {
 	extra := append([]string{"-s"}, opts...)
 	return append(Build(h, extra...), subsystem)
 }
-
-// ExecArgs builds the argv for running a command on a host and capturing its
-// output. The command is passed as a single argument so the remote shell sees
-// it exactly as written, quoting intact.
-//
-// BatchMode is forced on: a snippet run has no terminal to prompt at, and
-// failing immediately beats hanging on a prompt nobody can answer. LogLevel
-// is raised to ERROR because ssh writes its own chatter to the same stderr the
-// remote command uses — without it, a banner or a "Permanently added" notice
-// would be captured as if the command had produced it. Real failures are
-// logged at ERROR or above and still come through.
-func ExecArgs(h store.Host, command string, opts ...string) []string {
-	extra := append([]string{"-o", "BatchMode=yes", "-o", "LogLevel=ERROR", "-T"}, opts...)
-	return append(Build(h, extra...), command)
-}

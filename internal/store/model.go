@@ -49,13 +49,6 @@ type Identity struct {
 	HasSecret bool   `json:"has_secret,omitempty"`
 }
 
-// Snippet is a saved command, runnable on one host or fanned out over a group.
-type Snippet struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Command string `json:"command"`
-}
-
 // Host is a single reachable machine.
 type Host struct {
 	ID        string `json:"id"`

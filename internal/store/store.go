@@ -21,7 +21,6 @@ var (
 	bucketStats  = []byte("stats")
 	bucketIdents = []byte("identities")
 	bucketFwds   = []byte("forwards")
-	bucketSnips  = []byte("snippets")
 )
 
 // Store is the on-disk database of locally-defined hosts and groups, plus
@@ -56,7 +55,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketIdents, bucketFwds, bucketSnips} {
+		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketIdents, bucketFwds} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -358,43 +357,6 @@ func (s *Store) IdentityUsage(id string) (hosts, groups int) {
 		}
 	}
 	return hosts, groups
-}
-
-func (s *Store) Snippets() ([]Snippet, error) {
-	var out []Snippet
-	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketSnips).ForEach(func(_, v []byte) error {
-			var sn Snippet
-			if err := json.Unmarshal(v, &sn); err != nil {
-				return err
-			}
-			out = append(out, sn)
-			return nil
-		})
-	})
-	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-	})
-	return out, err
-}
-
-func (s *Store) PutSnippet(sn Snippet) (Snippet, error) {
-	if strings.TrimSpace(sn.Name) == "" {
-		return sn, fmt.Errorf("a snippet needs a name")
-	}
-	if strings.TrimSpace(sn.Command) == "" {
-		return sn, fmt.Errorf("a snippet needs a command")
-	}
-	if sn.ID == "" {
-		sn.ID = newID()
-	}
-	return sn, s.put(bucketSnips, sn.ID, sn)
-}
-
-func (s *Store) DeleteSnippet(id string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketSnips).Delete([]byte(id))
-	})
 }
 
 func (s *Store) Stats() (map[string]Stat, error) {

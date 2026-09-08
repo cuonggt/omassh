@@ -40,57 +40,6 @@ func TestEnterOnForwardsTogglesTheTunnel(t *testing.T) {
 	h.mustContain(strconv.Itoa(port))
 }
 
-// A destructive-looking command must not run on a single keystroke.
-func TestDangerousSnippetDemandsTypedConfirmation(t *testing.T) {
-	h := newHarness(t)
-	h.addHost("web", "10.0.0.1")
-	h.store.PutSnippet(store.Snippet{Name: "cleanup", Command: "rm -rf /tmp/somewhere"})
-	h.reload()
-
-	h.press("S")
-	if h.m.mode != modeSnippets {
-		t.Fatalf("S did not open snippets, got %v", h.m.mode)
-	}
-	h.mustContain("cleanup")
-
-	h.press("enter")
-	if h.m.mode != modeForm || h.m.form == nil || h.m.form.kind != formTypedRun {
-		t.Fatalf("a destructive snippet ran without a typed confirmation (mode %v)", h.m.mode)
-	}
-	h.mustContain("looks destructive")
-	h.mustContain("rm -rf")
-
-	// The wrong number is refused and the form stays up.
-	h.type_("9")
-	h.press("enter")
-	if h.m.mode != modeForm {
-		t.Fatal("a wrong host count was accepted")
-	}
-	h.mustContain("exactly to confirm")
-}
-
-// A harmless snippet on a single host needs no confirmation, but a fan-out
-// across a group always does.
-func TestFanOutAlwaysConfirms(t *testing.T) {
-	h := newHarness(t)
-	g, _ := h.store.PutGroup(store.Group{Name: "Fleet"})
-	for _, n := range []string{"a", "b", "c"} {
-		h.store.PutHost(store.Host{Name: n, Addr: "10.0.0.1", GroupID: g.ID})
-	}
-	h.store.PutSnippet(store.Snippet{Name: "uptime", Command: "uptime"})
-	h.reload()
-
-	h.press("S", "f")
-	if h.m.mode != modeConfirm {
-		t.Fatalf("fan-out did not confirm, got mode %v", h.m.mode)
-	}
-	h.mustContain("on 3 hosts?")
-	// The hosts are named, so the blast radius is visible before agreeing.
-	for _, n := range []string{"a", "b", "c"} {
-		h.mustContain(n)
-	}
-}
-
 func TestSSHConfigHostsAreReadOnly(t *testing.T) {
 	dir := t.TempDir()
 	cfg := dir + "/config"

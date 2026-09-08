@@ -28,7 +28,6 @@ const (
 	Credentials   Action = "credentials"
 	SFTP          Action = "sftp"
 	Pane          Action = "pane"
-	Snippets      Action = "snippets"
 	NextPanel     Action = "next-panel"
 	PrevPanel     Action = "prev-panel"
 	PanelGroups   Action = "panel-groups"
@@ -43,7 +42,7 @@ var defaults = map[Action]string{
 	Quit: "q", Help: "?", Connect: "enter", Handoff: "o", Search: "/",
 	NewItem: "n", Edit: "e", Delete: "d", Import: "i", Reload: "r", Probe: "p",
 	Redraw:      "ctrl+l",
-	Credentials: "K", SFTP: "s", Snippets: "S", Pane: "t",
+	Credentials: "K", SFTP: "s", Pane: "t",
 	NextPanel: "tab", PrevPanel: "shift+tab",
 	PanelGroups: "1", PanelHosts: "2", PanelForwards: "3",
 	Up: "k", Down: "j",

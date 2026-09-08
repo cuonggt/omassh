@@ -116,7 +116,7 @@ func run() error {
 	sup := forward.New(nil)
 	defer sup.StopAll()
 
-	opts := ui.Options{Keys: km, Fanout: cfg.Fanout, ProbeTimeout: probeTimeout}
+	opts := ui.Options{Keys: km, ProbeTimeout: probeTimeout}
 	final, err := tea.NewProgram(ui.New(st, vault, sup, opts)).Run()
 	// An SFTP session or an embedded pane owns an ssh child of its own; close
 	// them explicitly rather than relying on process exit to reap them.

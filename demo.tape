@@ -26,10 +26,6 @@ Type "1"     Sleep 600ms
 Type "j"     Sleep 1200ms
 Type "2"     Sleep 900ms
 
-# saved commands, fanned out or run here
-Type "S"     Sleep 2000ms
-Escape       Sleep 600ms
-
 # the headline: enter opens the session in a tab of its own
 Enter        Sleep 3500ms
 Type "uptime" Enter

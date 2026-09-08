@@ -42,8 +42,8 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 	t.Cleanup(sup.StopAll)
 
 	o := Options{
-		Keys:   keymap.Default(),
-		Fanout: 4, ProbeTimeout: time.Second,
+		Keys:         keymap.Default(),
+		ProbeTimeout: time.Second,
 		// An empty file, so tests never depend on the developer's own config.
 		SSHConfigPath: filepath.Join(dir, "no-such-ssh-config"),
 	}

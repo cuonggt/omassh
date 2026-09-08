@@ -23,7 +23,7 @@ func TestMissingFileIsNotAnError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Theme != "tokyonight" || c.Fanout != 8 {
+	if c.Theme != "tokyonight" {
 		t.Errorf("defaults not applied: %+v", c)
 	}
 }
@@ -36,9 +36,6 @@ func TestPartialConfigKeepsDefaults(t *testing.T) {
 	}
 	if c.Theme != "nord" {
 		t.Errorf("Theme = %q", c.Theme)
-	}
-	if c.Fanout != 8 {
-		t.Errorf("Fanout = %d, want the default 8", c.Fanout)
 	}
 	if c.ProbeTimeout != "2s" {
 		t.Errorf("ProbeTimeout = %q, want the default", c.ProbeTimeout)
@@ -55,7 +52,6 @@ keys:
   connect: c
 ssh_options:
   - ConnectTimeout=10
-fanout: 3
 probe_timeout: 750ms
 `))
 	if err != nil {
@@ -79,9 +75,6 @@ probe_timeout: 750ms
 	if len(c.SSHOptions) != 1 || c.SSHOptions[0] != "ConnectTimeout=10" {
 		t.Errorf("SSHOptions = %v", c.SSHOptions)
 	}
-	if c.Fanout != 3 {
-		t.Errorf("Fanout = %d", c.Fanout)
-	}
 	if d, _ := c.ProbeDuration(); d != 750*time.Millisecond {
 		t.Errorf("ProbeDuration = %v", d)
 	}
@@ -103,14 +96,13 @@ func TestUserThemeShadowsBuiltin(t *testing.T) {
 // appear to do nothing for no visible reason.
 func TestBadConfigIsReported(t *testing.T) {
 	cases := map[string]string{
-		"malformed yaml":  "theme: [unclosed\n",
-		"unknown theme":   "theme: neon-dreams\n",
-		"bad colour":      "theme: mine\nthemes:\n  mine:\n    accent: \"not-a-colour\"\n",
-		"unknown action":  "keys:\n  teleport: t\n",
-		"reserved key":    "keys:\n  connect: ctrl+c\n",
-		"key conflict":    "keys:\n  connect: e\n",
-		"bad duration":    "probe_timeout: soon\n",
-		"negative fanout": "fanout: -1\n",
+		"malformed yaml": "theme: [unclosed\n",
+		"unknown theme":  "theme: neon-dreams\n",
+		"bad colour":     "theme: mine\nthemes:\n  mine:\n    accent: \"not-a-colour\"\n",
+		"unknown action": "keys:\n  teleport: t\n",
+		"reserved key":   "keys:\n  connect: ctrl+c\n",
+		"key conflict":   "keys:\n  connect: e\n",
+		"bad duration":   "probe_timeout: soon\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -23,12 +23,11 @@ type Config struct {
 	Themes       map[string]theme.Palette `yaml:"themes"`
 	Keys         map[string]string        `yaml:"keys"`
 	SSHOptions   []string                 `yaml:"ssh_options"`
-	Fanout       int                      `yaml:"fanout"`
 	ProbeTimeout string                   `yaml:"probe_timeout"`
 }
 
 func Default() Config {
-	return Config{Theme: "tokyonight", Fanout: 8, ProbeTimeout: "2s"}
+	return Config{Theme: "tokyonight", ProbeTimeout: "2s"}
 }
 
 func DefaultPath() (string, error) {
@@ -75,9 +74,6 @@ func (c Config) Validate() error {
 	}
 	if _, err := c.ProbeDuration(); err != nil {
 		return err
-	}
-	if c.Fanout < 0 {
-		return fmt.Errorf("fanout must not be negative")
 	}
 	return nil
 }
@@ -143,9 +139,6 @@ theme: tokyonight
 # ssh_options:
 #   - ConnectTimeout=10
 #   - ServerAliveInterval=30
-
-# How many hosts a snippet fan-out talks to at once.
-fanout: 8
 
 # How long a reachability probe waits before calling a host down.
 probe_timeout: 2s
