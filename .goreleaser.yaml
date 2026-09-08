@@ -65,9 +65,18 @@ homebrew_casks:
     # what it fetches with com.apple.quarantine. Without stripping it, macOS
     # refuses to run the binary with "Apple could not verify omassh is free of
     # malware" and the install looks fine right up until first use.
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/omassh"]
-          end
+    #
+    # Written out rather than using goreleaser's `hooks`, which still emits the
+    # `postflight` stanza Homebrew has deprecated in favour of the declarative
+    # `postflight_steps`. Steps run from staged_path by default, so chdir "."
+    # puts the relative argument on the staged binary; args are not path
+    # specs, so there is no way to name it absolutely. must_succeed is off
+    # because a machine without /usr/bin/xattr has nothing to strip, and that
+    # should not fail the install.
+    custom_block: |
+      postflight_steps do
+        run "/usr/bin/xattr",
+            args:         ["-dr", "com.apple.quarantine", "omassh"],
+            chdir:        ".",
+            must_succeed: false
+      end
