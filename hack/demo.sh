@@ -18,7 +18,10 @@ rm -rf "$WORK"; mkdir -p "$WORK"
 ssh-keygen -t ed25519 -N "" -C demo-host   -f "$WORK/hostkey" -q
 ssh-keygen -t ed25519 -N "" -C demo-client -f "$WORK/id_demo" -q
 
-go build -o "$WORK/omassh" ./cmd/omassh
+# Blank the version rather than leaving the default "dev", which the help
+# screen would show. Stamping a real one would date the GIF: it is recorded
+# before the tag it ships under, so it would always name the previous release.
+go build -ldflags "-X main.version=" -o "$WORK/omassh" ./cmd/omassh
 go build -o "$WORK/demoserver" ./hack/demoserver
 
 "$WORK/demoserver" -hostkey "$WORK/hostkey" -addr "127.0.0.1:$PORT" &
