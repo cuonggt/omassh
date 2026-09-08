@@ -418,8 +418,9 @@ func (m Model) statusBar() string {
 	case modeHelp:
 		hints = hint("any key", "back")
 	case modeSFTP:
-		hints = hint("tab", "pane") + sep() + hint("c", "copy") +
-			sep() + hint("↵/-", "in/up") + sep() + hint("esc", "close")
+		// The file browser keeps its keys on the transfer strip, which has a
+		// whole row for them; repeating a shorter version here said the same
+		// thing twice and named different keys each time.
 	default:
 		switch {
 		case m.prefixArmed:

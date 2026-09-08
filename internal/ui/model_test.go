@@ -1290,6 +1290,10 @@ func sftpHarness(t *testing.T, left, right int) *harness {
 	h.m.mode = modeSFTP
 	h.m.paneFocus = 1 // where sftpConnected leaves it
 	for i, n := range []int{left, right} {
+		// A rendered pane asks its filesystem for a label, so it needs one
+		// even when the test only cares about the cursor.
+		h.m.panes[i].fs = fakeFS{}
+		h.m.panes[i].path = "/"
 		h.m.panes[i].entries = make([]sftpx.Entry, n)
 		for j := range h.m.panes[i].entries {
 			h.m.panes[i].entries[j].Name = fmt.Sprintf("p%d-file-%02d", i, j)
@@ -1436,4 +1440,38 @@ func TestDoubleClickOnAFileDoesNothing(t *testing.T) {
 	if h.m.panes[0].idx != 1 {
 		t.Errorf("idx = %d, want the file still selected", h.m.panes[0].idx)
 	}
+}
+
+// The file browser had two hint lines saying nearly the same thing in
+// different words — the transfer strip's and the status bar's — and neither
+// listed everything. Only the strip carries them now.
+func TestSFTPHasOneHintLine(t *testing.T) {
+	h := sftpHarness(t, 5, 5)
+
+	lines := strings.Split(h.screen(), "\n")
+	hintRows := 0
+	for _, l := range lines {
+		if strings.Contains(l, "pane") && strings.Contains(l, "copy") {
+			hintRows++
+		}
+	}
+	if hintRows != 1 {
+		t.Errorf("%d hint lines, want exactly 1:\n%s", hintRows,
+			strings.Join(lines[len(lines)-2:], "\n"))
+	}
+
+	// The one that remains is the complete list, not the abbreviated one.
+	h.mustContain("mkdir")
+	h.mustContain("chmod")
+	h.mustContain("⇧tab")
+}
+
+// A transfer replaces the keys with its progress; the keys come back after.
+func TestTransferReplacesTheHintLine(t *testing.T) {
+	h := sftpHarness(t, 5, 5)
+	h.mustContain("mkdir")
+
+	h.send(transferMsg{name: "big.iso", done: 512, total: 1024})
+	h.mustContain("big.iso")
+	h.mustNotContain("mkdir")
 }

@@ -372,9 +372,14 @@ func (m Model) paneBody(i, w, rows int) string {
 }
 
 func (m Model) transferStrip() string {
+	// Idle, this row is the file browser's key list. It is the only hint line
+	// in this view: the status bar shows just the status here, because the two
+	// were saying nearly the same thing in different words, and neither said
+	// all of it.
 	if m.transfer.name == "" {
 		return theme.Dim.Render(" " + ansi.Truncate(
-			"tab pane · ↵ open · - up · c copy · m mkdir · r rename · M chmod · d delete · q close", m.w-1, "…"))
+			"tab/⇧tab pane · ↵ open · - up · c copy · m mkdir · r rename · M chmod · d delete · q close",
+			m.w-1, "…"))
 	}
 	t := m.transfer
 	switch {
