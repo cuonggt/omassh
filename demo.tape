@@ -26,6 +26,20 @@ Type "1"     Sleep 600ms
 Type "j"     Sleep 1200ms
 Type "2"     Sleep 900ms
 
+# editing a host: jump host, group and tags are all picked from a list
+Type "e"     Sleep 1200ms
+Tab Tab Tab Tab Tab
+Sleep 600ms
+Down         Sleep 1600ms
+Escape       Sleep 400ms
+Tab          Sleep 600ms
+Down         Sleep 1200ms
+Space        Sleep 900ms
+Down Down
+Space        Sleep 1400ms
+Enter        Sleep 700ms
+Escape       Sleep 900ms
+
 # the headline: t opens the session in the main pane
 Type "t"     Sleep 3500ms
 Type "uptime" Enter
