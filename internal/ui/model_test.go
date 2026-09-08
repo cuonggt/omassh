@@ -1165,3 +1165,22 @@ func TestSingleValuePickerStillClosesOnChoice(t *testing.T) {
 		t.Errorf("Jump host = %q, want bastion", got)
 	}
 }
+
+// The running build should be identifiable without quitting to ask, so the
+// help screen carries the version -version reports.
+func TestHelpShowsTheVersion(t *testing.T) {
+	h := newHarness(t, func(o *Options) { o.Version = "1.2.3" })
+	h.press("?")
+
+	h.mustContain("omassh 1.2.3")
+}
+
+// With no version stamped in, the title is the plain name — not the name
+// followed by a stray separator where the version would have gone.
+func TestHelpWithoutAVersionJustNamesTheApp(t *testing.T) {
+	h := newHarness(t)
+	h.press("?")
+
+	h.mustContain("omassh  keyboard-driven SSH client")
+	h.mustNotContain("omassh   keyboard") // the extra space a bare join leaves
+}

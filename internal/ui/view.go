@@ -379,7 +379,11 @@ func (m Model) helpBody() string {
 	}
 
 	var b strings.Builder
-	b.WriteString(theme.Title.Render("omassh") + theme.Dim.Render("  keyboard-driven SSH client") + "\n")
+	name := "omassh"
+	if m.opts.Version != "" {
+		name += " " + m.opts.Version
+	}
+	b.WriteString(theme.Title.Render(name) + theme.Dim.Render("  keyboard-driven SSH client") + "\n")
 	for _, s := range sections {
 		b.WriteString("\n" + theme.Fg(theme.Yellow).Render("  "+s.title) + "\n")
 		for _, r := range s.rows {

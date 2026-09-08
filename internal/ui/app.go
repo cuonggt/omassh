@@ -62,6 +62,9 @@ type confirmation struct {
 type Options struct {
 	Keys         keymap.Map
 	ProbeTimeout time.Duration
+	// Version is what -version reports, shown on the help screen so the
+	// running build can be identified without quitting to ask.
+	Version string
 }
 
 // Model is the root Bubble Tea model.

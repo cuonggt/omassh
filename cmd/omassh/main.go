@@ -98,7 +98,7 @@ func run() error {
 	// Tunnels are children of this process. Stopping them on the way out is
 	// what makes that honest rather than a leak.
 
-	opts := ui.Options{Keys: km, ProbeTimeout: probeTimeout}
+	opts := ui.Options{Keys: km, ProbeTimeout: probeTimeout, Version: version}
 	final, err := tea.NewProgram(ui.New(st, opts)).Run()
 	// An SFTP session or an embedded pane owns an ssh child of its own; close
 	// them explicitly rather than relying on process exit to reap them.

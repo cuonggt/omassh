@@ -27,7 +27,7 @@ theming, rebindable keys and reachability probes.
 | `t` | connect in the main pane instead, keeping the host list |
 | `s` | sftp: browse and transfer files |
 | `r` | reload the store from disk |
-| `?` | help |
+| `?` | help, which names the running version |
 
 ## Design
 
