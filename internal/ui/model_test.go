@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -765,4 +766,84 @@ func TestProbeCountsResetBetweenSweeps(t *testing.T) {
 	if got := h.m.probeCounts[probe.Up]; got != 0 {
 		t.Errorf("probeCounts[Up] = %d at the start of a sweep, want 0", got)
 	}
+}
+
+// Groups are picked from the ones you already have, the same as jump hosts —
+// otherwise every host means retyping a name exactly, and a typo silently
+// creates a group.
+func TestGroupIsPickedFromAList(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+
+	// Create two groups by naming them on a host.
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.type_("Fleet")
+	h.press("enter")
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.type_("Staging")
+	h.press("enter")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.press("down")
+	if !h.m.form.picking {
+		t.Fatal("down on the group field did not open a picker")
+	}
+
+	got := h.m.form.fields[h.m.form.idx].choices
+	for _, want := range []string{noChoice, "Fleet", "Staging"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("choices = %v, want it to contain %q", got, want)
+		}
+	}
+}
+
+// The empty choice is how a host is left ungrouped.
+func TestPickingNoGroupClearsTheField(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.type_("Fleet")
+	h.press("enter")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.press("down") // opens on the current value
+	for h.m.form.currentChoice() != noChoice {
+		h.press("up")
+	}
+	h.press("enter")
+
+	if got := h.m.form.value("Group"); got != "" {
+		t.Errorf("Group = %q, want empty so the host is ungrouped", got)
+	}
+}
+
+// Typing still creates a group; the picker is a shortcut, not a restriction.
+func TestGroupStaysFreeText(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.type_("BrandNew")
+	h.press("enter")
+
+	h.mustContain("BrandNew")
 }

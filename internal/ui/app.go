@@ -508,7 +508,7 @@ func (m Model) openNewForm() (tea.Model, tea.Cmd) {
 		if g.ID != UngroupedID {
 			name = g.Name
 		}
-		m.form = newHostForm(store.Host{}, name, m.jumpCandidates(""))
+		m.form = newHostForm(store.Host{}, name, m.hostChoices(""))
 	}
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
@@ -530,7 +530,7 @@ func (m Model) openEditForm() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	m.form = newHostForm(h, m.d.groupName(h.GroupID), m.jumpCandidates(h.ID))
+	m.form = newHostForm(h, m.d.groupName(h.GroupID), m.hostChoices(h.ID))
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
 }
@@ -679,7 +679,15 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 
 // --- helpers -----------------------------------------------------------
 
-func newHostForm(h store.Host, groupName string, jumpHosts []string) *form {
+// hostChoices are the known values the host form offers as pickers. Bundled
+// rather than passed one slice at a time, so adding another picker later does
+// not mean threading a new argument through every caller.
+type hostChoices struct {
+	jumpHosts []string
+	groups    []string
+}
+
+func newHostForm(h store.Host, groupName string, c hostChoices) *form {
 	port := ""
 	if h.Port != 0 {
 		port = strconv.Itoa(h.Port)
@@ -696,9 +704,9 @@ func newHostForm(h store.Host, groupName string, jumpHosts []string) *form {
 			newField("Port", "22", port),
 			newField("User", "inherited from group", h.User),
 			newField("Identity", "path to a private key", h.Identity),
-			asSuggestion(withChoices(newField("Jump host", "inherited from group — ↓ to pick", h.ProxyJump), jumpHosts)),
+			asSuggestion(withChoices(newField("Jump host", "inherited from group — ↓ to pick", h.ProxyJump), c.jumpHosts)),
 			newField("Tags", "prod, web", strings.Join(h.Tags, ", ")),
-			asSuggestion(newField("Group", "unknown names are created", groupName)),
+			asSuggestion(withChoices(newField("Group", "↓ to pick, or type to create", groupName), c.groups)),
 		},
 	}
 }
@@ -797,16 +805,22 @@ func strOr(s, fallback string) string {
 	return s
 }
 
-// jumpCandidates lists the hosts that can serve as a jump host, for the form's
-// picker. The host being edited is left out: a host cannot jump through
-// itself, and offering it would only produce a connection that hangs.
-func (m Model) jumpCandidates(excludeID string) []string {
-	out := []string{noChoice}
+// hostChoices gathers what the host form's pickers offer.
+//
+// The host being edited is left out of the jump hosts: a host cannot jump
+// through itself, and offering it would only produce a connection that hangs.
+// Groups come from the store, so the synthetic "Ungrouped" heading is not
+// among them — leaving a host ungrouped is what the empty choice is for.
+func (m Model) hostChoices(excludeID string) hostChoices {
+	c := hostChoices{jumpHosts: []string{noChoice}, groups: []string{noChoice}}
 	for _, h := range m.d.hosts {
 		if h.ID == excludeID {
 			continue
 		}
-		out = append(out, h.Name)
+		c.jumpHosts = append(c.jumpHosts, h.Name)
 	}
-	return out
+	for _, g := range m.d.groups {
+		c.groups = append(c.groups, g.Name)
+	}
+	return c
 }

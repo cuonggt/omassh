@@ -338,10 +338,10 @@ func (m Model) helpBody() string {
 		}},
 		{"Forms", [][2]string{
 			{"tab / shift+tab", "next and previous field"},
-			{"↓", "on Jump host, pick from the hosts you already have"},
+			{"↓", "on Jump host or Group, pick from what you already have"},
 			{"↵ / esc", "save / cancel"},
-			{"", "a picked jump host is still free text: any ssh"},
-			{"", "destination works, whether Omassh knows it or not"},
+			{"", "both stay free text: any ssh destination works as a"},
+			{"", "jump host, and an unknown group name creates it"},
 		}},
 		{"Inheritance", [][2]string{
 			{"", "a host inherits user, identity and jump host from its"},
