@@ -1,0 +1,88 @@
+package ui
+
+import (
+	tea "charm.land/bubbletea/v2"
+)
+
+// Mouse support is click-to-select only: put the cursor on a group, a host, or
+// the session pane. Everything remains reachable from the keyboard, so this
+// adds a way in rather than a dependency.
+//
+// The layout is derived rather than recorded. browserBody computes the same
+// geometry from the same inputs each frame, so hit-testing recomputes it
+// instead of keeping a parallel copy that could drift out of step with what is
+// actually drawn.
+
+// sidebarLayout is where the browser's boxes sit in the frame.
+type sidebarLayout struct {
+	side    int // sidebar width; the main pane starts here
+	groupsH int // rows given to the Groups box, borders included
+	hostsH  int // rows given to the Hosts box
+	content int // rows above the status bar
+}
+
+func (m Model) layout() sidebarLayout {
+	content := m.h - statusHeight
+	groupsH := clamp(len(m.d.tree)+2, 4, content/3)
+	return sidebarLayout{
+		side:    clamp(sidebarWidth, 20, m.w/2),
+		groupsH: groupsH,
+		hostsH:  content - groupsH,
+		content: content,
+	}
+}
+
+// handleMouseClick moves the selection to whatever was clicked.
+func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
+	// A dialog owns the screen while it is open. Clicking the list behind it
+	// would act on something the dialog is covering.
+	if m.mode != modeBrowse && m.mode != modeFilter {
+		return m, nil
+	}
+	l := m.layout()
+	if e.Y < 0 || e.Y >= l.content || m.w < minWidth || l.content < minHeight {
+		return m, nil // the status bar, or a frame too small to have a layout
+	}
+
+	// The main pane: a live session takes it, otherwise it is host detail and
+	// there is nothing to focus.
+	if e.X >= l.side {
+		if m.attached != nil {
+			m.focus = panelSession
+		}
+		return m, nil
+	}
+
+	switch {
+	case e.Y < l.groupsH:
+		if i, ok := rowIndex(e.Y, 0, l.groupsH, len(m.d.tree)); ok {
+			m.focus = panelGroups
+			m.groupIdx = i
+			m.hostIdx = 0
+		}
+	default:
+		// The search box and the blank line under it push the list down.
+		offset := 0
+		if m.filtering() || m.mode == modeFilter {
+			offset = 2
+		}
+		hosts := m.visibleHosts()
+		if i, ok := rowIndex(e.Y, l.groupsH+offset, l.hostsH-offset, len(hosts)); ok {
+			m.focus = panelHosts
+			m.hostIdx = i
+		}
+	}
+	return m, nil
+}
+
+// rowIndex maps a screen row to a list index, given the box's top row and
+// height. It reports false for the borders and for empty space past the end of
+// the list, so clicking those changes nothing rather than selecting the
+// nearest row.
+func rowIndex(y, top, height, n int) (int, bool) {
+	i := y - top - 1 // the box's top border
+	if i < 0 || i >= height-2 || i >= n {
+		return 0, false
+	}
+	return i, true
+}

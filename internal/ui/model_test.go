@@ -943,3 +943,122 @@ func TestTagChoicesAreTheTagsInUse(t *testing.T) {
 		t.Errorf("tags = %v, want %v", got, want)
 	}
 }
+
+// click puts a mouse click at a screen cell.
+func (h *harness) click(x, y int) {
+	h.t.Helper()
+	h.send(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+}
+
+// Clicking a row selects it, and moves focus to the panel it belongs to, so
+// the keys that follow act on what was clicked.
+func TestClickSelectsAHost(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("alpha", "10.0.0.1")
+	h.addHost("bravo", "10.0.0.2")
+	h.addHost("charlie", "10.0.0.3")
+
+	l := h.m.layout()
+	h.click(2, l.groupsH+1+2) // third host row
+
+	if h.m.focus != panelHosts {
+		t.Errorf("focus = %v, want panelHosts", h.m.focus)
+	}
+	got, ok := h.m.selectedHost()
+	if !ok || got.Name != "charlie" {
+		t.Errorf("selected %+v, want charlie", got)
+	}
+}
+
+func TestClickSelectsAGroup(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("first", "10.0.0.1")
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Group" {
+		h.press("tab")
+	}
+	h.type_("Fleet")
+	h.press("enter")
+
+	h.click(2, 1) // first group row
+
+	if h.m.focus != panelGroups {
+		t.Errorf("focus = %v, want panelGroups", h.m.focus)
+	}
+	if g, ok := h.m.currentGroup(); !ok || g.Name != "Fleet" {
+		t.Errorf("selected group %+v, want Fleet", g)
+	}
+}
+
+// Borders and the empty space past the end of a list are not rows. Clicking
+// them must change nothing rather than snapping to the nearest one.
+func TestClickOnNothingSelectsNothing(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("alpha", "10.0.0.1")
+	h.addHost("bravo", "10.0.0.2")
+	h.click(2, h.m.layout().groupsH+1+1) // bravo
+	before, _ := h.m.selectedHost()
+
+	l := h.m.layout()
+	for _, y := range []int{
+		l.groupsH,         // the Hosts box's top border
+		l.groupsH + 1 + 5, // past the last host
+		l.content - 1,     // the bottom border
+		l.content,         // the status bar
+	} {
+		h.click(2, y)
+		got, _ := h.m.selectedHost()
+		if got.Name != before.Name {
+			t.Errorf("clicking row %d moved the selection to %q", y, got.Name)
+		}
+	}
+}
+
+// A dialog covers the list, so a click must not act on what is underneath it.
+func TestClickIsIgnoredWhileADialogIsOpen(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("alpha", "10.0.0.1")
+	h.addHost("bravo", "10.0.0.2")
+
+	h.press("n") // a form over the list
+	l := h.m.layout()
+	h.click(2, l.groupsH+1+1)
+
+	if h.m.mode != modeForm {
+		t.Errorf("mode = %v, want the form still open", h.m.mode)
+	}
+	if h.m.focus == panelHosts && h.m.hostIdx == 1 {
+		t.Error("the click reached the list behind the dialog")
+	}
+}
+
+// Clicking the main pane focuses the session in it, which is the other half
+// of what the keyboard's prefix w does.
+func TestClickFocusesTheSessionPane(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+
+	// Hand the keyboard back, then take it again with the mouse.
+	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
+	h.press("w")
+	if h.m.focus == panelSession {
+		t.Fatal("prefix w did not leave the session")
+	}
+
+	h.click(h.m.layout().side+5, 3)
+	if h.m.focus != panelSession {
+		t.Errorf("focus = %v, want panelSession", h.m.focus)
+	}
+}
+
+// With no session the main pane is host detail, and there is nothing there to
+// focus — a click must not strand the keyboard on an unfocusable panel.
+func TestClickOnAnEmptyMainPaneDoesNothing(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("alpha", "10.0.0.1")
+
+	h.click(h.m.layout().side+5, 3)
+	if h.m.focus == panelSession {
+		t.Error("focus moved to the session panel with no session open")
+	}
+}

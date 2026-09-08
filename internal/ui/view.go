@@ -18,6 +18,13 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "omassh"
+	// Clicking selects a group, a host or the session pane. Reporting is on
+	// only while browsing: a focused session needs the terminal's own
+	// selection more than it needs click-to-focus, and every terminal reverts
+	// to selecting text when the application is not asking for the mouse.
+	if m.mode == modeBrowse && m.focus != panelSession {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	if m.mode == modeBrowse {
 		v.Cursor = m.sessionCursor()
 	}
@@ -299,6 +306,7 @@ func (m Model) helpBody() string {
 		rows  [][2]string
 	}{
 		{"Navigate", [][2]string{
+			{"click", "select a group or host, or focus the session pane"},
 			{m.keys.Key(keymap.Down) + " / ↓, " + m.keys.Key(keymap.Up) + " / ↑", "move within the focused panel"},
 			{m.keys.Key(keymap.NextPanel) + ", 1-2", "switch panel: groups, hosts"},
 			{m.keys.Key(keymap.Search), "fuzzy search every host by name, address or tag"},

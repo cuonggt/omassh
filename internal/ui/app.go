@@ -195,6 +195,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.PasteMsg:
 		return m.handlePaste(string(msg.Content))
+
+	case tea.MouseClickMsg:
+		if !m.ready {
+			return m, nil
+		}
+		return m.handleMouseClick(msg.Mouse())
 	}
 	return m, nil
 }
