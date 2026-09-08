@@ -20,7 +20,6 @@ var (
 	bucketHosts  = []byte("hosts")
 	bucketStats  = []byte("stats")
 	bucketIdents = []byte("identities")
-	bucketFwds   = []byte("forwards")
 )
 
 // Store is the on-disk database of locally-defined hosts and groups, plus
@@ -55,7 +54,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketIdents, bucketFwds} {
+		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketIdents} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -133,74 +132,9 @@ func (s *Store) put(bucket []byte, id string, v any) error {
 	})
 }
 
-// DeleteHost removes a host and the forwarding rules that belong to it, which
-// would otherwise linger with no way to reach them.
 func (s *Store) DeleteHost(id string) error {
-	fwds, err := s.Forwards()
-	if err != nil {
-		return err
-	}
 	return s.db.Update(func(tx *bolt.Tx) error {
-		for _, f := range fwds {
-			if f.HostKey == id {
-				if err := tx.Bucket(bucketFwds).Delete([]byte(f.ID)); err != nil {
-					return err
-				}
-			}
-		}
 		return tx.Bucket(bucketHosts).Delete([]byte(id))
-	})
-}
-
-func (s *Store) Forwards() ([]Forward, error) {
-	var out []Forward
-	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketFwds).ForEach(func(_, v []byte) error {
-			var f Forward
-			if err := json.Unmarshal(v, &f); err != nil {
-				return err
-			}
-			out = append(out, f)
-			return nil
-		})
-	})
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].HostKey != out[j].HostKey {
-			return out[i].HostKey < out[j].HostKey
-		}
-		return out[i].ListenPort < out[j].ListenPort
-	})
-	return out, err
-}
-
-// ForwardsFor returns the rules attached to one host key.
-func (s *Store) ForwardsFor(hostKey string) ([]Forward, error) {
-	all, err := s.Forwards()
-	if err != nil {
-		return nil, err
-	}
-	var out []Forward
-	for _, f := range all {
-		if f.HostKey == hostKey {
-			out = append(out, f)
-		}
-	}
-	return out, nil
-}
-
-func (s *Store) PutForward(f Forward) (Forward, error) {
-	if err := f.Validate(); err != nil {
-		return f, err
-	}
-	if f.ID == "" {
-		f.ID = newID()
-	}
-	return f, s.put(bucketFwds, f.ID, f)
-}
-
-func (s *Store) DeleteForward(id string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketFwds).Delete([]byte(id))
 	})
 }
 

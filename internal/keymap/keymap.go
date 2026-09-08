@@ -12,29 +12,28 @@ import (
 type Action string
 
 const (
-	None          Action = ""
-	Quit          Action = "quit"
-	Help          Action = "help"
-	Connect       Action = "connect"
-	Handoff       Action = "handoff"
-	Search        Action = "search"
-	NewItem       Action = "new"
-	Edit          Action = "edit"
-	Delete        Action = "delete"
-	Import        Action = "import"
-	Reload        Action = "reload"
-	Redraw        Action = "redraw"
-	Probe         Action = "probe"
-	Credentials   Action = "credentials"
-	SFTP          Action = "sftp"
-	Pane          Action = "pane"
-	NextPanel     Action = "next-panel"
-	PrevPanel     Action = "prev-panel"
-	PanelGroups   Action = "panel-groups"
-	PanelHosts    Action = "panel-hosts"
-	PanelForwards Action = "panel-forwards"
-	Up            Action = "up"
-	Down          Action = "down"
+	None        Action = ""
+	Quit        Action = "quit"
+	Help        Action = "help"
+	Connect     Action = "connect"
+	Handoff     Action = "handoff"
+	Search      Action = "search"
+	NewItem     Action = "new"
+	Edit        Action = "edit"
+	Delete      Action = "delete"
+	Import      Action = "import"
+	Reload      Action = "reload"
+	Redraw      Action = "redraw"
+	Probe       Action = "probe"
+	Credentials Action = "credentials"
+	SFTP        Action = "sftp"
+	Pane        Action = "pane"
+	NextPanel   Action = "next-panel"
+	PrevPanel   Action = "prev-panel"
+	PanelGroups Action = "panel-groups"
+	PanelHosts  Action = "panel-hosts"
+	Up          Action = "up"
+	Down        Action = "down"
 )
 
 // defaults are the rebindable bindings.
@@ -44,7 +43,7 @@ var defaults = map[Action]string{
 	Redraw:      "ctrl+l",
 	Credentials: "K", SFTP: "s", Pane: "t",
 	NextPanel: "tab", PrevPanel: "shift+tab",
-	PanelGroups: "1", PanelHosts: "2", PanelForwards: "3",
+	PanelGroups: "1", PanelHosts: "2",
 	Up: "k", Down: "j",
 }
 

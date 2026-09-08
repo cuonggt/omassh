@@ -7,8 +7,8 @@ interaction model, running on top of real OpenSSH.
 
 ## Status
 
-Hosts and groups, credentials, port forwarding and SFTP, plus theming,
-rebindable keys and reachability probes.
+Hosts and groups, credentials and SFTP, plus theming, rebindable keys and
+reachability probes.
 
 ## Keys
 
@@ -21,7 +21,6 @@ rebindable keys and reachability probes.
 | `n` / `e` / `d` | new / edit / delete |
 | `i` | import an `ssh_config` host so it can be edited |
 | `K` | credentials: keys, stored secrets, ssh-agent |
-| `3`, `↵` | forwards panel; start or stop a tunnel |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect, from whichever panel has focus |
@@ -38,7 +37,7 @@ without Omassh in the picture. `ProxyJump`, certificates, `Match` blocks and
 agent config are honoured because OpenSSH itself is honouring them.
 
 `internal/sshx.Build` is the single place any ssh invocation is constructed —
-sessions, port forwards, probes and the native SFTP dialer all funnel through
+sessions, probes and the native SFTP dialer all funnel through
 it, so connection behaviour cannot drift between them.
 
 Secrets never enter the database. A credential record holds a name, a login
@@ -89,17 +88,6 @@ chains, `ProxyCommand`, certificates, `Match` blocks, `IdentityAgent` and
 `known_hosts` all apply, with no second implementation to keep in step.
 `BatchMode` is forced on, because the child's stdin carries the protocol and
 there is nowhere to prompt; unlock a credential into the agent first.
-
-Each forwarding rule is a supervised `ssh -N` child with
-`ExitOnForwardFailure=yes`, so a tunnel that fails to bind exits instead of
-sitting there looking connected. Before spawning anything, the local port is
-checked against **every** address the bind name resolves to — on a dual-stack
-machine `localhost` is both `::1` and `127.0.0.1`, and listening on one
-succeeds while the other is occupied. Dropped tunnels are retried with
-exponential backoff; the child runs in its own process group so a host reached
-via `ProxyCommand` does not leave a grandchild holding the port. Tunnels are
-children of Omassh and close when it exits, which the UI says rather than
-hides.
 
 Hosts defined in `~/.ssh/config` are read live on every load rather than copied
 into the store, so Omassh can never show a stale version of a file you edit by

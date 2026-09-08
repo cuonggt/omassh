@@ -10,7 +10,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/cuonggt/omassh/internal/config"
-	"github.com/cuonggt/omassh/internal/forward"
 	"github.com/cuonggt/omassh/internal/secrets"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
@@ -113,11 +112,9 @@ func run() error {
 
 	// Tunnels are children of this process. Stopping them on the way out is
 	// what makes that honest rather than a leak.
-	sup := forward.New(nil)
-	defer sup.StopAll()
 
 	opts := ui.Options{Keys: km, ProbeTimeout: probeTimeout}
-	final, err := tea.NewProgram(ui.New(st, vault, sup, opts)).Run()
+	final, err := tea.NewProgram(ui.New(st, vault, opts)).Run()
 	// An SFTP session or an embedded pane owns an ssh child of its own; close
 	// them explicitly rather than relying on process exit to reap them.
 	if m, ok := final.(ui.Model); ok {

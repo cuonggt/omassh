@@ -1,44 +1,8 @@
 package ui
 
 import (
-	"net"
-	"strconv"
 	"testing"
-
-	"github.com/cuonggt/omassh/internal/store"
 )
-
-// Enter means different things per panel. On Forwards it must start a tunnel,
-// not open a session.
-func TestEnterOnForwardsTogglesTheTunnel(t *testing.T) {
-	// Hold a port so the pre-flight check refuses, which exercises the routing
-	// without spawning ssh.
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	port := l.Addr().(*net.TCPAddr).Port
-
-	h := newHarness(t)
-	host := h.addHost("db", "10.0.0.1")
-	h.store.PutForward(store.Forward{
-		HostKey: host.StatKey(), Name: "pg", Kind: store.ForwardLocal,
-		ListenPort: port, TargetHost: "localhost", TargetPort: 5432,
-	})
-	h.reload()
-
-	h.press("3", "enter")
-
-	if h.m.mode != modeBrowse {
-		t.Fatalf("enter on Forwards changed mode to %v", h.m.mode)
-	}
-	if !h.m.failed {
-		t.Fatalf("expected the busy port to be reported, status was %q", h.m.status)
-	}
-	h.mustContain("already in use")
-	h.mustContain(strconv.Itoa(port))
-}
 
 func TestSSHConfigHostsAreReadOnly(t *testing.T) {
 	dir := t.TempDir()

@@ -16,7 +16,6 @@ const (
 	formGroup
 	formIdentity
 	formGenKey
-	formForward
 	formMkdir
 	formRename
 	formChmod
@@ -36,13 +35,6 @@ type form struct {
 	fields  []field
 	idx     int
 	problem string
-
-	// hostKey carries the owning host through a forward form.
-	hostKey string
-
-	// danger and expect drive the typed confirmation for a destructive run.
-	danger string
-	expect string
 }
 
 // newSecretField is a masked input for passphrases and passwords.
@@ -112,10 +104,6 @@ func (f *form) render(w int) string {
 			label = theme.Fg(theme.TextBrt).Render(pad(x.label, labelW) + "  ")
 		}
 		b.WriteString("  " + marker + label + x.input.View() + "\n")
-	}
-	if f.danger != "" {
-		b.WriteString("\n  " + theme.Fg(theme.Red).Render("⚠ matches "+f.danger) +
-			theme.Dim.Render("  — type the host count to confirm") + "\n")
 	}
 	if f.problem != "" {
 		b.WriteString("\n  " + theme.Fg(theme.Red).Render("✖ "+f.problem) + "\n")

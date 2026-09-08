@@ -82,11 +82,6 @@ func main() {
 		}
 	}
 
-	st.PutForward(store.Forward{HostKey: dbHost.StatKey(), Name: "postgres",
-		Kind: store.ForwardLocal, ListenPort: 5432, TargetHost: "localhost", TargetPort: 5432})
-	st.PutForward(store.Forward{HostKey: dbHost.StatKey(), Name: "metrics",
-		Kind: store.ForwardLocal, ListenPort: 9090, TargetHost: "localhost", TargetPort: 9090})
-
 	// A little history so the detail pane is not all "never connected".
 	st.RecordSession(dbHost.StatKey(), time.Now().Add(-2*time.Hour))
 	for range 3 {

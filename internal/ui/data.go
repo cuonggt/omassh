@@ -19,7 +19,6 @@ type data struct {
 	groups     []store.Group // persisted groups only
 	hosts      []store.Host  // persisted hosts plus config-sourced hosts
 	identities []store.Identity
-	forwards   []store.Forward
 	stats      map[string]store.Stat
 	tree       []store.GroupNode    // display order, including synthetic groups
 	keyInfo    map[string]keys.Info // identity id -> on-disk key metadata
@@ -60,9 +59,6 @@ func load(s *store.Store, sshConfig string) (data, error) {
 		return d, err
 	}
 	if d.identities, err = s.Identities(); err != nil {
-		return d, err
-	}
-	if d.forwards, err = s.Forwards(); err != nil {
 		return d, err
 	}
 	if d.stats, err = s.Stats(); err != nil {

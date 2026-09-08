@@ -9,12 +9,12 @@ import (
 
 // Build returns the argv (excluding the program name) used to reach h.
 //
-// Every connection path in omassh — interactive sessions, port forwards,
-// reachability probes and the native SFTP dialer — funnels through this one
-// function, so connection behaviour cannot drift between them.
+// Every connection path in omassh — interactive sessions, reachability probes
+// and the native SFTP dialer — funnels through this one function, so
+// connection behaviour cannot drift between them.
 //
 // extra is inserted before the target, which is where ssh wants flags like
-// -N, -L and -W.
+// -N and -W.
 // globalOptions are -o settings applied to every ssh invocation, mirroring
 // ssh's own flag. Process-wide configuration set once at startup, before any
 // connection is made, so there is nothing to synchronise.
@@ -50,16 +50,6 @@ func Build(h store.Host, extra ...string) []string {
 
 	args = append(args, extra...)
 	return append(args, h.Target())
-}
-
-// ForwardArgs builds the argv for a port-forwarding child process.
-//
-// -N runs no remote command, and ExitOnForwardFailure makes ssh exit rather
-// than sitting there connected with the forward silently not established —
-// without it a failed bind looks identical to a working tunnel.
-func ForwardArgs(h store.Host, f store.Forward, opts ...string) []string {
-	extra := append([]string{"-N", "-o", "ExitOnForwardFailure=yes"}, opts...)
-	return Build(h, append(extra, f.Kind.Flag(), f.Spec())...)
 }
 
 // SubsystemArgs builds the argv for invoking a remote subsystem, such as

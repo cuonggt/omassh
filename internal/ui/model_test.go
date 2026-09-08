@@ -41,7 +41,7 @@ func TestPanelFocusCycles(t *testing.T) {
 		h.press("tab")
 		seen[h.m.focus] = true
 	}
-	for _, p := range []panel{panelGroups, panelHosts, panelForwards} {
+	for _, p := range []panel{panelGroups, panelHosts} {
 		if !seen[p] {
 			t.Errorf("tab never reached panel %v", p)
 		}
@@ -53,7 +53,7 @@ func TestNumberKeysSelectPanels(t *testing.T) {
 	for _, tc := range []struct {
 		key  string
 		want panel
-	}{{"1", panelGroups}, {"2", panelHosts}, {"3", panelForwards}} {
+	}{{"1", panelGroups}, {"2", panelHosts}} {
 		h.press(tc.key)
 		if h.m.focus != tc.want {
 			t.Errorf("%q focused %v, want %v", tc.key, h.m.focus, tc.want)

@@ -10,7 +10,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/cuonggt/omassh/internal/forward"
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/secrets"
 	"github.com/cuonggt/omassh/internal/store"
@@ -38,9 +37,6 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 	}
 	t.Cleanup(func() { st.Close() })
 
-	sup := forward.New(nil)
-	t.Cleanup(sup.StopAll)
-
 	o := Options{
 		Keys:         keymap.Default(),
 		ProbeTimeout: time.Second,
@@ -51,7 +47,7 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 		fn(&o)
 	}
 
-	h := &harness{t: t, store: st, m: New(st, secrets.NewMemory(), sup, o)}
+	h := &harness{t: t, store: st, m: New(st, secrets.NewMemory(), o)}
 	t.Cleanup(func() { h.m.Close() })
 	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
 	return h

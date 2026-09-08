@@ -12,7 +12,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/sahilm/fuzzy"
 
-	"github.com/cuonggt/omassh/internal/forward"
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/probe"
 	"github.com/cuonggt/omassh/internal/secrets"
@@ -27,7 +26,6 @@ type panel int
 const (
 	panelGroups panel = iota
 	panelHosts
-	panelForwards
 	panelSession
 	numPanels
 )
@@ -75,11 +73,9 @@ type Model struct {
 	keys  keymap.Map
 	st    *store.Store
 	vault secrets.Vault
-	sup   *forward.Supervisor
-	index *hostIndex
 	d     data
 
-	groupIdx, hostIdx, identityIdx, forwardIdx int
+	groupIdx, hostIdx, identityIdx int
 
 	// agentKeys is the set of fingerprints the ssh-agent holds, refreshed on
 	// demand rather than per frame: reading it runs ssh-add.
@@ -120,13 +116,10 @@ type Model struct {
 	ready bool
 }
 
-func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Options) Model {
+func New(st *store.Store, vault secrets.Vault, opts Options) Model {
 	ti := textinput.New()
 	ti.Prompt = ""
 	ti.Placeholder = "fuzzy search all hosts"
-
-	index := newHostIndex()
-	sup.SetBuilder(forwardBuilder(index))
 
 	if opts.ProbeTimeout <= 0 {
 		opts.ProbeTimeout = 2 * time.Second
@@ -135,7 +128,7 @@ func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Opt
 		opts.SSHConfigPath = DefaultSSHConfigPath()
 	}
 
-	m := Model{opts: opts, keys: opts.Keys, st: st, vault: vault, sup: sup, index: index,
+	m := Model{opts: opts, keys: opts.Keys, st: st, vault: vault,
 		focus: panelHosts, filter: ti, agentKeys: map[string]bool{},
 		transfers: make(chan transferMsg, 32),
 		probeCh:   make(chan probeEvent, 64), probes: map[string]probe.State{}}
@@ -146,14 +139,13 @@ func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Opt
 	return m
 }
 
-func (m Model) Init() tea.Cmd { return waitForwardEvent(m.sup.Events()) }
+func (m Model) Init() tea.Cmd { return nil }
 
 func (m *Model) reload() {
 	d, err := load(m.st, m.opts.SSHConfigPath)
 	m.d = d
 	// Keep the supervisor's view of hosts current; it resolves them off the
 	// UI goroutine when a tunnel starts or restarts.
-	m.index.set(d.hosts, d.resolver)
 	if err != nil {
 		m.setErr(fmt.Errorf("ssh_config: %w", err))
 	}
@@ -192,11 +184,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.panes[1-m.paneFocus].reload()
 		}
 		return m, waitTransfer(m.transfers)
-
-	case forwardEventMsg:
-		// Status is read live from the supervisor, so the event only needs to
-		// prompt a redraw and re-arm the listener.
-		return m, waitForwardEvent(m.sup.Events())
 
 	case sshx.SessionEndedMsg:
 		if err := m.st.RecordSession(msg.Key, time.Now()); err != nil {
@@ -278,8 +265,6 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.focus = panelGroups
 	case keymap.PanelHosts:
 		m.focus = panelHosts
-	case keymap.PanelForwards:
-		m.focus = panelForwards
 	case keymap.Down:
 		m.move(1)
 	case keymap.Up:
@@ -291,26 +276,14 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.filter.Focus()
 
 	case keymap.Connect:
-		if m.focus == panelForwards {
-			return m.toggleForward()
-		}
 		return m.attachSession()
 	case keymap.Handoff:
 		return m.connect()
 	case keymap.NewItem:
-		if m.focus == panelForwards {
-			return m.openNewForwardForm()
-		}
 		return m.openNewForm()
 	case keymap.Edit:
-		if m.focus == panelForwards {
-			return m.openEditForwardForm()
-		}
 		return m.openEditForm()
 	case keymap.Delete:
-		if m.focus == panelForwards {
-			return m.askDeleteForward()
-		}
 		return m.askDelete()
 
 	case keymap.Import:
@@ -431,22 +404,17 @@ func (m *Model) recomputeMatches() {
 }
 
 func (m *Model) move(d int) {
-	switch {
-	case m.focus == panelForwards:
-		m.forwardIdx = clamp(m.forwardIdx+d, 0, len(m.visibleForwards())-1)
-	case m.focus == panelGroups && !m.filtering():
+	if m.focus == panelGroups && !m.filtering() {
 		m.groupIdx = clamp(m.groupIdx+d, 0, len(m.d.tree)-1)
-		m.hostIdx, m.forwardIdx = 0, 0
-	default:
-		m.hostIdx = clamp(m.hostIdx+d, 0, len(m.visibleHosts())-1)
-		m.forwardIdx = 0
+		m.hostIdx = 0
+		return
 	}
+	m.hostIdx = clamp(m.hostIdx+d, 0, len(m.visibleHosts())-1)
 }
 
 func (m *Model) clampSelection() {
 	m.groupIdx = clamp(m.groupIdx, 0, len(m.d.tree)-1)
 	m.hostIdx = clamp(m.hostIdx, 0, len(m.visibleHosts())-1)
-	m.forwardIdx = clamp(m.forwardIdx, 0, len(m.visibleForwards())-1)
 }
 
 func (m Model) currentGroup() (store.GroupNode, bool) {
@@ -621,8 +589,6 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 		return m.saveIdentityForm()
 	case formGenKey:
 		return m.saveGenKeyForm()
-	case formForward:
-		return m.saveForwardForm()
 	case formMkdir, formRename, formChmod:
 		return m.saveFileForm()
 	}
@@ -824,7 +790,6 @@ func (m *Model) selectHost(h store.Host) {
 			break
 		}
 	}
-	m.forwardIdx = 0
 }
 
 func splitTags(s string) []string {

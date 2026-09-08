@@ -48,34 +48,22 @@ func (m Model) render() string {
 	side := clamp(sidebarWidth, 20, m.w/2)
 	main := m.w - side
 
-	// Groups and Forwards take what they need; Hosts gets the rest, since it
-	// is the list you actually scroll.
+	// Groups takes what it needs; Hosts gets the rest, since it is the list
+	// you actually scroll.
 	groupsH := clamp(len(m.d.tree)+2, 4, content/3)
-	fwdH := clamp(len(m.visibleForwards())+2, 4, content/3)
-	hostsH := content - groupsH - fwdH
-	if hostsH < 4 {
-		hostsH, fwdH = 4, max(content-groupsH-4, 3)
-	}
+	hostsH := content - groupsH
 
 	hostsTitle := "Hosts"
 	if m.filtering() || m.mode == modeFilter {
 		hostsTitle = "Search"
 	}
-	fwdTitle := "Forwards"
-	if n := m.sup.Count(); n > 0 {
-		fwdTitle = fmt.Sprintf("Forwards · %d up", n)
-	}
 
 	sidebar := lipgloss.JoinVertical(lipgloss.Left,
 		box("Groups", m.focus == panelGroups && m.mode == modeBrowse, side, groupsH, m.groupsBody(side-4)),
 		box(hostsTitle, m.focus == panelHosts || m.mode == modeFilter, side, hostsH, m.hostsBody(side-4)),
-		box(fwdTitle, m.focus == panelForwards && m.mode == modeBrowse, side, fwdH, m.forwardsBody(side-4)),
 	)
 
 	title, detail := m.detailBody()
-	if m.focus == panelForwards {
-		title, detail = m.forwardDetail()
-	}
 	// A live session takes the main pane; the sidebar stays usable beside it.
 	mainFocused := false
 	if m.attached != nil {
@@ -260,7 +248,7 @@ func (m Model) helpBody() string {
 	}{
 		{"Navigate", [][2]string{
 			{m.keys.Key(keymap.Down) + " / ↓, " + m.keys.Key(keymap.Up) + " / ↑", "move within the focused panel"},
-			{m.keys.Key(keymap.NextPanel) + ", 1-3", "switch panel: groups, hosts, forwards"},
+			{m.keys.Key(keymap.NextPanel) + ", 1-2", "switch panel: groups, hosts"},
 			{m.keys.Key(keymap.Search), "fuzzy search every host by name, address or tag"},
 			{"esc", "clear the search"},
 		}},
@@ -297,12 +285,6 @@ func (m Model) helpBody() string {
 			{"m / r / M / d", "mkdir / rename / chmod / delete"},
 			{"", "OpenSSH performs the connection, so jump hosts,"},
 			{"", "certificates and ProxyCommand all apply as usual"},
-		}},
-		{"Forwards (panel 3)", [][2]string{
-			{"↵", "start or stop the selected tunnel"},
-			{"n", "add a rule: local (-L), remote (-R) or dynamic SOCKS (-D)"},
-			{"", "a dropped tunnel is retried with backoff; tunnels are"},
-			{"", "children of omassh and close when it exits"},
 		}},
 		{"Credentials (" + m.keys.Key(keymap.Credentials) + ")", [][2]string{
 			{"n / g", "add a credential, or generate a key and a credential"},
@@ -358,9 +340,6 @@ func (m Model) statusBar() string {
 			hints = hint(prefixKey+" w", "host list") + sep() +
 				hint(prefixKey+" d", "detach") + sep() +
 				theme.Dim.Render("every other key goes to the remote")
-		case m.focus == panelForwards:
-			hints = hint("↵", "start/stop") + sep() + hint("n/e/d", "new/edit/delete") +
-				sep() + hint("1-3", "panel") + sep() + hint("?", "help") + sep() + hint("q", "quit")
 		default:
 			hints = hint(m.keys.Key(keymap.Connect), "connect") + sep() +
 				hint(m.keys.Key(keymap.Search), "search") + sep() +
