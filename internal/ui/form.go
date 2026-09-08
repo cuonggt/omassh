@@ -208,29 +208,38 @@ func (f *form) movePicker(d int) {
 	f.pickIdx = (f.pickIdx + d + n) % n
 }
 
-// choosePicked applies the highlighted choice to the field.
+// choosePicked commits the picker.
 //
-// A list field toggles and stays open, so a whole set is chosen in one pass:
-// closing after each entry would mean reopening the list once per tag. A
-// single-value field takes the choice and closes, since there is nothing more
-// to say.
+// For a set there is nothing to commit — space has already toggled each entry
+// — so this just finishes. A single-value field takes the highlighted choice
+// and closes, since there is nothing more to say.
 func (f *form) choosePicked() {
 	x := &f.fields[f.idx]
 	x.suggested = false // now a deliberate value
 
-	c := x.choices[f.pickIdx]
-	switch {
-	case c == noChoice:
-		x.input.SetValue("") // the empty choice clears the field either way
-	case x.list:
-		x.input.SetValue(toggleInList(x.input.Value(), c))
-		x.input.CursorEnd()
-		return // stay open for the next one; esc finishes
-	default:
-		x.input.SetValue(c)
+	if x.list {
+		f.closePicker()
+		return
 	}
+	c := x.choices[f.pickIdx]
+	if c == noChoice {
+		c = "" // the empty choice clears the field
+	}
+	x.input.SetValue(c)
 	x.input.CursorEnd()
 	f.closePicker()
+}
+
+// togglePicked adds or removes the highlighted entry, for a field holding a
+// set. The list stays open, so the whole set is chosen in one pass.
+func (f *form) togglePicked() {
+	x := &f.fields[f.idx]
+	if !x.list {
+		return
+	}
+	x.suggested = false
+	x.input.SetValue(toggleInList(x.input.Value(), x.choices[f.pickIdx]))
+	x.input.CursorEnd()
 }
 
 // inList reports whether a comma-separated field already holds an entry.

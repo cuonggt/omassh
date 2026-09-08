@@ -164,7 +164,7 @@ func (m Model) pickerList(w int) string {
 
 	title := "pick  ↑↓ ↵"
 	if x.list {
-		title = "pick  ↑↓  ↵ toggle  esc done"
+		title = "pick  ↑↓  space toggle  ↵ done"
 	}
 	return box(title, true, w, len(rows)+2, strings.Join(rows, "\n"))
 }
@@ -365,8 +365,8 @@ func (m Model) helpBody() string {
 		{"Forms", [][2]string{
 			{"tab / shift+tab", "next and previous field"},
 			{"↓", "on Jump host, Group or Tags, pick what you already use"},
-			{"", "Tags is a set: ↵ toggles an entry, ✓ marks the ones"},
-			{"", "chosen, and esc finishes. The empty choice clears it"},
+			{"", "Tags is a set: space toggles an entry, ✓ marks the"},
+			{"", "ones chosen, and ↵ finishes"},
 			{"↵ / esc", "save / cancel"},
 			{"", "both stay free text: any ssh destination works as a"},
 			{"", "jump host, and an unknown group name creates it"},

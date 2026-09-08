@@ -393,6 +393,13 @@ func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "up", "ctrl+p":
 			m.form.movePicker(-1)
 			return m, nil
+		case " ", "space":
+			// Space toggles a set's entries; on a single-value picker it is
+			// just a character, so it falls through and dismisses the list.
+			if m.form.fields[m.form.idx].list {
+				m.form.togglePicked()
+				return m, nil
+			}
 		case "enter", "tab":
 			m.form.choosePicked()
 			return m, nil
@@ -820,12 +827,12 @@ func strOr(s, fallback string) string {
 // Groups come from the store, so the synthetic "Ungrouped" heading is not
 // among them — leaving a host ungrouped is what the empty choice is for.
 func (m Model) hostChoices(excludeID string) hostChoices {
-	// Every picker leads with the empty choice, which is how a field is
-	// cleared without deleting characters one at a time.
+	// A single-value picker leads with the empty choice, which is how such a
+	// field is cleared without deleting characters. A set has no use for it:
+	// toggling every entry off is what emptying it means.
 	c := hostChoices{
 		jumpHosts: []string{noChoice},
 		groups:    []string{noChoice},
-		tags:      []string{noChoice},
 	}
 	for _, h := range m.d.hosts {
 		if h.ID == excludeID {

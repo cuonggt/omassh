@@ -21,7 +21,7 @@ theming, rebindable keys and reachability probes.
 | `n` / `e` / `d` | new / edit / delete, in a dialog over the list |
 | paste | fills the focused field; works in search and in a session too |
 | `↓` in a form | on Jump host, Group or Tags, pick what you already use |
-| `↵` in the Tags picker | toggle a tag; the list stays open for the whole set |
+| `space` in the Tags picker | toggle a tag; the list stays open, `↵` finishes |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect in the main pane instead, keeping the host list |

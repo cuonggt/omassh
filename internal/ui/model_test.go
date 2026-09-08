@@ -871,7 +871,7 @@ func TestPickingATagAppends(t *testing.T) {
 	// Pick "web" out of the list and expect it added, not substituted.
 	h.press("down")
 	h.pickUntil("web")
-	h.press("enter")
+	h.press("space")
 
 	if got := h.m.form.value("Tags"); got != "prod, web" {
 		t.Errorf("Tags = %q, want prod, web", got)
@@ -895,29 +895,32 @@ func TestTogglingATagAddsThenRemovesIt(t *testing.T) {
 	}
 }
 
-// The empty choice clears a list field outright, which is how every tag is
-// removed without deleting characters one at a time.
-func TestPickingNoneClearsTheTags(t *testing.T) {
+// A set has no "none" entry: toggling every tag off is what emptying it
+// means, and an entry you toggle to mean "nothing" reads as a tag of its own.
+func TestTagPickerHasNoEmptyChoice(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("first", "10.0.0.1")
+	h.addHost("a", "10.0.0.1")
 
 	h.press("e")
 	for h.m.form.fields[h.m.form.idx].label != "Tags" {
 		h.press("tab")
 	}
-	h.type_("prod, web")
+	h.type_("prod")
 	h.press("enter")
 
 	h.press("e")
 	for h.m.form.fields[h.m.form.idx].label != "Tags" {
 		h.press("tab")
 	}
-	h.press("down")
-	h.pickUntil(noChoice)
-	h.press("enter")
-
-	if got := h.m.form.value("Tags"); got != "" {
-		t.Errorf("Tags = %q, want empty", got)
+	if got := h.m.form.fields[h.m.form.idx].choices; slices.Contains(got, noChoice) {
+		t.Errorf("tag choices = %v, want no empty entry", got)
+	}
+	// A single-value picker keeps it, since that is how it is cleared.
+	for h.m.form.fields[h.m.form.idx].label != "Jump host" {
+		h.press("shift+tab")
+	}
+	if got := h.m.form.fields[h.m.form.idx].choices; !slices.Contains(got, noChoice) {
+		t.Errorf("jump host choices = %v, want the empty entry kept", got)
 	}
 }
 
@@ -942,7 +945,7 @@ func TestTagChoicesAreTheTagsInUse(t *testing.T) {
 	h.press("enter")
 
 	got := h.m.hostChoices("").tags
-	want := []string{noChoice, "api", "prod", "web"}
+	want := []string{"api", "prod", "web"}
 	if !slices.Equal(got, want) {
 		t.Errorf("tags = %v, want %v", got, want)
 	}
@@ -1090,30 +1093,30 @@ func TestTagPickerStaysOpenForSeveralTags(t *testing.T) {
 
 	h.press("down")
 	h.pickUntil("api")
-	h.press("enter")
+	h.press("space")
 	if !h.m.form.picking {
 		t.Fatal("the picker closed after one tag; a set needs it to stay open")
 	}
 	h.pickUntil("web")
-	h.press("enter")
+	h.press("space")
 
 	if got := h.m.form.value("Tags"); got != "api, web" {
 		t.Errorf("Tags = %q, want api, web from one pass", got)
 	}
 
-	// Toggling the same entry takes it back off.
+	// Space toggles, so the same entry comes back off.
 	h.pickUntil("api")
-	h.press("enter")
+	h.press("space")
 	if got := h.m.form.value("Tags"); got != "web" {
 		t.Errorf("Tags = %q, want api toggled back off", got)
 	}
 
-	h.press("esc")
+	h.press("enter")
 	if h.m.form.picking {
-		t.Error("esc did not finish the picker")
+		t.Error("enter did not finish the picker")
 	}
 	if h.m.mode != modeForm {
-		t.Error("esc closed the whole form rather than the list")
+		t.Error("enter closed the whole form rather than the list")
 	}
 }
 
