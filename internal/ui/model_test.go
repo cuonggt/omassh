@@ -878,16 +878,20 @@ func TestPickingATagAppends(t *testing.T) {
 	}
 }
 
-// Picking a tag that is already there should be a no-op, not a duplicate.
-func TestPickingATagTwiceDoesNotDuplicateIt(t *testing.T) {
-	if got := addToList("prod, web", "web"); got != "prod, web" {
-		t.Errorf("addToList = %q, want the list unchanged", got)
+// One key both selects and deselects, so a tag added by mistake comes off the
+// same way it went on.
+func TestTogglingATagAddsThenRemovesIt(t *testing.T) {
+	if got := toggleInList("", "prod"); got != "prod" {
+		t.Errorf("toggle onto an empty field = %q, want prod", got)
 	}
-	if got := addToList("", "prod"); got != "prod" {
-		t.Errorf("addToList on an empty field = %q, want prod", got)
+	if got := toggleInList("prod,web", "api"); got != "prod, web, api" {
+		t.Errorf("toggle = %q, want the list normalised and extended", got)
 	}
-	if got := addToList("prod,web", "api"); got != "prod, web, api" {
-		t.Errorf("addToList = %q, want the list normalised and extended", got)
+	if got := toggleInList("prod, web", "web"); got != "prod" {
+		t.Errorf("toggle of a present entry = %q, want it removed", got)
+	}
+	if got := toggleInList("prod", "prod"); got != "" {
+		t.Errorf("toggle of the only entry = %q, want empty", got)
 	}
 }
 
@@ -1060,5 +1064,101 @@ func TestClickOnAnEmptyMainPaneDoesNothing(t *testing.T) {
 	h.click(h.m.layout().side+5, 3)
 	if h.m.focus == panelSession {
 		t.Error("focus moved to the session panel with no session open")
+	}
+}
+
+// A whole set is chosen in one pass: the list stays open so several tags can
+// be toggled without reopening it once per tag.
+func TestTagPickerStaysOpenForSeveralTags(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("a", "10.0.0.1")
+
+	// Establish a vocabulary.
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.type_("prod, web, api")
+	h.press("enter")
+
+	h.addHost("b", "10.0.0.2")
+	h.selectHost("b")
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+
+	h.press("down")
+	h.pickUntil("api")
+	h.press("enter")
+	if !h.m.form.picking {
+		t.Fatal("the picker closed after one tag; a set needs it to stay open")
+	}
+	h.pickUntil("web")
+	h.press("enter")
+
+	if got := h.m.form.value("Tags"); got != "api, web" {
+		t.Errorf("Tags = %q, want api, web from one pass", got)
+	}
+
+	// Toggling the same entry takes it back off.
+	h.pickUntil("api")
+	h.press("enter")
+	if got := h.m.form.value("Tags"); got != "web" {
+		t.Errorf("Tags = %q, want api toggled back off", got)
+	}
+
+	h.press("esc")
+	if h.m.form.picking {
+		t.Error("esc did not finish the picker")
+	}
+	if h.m.mode != modeForm {
+		t.Error("esc closed the whole form rather than the list")
+	}
+}
+
+// The list shows what is already chosen, so it reads as a set.
+func TestTagPickerMarksChosenTags(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("a", "10.0.0.1")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.type_("prod, web")
+	h.press("enter")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Tags" {
+		h.press("tab")
+	}
+	h.press("down")
+
+	h.mustContain("✓ prod")
+	h.mustContain("✓ web")
+}
+
+// A single-value picker still commits and closes: there is nothing more to
+// choose once a jump host is set.
+func TestSingleValuePickerStillClosesOnChoice(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("bastion", "10.0.0.1")
+	h.addHost("web", "10.0.0.2")
+	h.selectHost("web")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Jump host" {
+		h.press("tab")
+	}
+	h.press("down")
+	h.pickUntil("bastion")
+	h.press("enter")
+
+	if h.m.form.picking {
+		t.Error("the jump host picker stayed open after a choice")
+	}
+	if got := h.m.form.value("Jump host"); got != "bastion" {
+		t.Errorf("Jump host = %q, want bastion", got)
 	}
 }

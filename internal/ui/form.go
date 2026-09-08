@@ -208,7 +208,12 @@ func (f *form) movePicker(d int) {
 	f.pickIdx = (f.pickIdx + d + n) % n
 }
 
-// choosePicked writes the highlighted choice into the field.
+// choosePicked applies the highlighted choice to the field.
+//
+// A list field toggles and stays open, so a whole set is chosen in one pass:
+// closing after each entry would mean reopening the list once per tag. A
+// single-value field takes the choice and closes, since there is nothing more
+// to say.
 func (f *form) choosePicked() {
 	x := &f.fields[f.idx]
 	x.suggested = false // now a deliberate value
@@ -218,7 +223,9 @@ func (f *form) choosePicked() {
 	case c == noChoice:
 		x.input.SetValue("") // the empty choice clears the field either way
 	case x.list:
-		x.input.SetValue(addToList(x.input.Value(), c))
+		x.input.SetValue(toggleInList(x.input.Value(), c))
+		x.input.CursorEnd()
+		return // stay open for the next one; esc finishes
 	default:
 		x.input.SetValue(c)
 	}
@@ -226,15 +233,21 @@ func (f *form) choosePicked() {
 	f.closePicker()
 }
 
-// addToList appends one entry to a comma-separated field, leaving it alone if
-// it is already there — picking the same tag twice should be a no-op rather
-// than a duplicate.
-func addToList(current, add string) string {
+// inList reports whether a comma-separated field already holds an entry.
+func inList(current, want string) bool {
+	return slices.Contains(splitTags(current), want)
+}
+
+// toggleInList adds an entry to a comma-separated field, or removes it if it
+// is already there, so one key both selects and deselects.
+func toggleInList(current, entry string) string {
 	items := splitTags(current)
-	if slices.Contains(items, add) {
-		return strings.Join(items, ", ")
+	if i := slices.Index(items, entry); i >= 0 {
+		items = slices.Delete(items, i, i+1)
+	} else {
+		items = append(items, entry)
 	}
-	return strings.Join(append(items, add), ", ")
+	return strings.Join(items, ", ")
 }
 
 // asList marks a field as holding a set, so its picker adds rather than

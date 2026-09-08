@@ -140,15 +140,33 @@ func (m Model) pickerList(w int) string {
 	}
 	end := min(start+maxRows, len(choices))
 
+	// A list field shows what is already chosen, so the picker reads as a set
+	// rather than as a menu you have to remember your way through.
+	x := f.fields[f.idx]
+	label := func(c string) string {
+		if !x.list || c == noChoice {
+			return c
+		}
+		if inList(x.input.Value(), c) {
+			return "✓ " + c
+		}
+		return "  " + c
+	}
+
 	// A row sits inside the list's border (w-4) behind a two-space indent.
 	rows := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		rows = append(rows, "  "+row(choices[i], i == f.pickIdx, w-6))
+		rows = append(rows, "  "+row(label(choices[i]), i == f.pickIdx, w-6))
 	}
 	if end < len(choices) {
 		rows = append(rows, "  "+theme.Dim.Render(fmt.Sprintf("  +%d more", len(choices)-end)))
 	}
-	return box("pick  ↑↓ ↵", true, w, len(rows)+2, strings.Join(rows, "\n"))
+
+	title := "pick  ↑↓ ↵"
+	if x.list {
+		title = "pick  ↑↓  ↵ toggle  esc done"
+	}
+	return box(title, true, w, len(rows)+2, strings.Join(rows, "\n"))
 }
 
 // tooSmall fills the frame with a single line, since the real layout cannot
@@ -347,8 +365,8 @@ func (m Model) helpBody() string {
 		{"Forms", [][2]string{
 			{"tab / shift+tab", "next and previous field"},
 			{"↓", "on Jump host, Group or Tags, pick what you already use"},
-			{"", "on Tags a pick adds to the list, so open it again for"},
-			{"", "a second one; the empty choice clears the field"},
+			{"", "Tags is a set: ↵ toggles an entry, ✓ marks the ones"},
+			{"", "chosen, and esc finishes. The empty choice clears it"},
 			{"↵ / esc", "save / cancel"},
 			{"", "both stay free text: any ssh destination works as a"},
 			{"", "jump host, and an unknown group name creates it"},
