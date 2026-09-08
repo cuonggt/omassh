@@ -61,9 +61,6 @@ type confirmation struct {
 type Options struct {
 	Keys         keymap.Map
 	ProbeTimeout time.Duration
-	// SSHConfigPath is the client config to read hosts from. Injectable so
-	// tests do not depend on whatever the developer has in ~/.ssh/config.
-	SSHConfigPath string
 }
 
 // Model is the root Bubble Tea model.
@@ -121,9 +118,6 @@ func New(st *store.Store, opts Options) Model {
 	if opts.ProbeTimeout <= 0 {
 		opts.ProbeTimeout = 2 * time.Second
 	}
-	if opts.SSHConfigPath == "" {
-		opts.SSHConfigPath = DefaultSSHConfigPath()
-	}
 
 	m := Model{opts: opts, keys: opts.Keys, st: st,
 		focus: panelHosts, filter: ti,
@@ -139,12 +133,10 @@ func New(st *store.Store, opts Options) Model {
 func (m Model) Init() tea.Cmd { return nil }
 
 func (m *Model) reload() {
-	d, err := load(m.st, m.opts.SSHConfigPath)
+	d, err := load(m.st)
 	m.d = d
-	// Keep the supervisor's view of hosts current; it resolves them off the
-	// UI goroutine when a tunnel starts or restarts.
 	if err != nil {
-		m.setErr(fmt.Errorf("ssh_config: %w", err))
+		m.setErr(err)
 	}
 	m.clampSelection()
 }
@@ -281,8 +273,6 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.Delete:
 		return m.askDelete()
 
-	case keymap.Import:
-		return m.importSelected()
 	case keymap.Probe:
 		return m.startProbe()
 	case keymap.SFTP:
@@ -454,7 +444,7 @@ func (m Model) openNewForm() (tea.Model, tea.Cmd) {
 	} else {
 		g, _ := m.currentGroup()
 		name := ""
-		if g.ID != store.SSHConfigGroupID && g.ID != UngroupedID {
+		if g.ID != UngroupedID {
 			name = g.Name
 		}
 		m.form = newHostForm(store.Host{}, name)
@@ -479,42 +469,9 @@ func (m Model) openEditForm() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if h.Source == store.SourceSSHConfig {
-		m.setStatus("ssh_config hosts are read-only — press i to import a copy")
-		return m, nil
-	}
 	m.form = newHostForm(h, m.d.groupName(h.GroupID))
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
-}
-
-// importSelected copies a config-sourced host into the store so it can be
-// edited, leaving ~/.ssh/config untouched.
-func (m Model) importSelected() (tea.Model, tea.Cmd) {
-	h, ok := m.selectedHost()
-	if !ok {
-		return m, nil
-	}
-	if h.Source != store.SourceSSHConfig {
-		m.setStatus("that host is already stored")
-		return m, nil
-	}
-	// A ProxyCommand is what makes such a host reachable at all, and Omassh
-	// models jump hosts rather than arbitrary shell. Importing would produce a
-	// host that looks fine and cannot connect, so refuse instead.
-	if h.Note != "" {
-		m.setStatus(h.Name + " depends on a ProxyCommand — connect it by alias instead")
-		return m, nil
-	}
-	copied := h
-	copied.ID, copied.Source, copied.GroupID, copied.Note = "", store.SourceLocal, "", ""
-	if _, err := m.st.PutHost(copied); err != nil {
-		m.setErr(err)
-		return m, nil
-	}
-	m.reload()
-	m.setStatus("imported " + h.Name + " — ~/.ssh/config not modified")
-	return m, nil
 }
 
 func (m Model) askDelete() (tea.Model, tea.Cmd) {
@@ -547,10 +504,6 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 
 	h, ok := m.selectedHost()
 	if !ok {
-		return m, nil
-	}
-	if h.Source == store.SourceSSHConfig {
-		m.setStatus("ssh_config hosts are read-only — edit ~/.ssh/config to remove")
 		return m, nil
 	}
 	detail := "session history is kept"
@@ -717,9 +670,7 @@ func backFor(current mode) mode {
 	}
 }
 
-func isSynthetic(id string) bool {
-	return id == store.SSHConfigGroupID || id == UngroupedID
-}
+func isSynthetic(id string) bool { return id == UngroupedID }
 
 // selectHost moves the group and host cursors onto h, following it into
 // whichever group it was saved in, so a host you just created is selected

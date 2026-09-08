@@ -65,15 +65,3 @@ func TestResolveSurvivesGroupCycle(t *testing.T) {
 		// Resolve is synchronous; reaching here would mean it blocked.
 	}
 }
-
-// OpenSSH already owns config-sourced hosts, so Omassh must not layer group
-// attributes onto them.
-func TestResolveLeavesSSHConfigHostsAlone(t *testing.T) {
-	r := NewResolver([]Group{{ID: SSHConfigGroupID, Name: "ssh_config", User: "nope"}})
-
-	got := r.Resolve(Host{Name: "orb", GroupID: SSHConfigGroupID, Source: SourceSSHConfig})
-
-	if got.User != "" {
-		t.Errorf("User = %q, want empty", got.User)
-	}
-}

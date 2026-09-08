@@ -54,8 +54,4 @@ func TestStatKey(t *testing.T) {
 	if got := local.StatKey(); got != "abc" {
 		t.Errorf("local StatKey = %q, want abc", got)
 	}
-	cfg := Host{ID: "", Name: "orb", Source: SourceSSHConfig}
-	if got := cfg.StatKey(); got != "cfg:orb" {
-		t.Errorf("config StatKey = %q, want cfg:orb", got)
-	}
 }

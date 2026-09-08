@@ -37,12 +37,12 @@ func (s State) String() string {
 
 // Check opens a TCP connection to a host's ssh port.
 //
-// Hosts reached through a jump host or a ProxyCommand are skipped rather than
-// guessed at: their address is meaningful only from the far side of the proxy,
-// so dialling it from here would report on the wrong machine — quite possibly
-// something else entirely on the local network.
+// Hosts reached through a jump host are skipped rather than guessed at: their
+// address is meaningful only from the far side of the proxy, so dialling it
+// from here would report on the wrong machine — quite possibly something else
+// entirely on the local network.
 func Check(ctx context.Context, h store.Host, timeout time.Duration) State {
-	if h.ProxyJump != "" || h.Note != "" {
+	if h.ProxyJump != "" {
 		return Skipped
 	}
 	if h.Addr == "" {

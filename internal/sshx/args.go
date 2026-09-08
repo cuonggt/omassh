@@ -29,15 +29,6 @@ func Build(h store.Host, extra ...string) []string {
 		args = append(args, "-o", o)
 	}
 
-	// Hosts read from ~/.ssh/config are addressed by their alias alone. The
-	// user's own directives — Match blocks, canonicalisation, IdentityAgent,
-	// certificates — already describe how to reach them, and re-specifying a
-	// subset here would silently override the rest.
-	if h.Source == store.SourceSSHConfig {
-		args = append(args, extra...)
-		return append(args, h.Name)
-	}
-
 	if h.Port != 0 && h.Port != 22 {
 		args = append(args, "-p", strconv.Itoa(h.Port))
 	}

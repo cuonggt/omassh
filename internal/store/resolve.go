@@ -23,13 +23,9 @@ func NewResolver(gs []Group) Resolver {
 }
 
 // Resolve fills any attribute the host leaves empty from the nearest ancestor
-// group that sets it. A host's own value always wins; config-sourced hosts are
-// returned untouched, since OpenSSH already owns their configuration.
+// group that sets it. A host's own value always wins.
 func (r Resolver) Resolve(h Host) Resolved {
 	out := Resolved{Host: h}
-	if h.Source == SourceSSHConfig {
-		return out
-	}
 
 	seen := map[string]bool{}
 	for id := h.GroupID; id != "" && !seen[id]; {

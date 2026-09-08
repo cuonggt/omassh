@@ -19,12 +19,11 @@ theming, rebindable keys and reachability probes.
 | `o` | hand the whole terminal to `ssh` instead |
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete |
-| `i` | import an `ssh_config` host so it can be edited |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect, from whichever panel has focus |
 | `s` | sftp: browse and transfer files |
-| `r` | reload store and re-read `~/.ssh/config` |
+| `r` | reload the store from disk |
 | `?` | help |
 
 ## Design
@@ -86,15 +85,13 @@ chains, `ProxyCommand`, certificates, `Match` blocks, `IdentityAgent` and
 `BatchMode` is forced on, because the child's stdin carries the protocol and
 there is nowhere to prompt; `ssh-add` the key first if it has a passphrase.
 
-Hosts defined in `~/.ssh/config` are read live on every load rather than copied
-into the store, so Omassh can never show a stale version of a file you edit by
-hand. They are badged `cfg` and are read-only; `i` imports an editable copy
-without touching the file. Includes are expanded in place, preserving OpenSSH's
-first-match-wins ordering.
-
 ## Install
 
-Nothing is published yet. From source:
+```sh
+brew install --cask cuonggt/tap/omassh
+```
+
+macOS and Linux, amd64 and arm64. Or from source:
 
 ```sh
 go install github.com/cuonggt/omassh/cmd/omassh@latest

@@ -46,14 +46,6 @@ func TestBuild(t *testing.T) {
 			want:  []string{"-N", "-L", "5432:db:5432", "root@example.com"},
 		},
 		{
-			// The whole point of tracking Source: OpenSSH already knows how to
-			// reach these, and re-deriving a subset would override the rest.
-			name:  "ssh_config hosts are addressed by alias alone",
-			host:  store.Host{Name: "prod-web", Addr: "10.0.1.14", Port: 2222, User: "admin", Identity: "~/.ssh/k", ProxyJump: "bastion", Source: store.SourceSSHConfig},
-			extra: []string{"-N"},
-			want:  []string{"-N", "prod-web"},
-		},
-		{
 			name: "ipv6 literal is passed through untouched",
 			host: store.Host{Addr: "2001:db8::1", User: "root", Port: 2222},
 			want: []string{"-p", "2222", "root@2001:db8::1"},
@@ -80,8 +72,7 @@ func TestBuildDoesNotAliasExtra(t *testing.T) {
 	}
 }
 
-// -o settings must reach every connection path, including hosts addressed by
-// their ssh_config alias.
+// -o settings must reach every connection path.
 func TestGlobalOptions(t *testing.T) {
 	t.Cleanup(func() { SetGlobalOptions(nil) })
 	SetGlobalOptions([]string{"ConnectTimeout=5", "BatchMode=yes"})
@@ -90,12 +81,6 @@ func TestGlobalOptions(t *testing.T) {
 	want := []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "root@example.com"}
 	if !slices.Equal(got, want) {
 		t.Errorf("Build() = %q, want %q", got, want)
-	}
-
-	got = Build(store.Host{Name: "alias", Source: store.SourceSSHConfig})
-	want = []string{"-o", "ConnectTimeout=5", "-o", "BatchMode=yes", "alias"}
-	if !slices.Equal(got, want) {
-		t.Errorf("config-host Build() = %q, want %q", got, want)
 	}
 
 	SetGlobalOptions(nil)

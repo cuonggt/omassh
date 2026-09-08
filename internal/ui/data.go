@@ -30,22 +30,8 @@ type dataMsg struct {
 	err  error
 }
 
-// DefaultSSHConfigPath is where OpenSSH keeps the user's client config.
-func DefaultSSHConfigPath() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".ssh", "config")
-}
-
-// load reads the store and re-reads ~/.ssh/config.
-//
-// Config hosts are deliberately not copied into the store: they are read fresh
-// every time, so Omassh can never show a stale copy of a file the user edits
-// by hand. The cost is that they cannot be edited here, which is why they are
-// badged read-only in the list.
-func load(s *store.Store, sshConfig string) (data, error) {
+// load reads everything the interface renders from the store.
+func load(s *store.Store) (data, error) {
 	var d data
 	var err error
 
@@ -58,10 +44,6 @@ func load(s *store.Store, sshConfig string) (data, error) {
 	if d.stats, err = s.Stats(); err != nil {
 		return d, err
 	}
-
-	// A broken ~/.ssh/config must not take the whole app down; the store side
-	// still works, and the error surfaces in the status bar.
-	cfgHosts, cfgErr := store.LoadSSHConfig(sshConfig)
 
 	// Which hosts already have a session waiting to be reattached.
 	d.live = map[string]bool{}
@@ -83,11 +65,7 @@ func load(s *store.Store, sshConfig string) (data, error) {
 	if ungrouped > 0 {
 		d.tree = append(d.tree, store.GroupNode{Group: store.Group{ID: UngroupedID, Name: "Ungrouped"}})
 	}
-	if len(cfgHosts) > 0 {
-		d.tree = append(d.tree, store.GroupNode{Group: store.Group{ID: store.SSHConfigGroupID, Name: "ssh_config"}})
-		d.hosts = append(d.hosts, cfgHosts...)
-	}
-	return d, cfgErr
+	return d, nil
 }
 
 // hasSession reports whether a host has a persistent session running.

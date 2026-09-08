@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -39,8 +38,6 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 	o := Options{
 		Keys:         keymap.Default(),
 		ProbeTimeout: time.Second,
-		// An empty file, so tests never depend on the developer's own config.
-		SSHConfigPath: filepath.Join(dir, "no-such-ssh-config"),
 	}
 	for _, fn := range opts {
 		fn(&o)
@@ -133,10 +130,6 @@ func (h *harness) addHost(name, addr string) store.Host {
 	}
 	h.reload()
 	return host
-}
-
-func writeFile(path, body string) error {
-	return os.WriteFile(path, []byte(body), 0o600)
 }
 
 // sessionNameFor exposes the tmux session name a host maps to, so a test can

@@ -56,11 +56,6 @@ func TestProxiedHostsAreSkipped(t *testing.T) {
 	if got := probe.Check(context.Background(), viaJump, time.Second); got != probe.Skipped {
 		t.Errorf("jump-host host = %v, want skipped", got)
 	}
-
-	viaCommand := store.Host{Addr: addr, Port: open, Note: "reached via ProxyCommand"}
-	if got := probe.Check(context.Background(), viaCommand, time.Second); got != probe.Skipped {
-		t.Errorf("ProxyCommand host = %v, want skipped", got)
-	}
 }
 
 func TestCheckAll(t *testing.T) {

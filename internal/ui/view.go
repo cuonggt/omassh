@@ -11,7 +11,6 @@ import (
 
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/sshx"
-	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
@@ -138,7 +137,7 @@ func (m Model) hostsBody(w int) string {
 		// Badges must appear whether or not the row is selected. The selection
 		// style paints the whole line, so a coloured badge would be half
 		// overridden; the selected row gets the same marks unstyled.
-		cfg := h.Source == store.SourceSSHConfig
+		//
 		// The live session is the more useful fact, and unlike d.live it is
 		// always current, so it wins when a host is both connected and has a
 		// session waiting.
@@ -155,9 +154,6 @@ func (m Model) hostsBody(w int) string {
 			if badge != "" {
 				text += " " + badge
 			}
-			if cfg {
-				text += "  cfg"
-			}
 			lines = append(lines, row(text, true, w))
 			continue
 		}
@@ -170,9 +166,6 @@ func (m Model) hostsBody(w int) string {
 		}
 		if badge != "" {
 			line += theme.Fg(badgeColour).Render(" " + badge)
-		}
-		if cfg {
-			line += theme.Fg(theme.Magenta).Render("  cfg")
 		}
 		lines = append(lines, ansi.Truncate(line, w, "…"))
 	}
@@ -197,17 +190,12 @@ func (m Model) detailBody() (string, string) {
 		detailField("key", strOr(r.Identity, "(agent)"), r.IdentityFrom),
 		detailField("via", strOr(r.ProxyJump, "—"), r.ProxyJumpFrom),
 		detailField("tags", strOr(strings.Join(r.Tags, ", "), "—"), ""),
-		detailField("source", r.Source.String(), ""),
 	}
 	// The user is already visible in the ssh line; call it out separately only
 	// when it was inherited, so the provenance is not invisible.
 	if r.UserFrom != "" {
 		lines = append(lines, detailField("user", r.User, r.UserFrom))
 	}
-	if h.Note != "" {
-		lines = append(lines, detailField("note", h.Note, ""))
-	}
-
 	st := m.d.stats[h.StatKey()]
 	history := "never connected"
 	if st.Count > 0 {
@@ -221,11 +209,6 @@ func (m Model) detailBody() (string, string) {
 		theme.Dim.Render("  command"),
 		theme.Fg(theme.Green).Render("    ssh "+strings.Join(sshx.Build(r.Host), " ")),
 	)
-	if h.Source == store.SourceSSHConfig {
-		lines = append(lines, "",
-			theme.Dim.Render("  read-only — defined in ~/.ssh/config; press ")+
-				theme.Key.Render("i")+theme.Dim.Render(" to import a copy"))
-	}
 	return h.Name, strings.Join(lines, "\n")
 }
 
@@ -260,9 +243,8 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.NewItem), "new host, or new group when Groups is focused"},
 			{m.keys.Key(keymap.Edit), "edit the selection"},
 			{m.keys.Key(keymap.Delete), "delete the selection"},
-			{m.keys.Key(keymap.Import), "import an ssh_config host so it can be edited"},
 			{m.keys.Key(keymap.Probe), "probe reachability of the hosts in this group"},
-			{m.keys.Key(keymap.Reload), "reload the store and re-read ~/.ssh/config"},
+			{m.keys.Key(keymap.Reload), "reload the store from disk"},
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 		}},

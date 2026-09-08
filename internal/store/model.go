@@ -3,27 +3,6 @@ package store
 
 import "time"
 
-// SSHConfigGroupID is the reserved id of the synthetic group that holds hosts
-// read from ~/.ssh/config. It is never persisted.
-const SSHConfigGroupID = "__sshconfig"
-
-// Source records where a host definition came from. It matters at connect
-// time: config-sourced hosts are addressed by alias so OpenSSH applies the
-// user's own directives, rather than having Omassh re-derive them.
-type Source uint8
-
-const (
-	SourceLocal Source = iota
-	SourceSSHConfig
-)
-
-func (s Source) String() string {
-	if s == SourceSSHConfig {
-		return "ssh_config"
-	}
-	return "local"
-}
-
 // Group is a named collection of hosts. Groups nest, and a host inherits
 // User, Identity and ProxyJump from its group chain unless it sets its own.
 type Group struct {
@@ -47,12 +26,6 @@ type Host struct {
 	ProxyJump string   `json:"proxy_jump,omitempty"`
 	GroupID   string   `json:"group_id,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
-
-	// Source is runtime-only: ssh_config hosts are never written to the store.
-	Source Source `json:"-"`
-	// Note carries a human-readable caveat, e.g. that the host is reached via
-	// a ProxyCommand that Omassh deliberately does not try to reinterpret.
-	Note string `json:"-"`
 }
 
 // Target renders the [user@]host argument passed to ssh.
@@ -63,15 +36,8 @@ func (h Host) Target() string {
 	return h.Addr
 }
 
-// StatKey identifies a host in the session-history bucket. Config-sourced
-// hosts have no stable id of their own, so they are keyed by alias — which
-// means their history survives edits to ~/.ssh/config.
-func (h Host) StatKey() string {
-	if h.Source == SourceSSHConfig {
-		return "cfg:" + h.Name
-	}
-	return h.ID
-}
+// StatKey identifies a host in the session-history bucket.
+func (h Host) StatKey() string { return h.ID }
 
 // Stat is the recorded session history for one host.
 type Stat struct {

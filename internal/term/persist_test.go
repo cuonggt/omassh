@@ -131,10 +131,10 @@ func TestSessionNameIsStableAndSafe(t *testing.T) {
 	if !strings.HasPrefix(got, "omassh-") {
 		t.Errorf("SessionName %q lacks the omassh prefix", got)
 	}
-	// A config-sourced host has no id of its own but must still be distinct.
-	cfg := store.Host{Name: "web-01.prod:eu", Source: store.SourceSSHConfig}
-	if term.SessionName(cfg) == got {
-		t.Error("a config host collides with a stored host of the same name")
+	// Two hosts sharing a name must still get distinct sessions.
+	other := store.Host{ID: "h2", Name: "web-01.prod:eu"}
+	if term.SessionName(other) == got {
+		t.Error("two hosts with the same name collide")
 	}
 }
 
