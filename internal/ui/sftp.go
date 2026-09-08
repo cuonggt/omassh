@@ -144,7 +144,7 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc", "q":
 		return m.closeSFTP()
-	case "tab", "h", "l", "left", "right":
+	case "tab", "shift+tab", "h", "l", "left", "right":
 		m.paneFocus = 1 - m.paneFocus
 	case "j", "down":
 		p.idx = clamp(p.idx+1, 0, len(p.entries)-1)

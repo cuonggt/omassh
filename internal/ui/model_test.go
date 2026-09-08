@@ -10,6 +10,7 @@ import (
 
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/probe"
+	"github.com/cuonggt/omassh/internal/sftpx"
 	"github.com/cuonggt/omassh/internal/store"
 )
 
@@ -1278,4 +1279,91 @@ func TestClickSelectsTheRightHostAfterScrolling(t *testing.T) {
 		t.Fatal("the click mapped to the first host in the list, not the first visible row")
 	}
 	h.mustContain(got.Name)
+}
+
+// sftpHarness puts the model into the file browser with two populated panes,
+// without needing a server: only the entries and the cursor drive selection.
+func sftpHarness(t *testing.T, left, right int) *harness {
+	t.Helper()
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.paneFocus = 1 // where sftpConnected leaves it
+	for i, n := range []int{left, right} {
+		h.m.panes[i].entries = make([]sftpx.Entry, n)
+		for j := range h.m.panes[i].entries {
+			h.m.panes[i].entries[j].Name = fmt.Sprintf("p%d-file-%02d", i, j)
+		}
+	}
+	return h
+}
+
+// tab and shift+tab both move between the panes. There are only two, so the
+// direction does not matter — what matters is that the key people reach for
+// to go back does not do nothing.
+func TestSFTPShiftTabSwitchesPanes(t *testing.T) {
+	h := sftpHarness(t, 5, 5)
+
+	h.press("shift+tab")
+	if h.m.paneFocus != 0 {
+		t.Errorf("paneFocus = %d after shift+tab, want 0", h.m.paneFocus)
+	}
+	h.press("shift+tab")
+	if h.m.paneFocus != 1 {
+		t.Errorf("paneFocus = %d after a second shift+tab, want 1", h.m.paneFocus)
+	}
+}
+
+// Clicking a file selects it, and focuses the pane it is in.
+func TestClickSelectsAFileAndItsPane(t *testing.T) {
+	h := sftpHarness(t, 20, 20)
+
+	h.click(2, 3) // the left pane, third row
+	if h.m.paneFocus != 0 {
+		t.Errorf("paneFocus = %d, want the clicked pane", h.m.paneFocus)
+	}
+	if h.m.panes[0].idx != 2 {
+		t.Errorf("left idx = %d, want 2", h.m.panes[0].idx)
+	}
+
+	h.click(h.m.w-4, 1) // the right pane, first row
+	if h.m.paneFocus != 1 {
+		t.Errorf("paneFocus = %d, want the right pane", h.m.paneFocus)
+	}
+	if h.m.panes[1].idx != 0 {
+		t.Errorf("right idx = %d, want 0", h.m.panes[1].idx)
+	}
+}
+
+// A scrolled pane must select the row that is showing, not the nth entry.
+func TestClickInAScrolledFilePane(t *testing.T) {
+	h := sftpHarness(t, 200, 5)
+	h.m.paneFocus = 0
+	h.m.panes[0].idx = 150 // scrolled far down
+
+	h.click(2, 1) // the first visible row
+	if got := h.m.panes[0].idx; got == 0 {
+		t.Fatal("the click mapped to the first entry rather than the first visible row")
+	}
+	// It must land inside the window that was on screen.
+	rows := max(h.m.h-statusHeight-1-2, 1)
+	start, end := listWindow(150, 200, rows)
+	if h.m.panes[0].idx < start || h.m.panes[0].idx >= end {
+		t.Errorf("idx = %d, outside the visible window %d..%d", h.m.panes[0].idx, start, end)
+	}
+}
+
+// The borders and the transfer strip are not rows.
+func TestClickOnFilePaneChromeDoesNothing(t *testing.T) {
+	h := sftpHarness(t, 20, 20)
+	h.m.paneFocus = 0
+	h.m.panes[0].idx = 4
+	before := h.m.panes[0].idx
+
+	content := h.m.h - statusHeight
+	for _, y := range []int{0, content - 1, content} { // top border, strip, status
+		h.click(2, y)
+		if h.m.panes[0].idx != before {
+			t.Errorf("clicking row %d moved the cursor to %d", y, h.m.panes[0].idx)
+		}
+	}
 }

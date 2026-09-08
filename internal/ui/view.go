@@ -19,10 +19,12 @@ func (m Model) View() tea.View {
 	v.AltScreen = true
 	v.WindowTitle = "omassh"
 	// Clicking selects a group, a host or the session pane. Reporting is on
-	// only while browsing: a focused session needs the terminal's own
-	// selection more than it needs click-to-focus, and every terminal reverts
-	// to selecting text when the application is not asking for the mouse.
-	if m.mode == modeBrowse && m.focus != panelSession {
+	// only where there is a list to click: a focused session needs the
+	// terminal's own selection more than it needs click-to-focus, and every
+	// terminal reverts to selecting text when the application is not asking
+	// for the mouse.
+	switch {
+	case m.mode == modeBrowse && m.focus != panelSession, m.mode == modeSFTP:
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	if m.mode == modeBrowse {
@@ -363,7 +365,8 @@ func (m Model) helpBody() string {
 			{"", "the remote, so the prefix is the way back out"},
 		}},
 		{"SFTP (" + m.keys.Key(keymap.SFTP) + ")", [][2]string{
-			{"tab", "switch between the local and remote pane"},
+			{"tab / shift+tab", "switch between the local and remote pane"},
+			{"click", "select a file, and focus the pane it is in"},
 			{"↵ / -", "enter a directory / go up"},
 			{"c", "copy the highlighted file to the other pane"},
 			{"m / r / M / d", "mkdir / rename / chmod / delete"},

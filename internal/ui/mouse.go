@@ -34,6 +34,9 @@ func (m Model) layout() sidebarLayout {
 
 // handleMouseClick moves the selection to whatever was clicked.
 func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
+	if m.mode == modeSFTP {
+		return m.clickFilePane(e)
+	}
 	// A dialog owns the screen while it is open. Clicking the list behind it
 	// would act on something the dialog is covering.
 	if m.mode != modeBrowse && m.mode != modeFilter {
@@ -91,4 +94,30 @@ func rowIndex(y, top, height, n, start int) (int, bool) {
 		return 0, false
 	}
 	return i, true
+}
+
+// clickFilePane selects the file under the pointer, in whichever pane it is.
+//
+// Clicking the other pane focuses it as well as selecting, so one click does
+// what tab and a walk down the list would otherwise take.
+func (m Model) clickFilePane(e tea.Mouse) (tea.Model, tea.Cmd) {
+	content := m.h - statusHeight
+	body := content - 1 // the transfer strip
+	if m.w < minWidth || content < minHeight || e.Y < 0 || e.Y >= body {
+		return m, nil
+	}
+
+	i := 0
+	if e.X >= m.w/2 {
+		i = 1
+	}
+	p := m.panes[i]
+
+	rows := max(body-2, 1)
+	start, _ := listWindow(p.idx, len(p.entries), rows)
+	if j, ok := rowIndex(e.Y, 0, body, len(p.entries), start); ok {
+		m.paneFocus = i
+		m.panes[i].idx = j
+	}
+	return m, nil
 }
