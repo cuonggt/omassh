@@ -115,8 +115,19 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.prefixArmed = true
 		return m, nil
 	}
+	// A session that has ended is dismissed deliberately, not by whatever you
+	// were in the middle of typing. Detaching on any key sent the rest of a
+	// half-typed command to the host list, where e opens an edit form and the
+	// remainder lands in a host's name — saved by the enter meant for the
+	// shell. The prefix still works, since it is handled above.
 	if !m.attached.Alive() {
-		return m.detachSession(m.attached.Host.Name + " " + m.attached.Status())
+		switch key {
+		case "esc", "enter":
+			return m.detachSession(m.attached.Host.Name + " " + m.attached.Status())
+		}
+		m.setStatus(m.attached.Host.Name + " " + m.attached.Status() +
+			" — esc to return to the list")
+		return m, nil
 	}
 	m.attached.SendKey(msg)
 	return m, nil

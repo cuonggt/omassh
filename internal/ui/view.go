@@ -357,6 +357,7 @@ func (m Model) helpBody() string {
 			{"prefix G", "return to the live view"},
 			{"prefix d", "detach — the session keeps running, " + m.keys.Key(keymap.Pane) + " to reattach"},
 			{"prefix X", "end the session for good"},
+			{"esc", "when a session has ended, return to the list"},
 			{"prefix r", "redraw the screen"},
 			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
 			{"", "a green ● beside a host means it is connected here;"},

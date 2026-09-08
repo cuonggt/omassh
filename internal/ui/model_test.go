@@ -1475,3 +1475,74 @@ func TestTransferReplacesTheHintLine(t *testing.T) {
 	h.mustContain("big.iso")
 	h.mustNotContain("mkdir")
 }
+
+// deadSession attaches a session and waits for it to end. Port 1 answers
+// nothing, so the connection fails on its own.
+func (h *harness) deadSession(name string) {
+	h.t.Helper()
+	h.openSession(name)
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if !h.m.attached.Alive() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	h.t.Skip("the session stayed alive; nothing to test")
+}
+
+// Typing into a session that has ended used to detach on the first key and
+// send the rest to the host list, where e opens an edit form and the remainder
+// of a half-typed command was typed into a host's name — then saved by the
+// enter meant for the shell.
+func TestTypingIntoAnEndedSessionDoesNotReachTheList(t *testing.T) {
+	h := newHarness(t)
+	h.deadSession("alpha")
+
+	// The exact keys that renamed a host: "echo hello".
+	h.type_("echo hello")
+	h.press("enter")
+
+	if h.m.mode == modeForm {
+		t.Fatal("a form opened from keys typed at an ended session")
+	}
+	hosts := h.m.d.hosts
+	if len(hosts) != 1 || hosts[0].Name != "alpha" {
+		t.Errorf("host is now %+v — the typing reached the list", hosts)
+	}
+}
+
+// esc is how you leave, and it says so.
+func TestEscDismissesAnEndedSession(t *testing.T) {
+	h := newHarness(t)
+	h.deadSession("alpha")
+
+	h.type_("x") // anything else just explains
+	h.mustContain("esc to return to the list")
+	if h.m.attached == nil {
+		t.Fatal("a stray key dismissed the ended session")
+	}
+
+	h.press("esc")
+	if h.m.attached != nil {
+		t.Error("esc did not dismiss the ended session")
+	}
+	if h.m.focus == panelSession {
+		t.Error("focus stayed on a session that is gone")
+	}
+}
+
+// The prefix still works on an ended session, so its commands are not lost.
+func TestPrefixStillWorksOnAnEndedSession(t *testing.T) {
+	h := newHarness(t)
+	h.deadSession("alpha")
+
+	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
+	if !h.m.prefixArmed {
+		t.Fatal("the prefix did not arm on an ended session")
+	}
+	h.press("w")
+	if h.m.focus == panelSession {
+		t.Error("prefix w did not return to the host list")
+	}
+}
