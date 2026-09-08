@@ -15,13 +15,12 @@ theming, rebindable keys and reachability probes.
 | key | |
 |---|---|
 | `j`/`k`, `tab`, `1`/`2` | move and switch panel |
-| `enter` | connect — the session opens in the main pane |
-| `o` | hand the whole terminal to `ssh` instead |
+| `enter` | connect — `ssh` takes the whole terminal, exit returns here |
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
-| `t` | connect, from whichever panel has focus |
+| `t` | connect in the main pane instead, keeping the host list |
 | `s` | sftp: browse and transfer files |
 | `r` | reload the store from disk |
 | `?` | help |
@@ -43,10 +42,16 @@ path, which becomes `ssh -i`; a passphrase-protected key is unlocked the usual
 way, with `ssh-add` or `AddKeysToAgent yes` in your `~/.ssh/config`. Nothing
 here duplicates what ssh-agent already does.
 
-`enter` opens a session in the **main pane**, with the host list still beside
-it. There is one session at a time, so connecting somewhere else replaces it
-rather than leaving a connection nothing in the interface can reach; a green
-`●` marks the host it is on.
+`enter` **hands the whole terminal to `ssh`**. Omassh releases the terminal,
+the child gets the real stdin, stdout and stderr, and exiting drops you back
+into the list. That path is emulation-free by construction — correct
+`SIGWINCH`, your terminal's own scrollback, mouse and every escape sequence —
+and it is the default for exactly that reason.
+
+`t` opens the session in the **main pane** instead, keeping the host list
+beside it. There is one such session at a time, so connecting somewhere else
+replaces it rather than leaving a connection nothing in the interface can
+reach; a green `●` marks the host it is on.
 
 While that pane has focus every key goes to the remote, so `ctrl+\ w` hands
 the keyboard back to the list — the session stays connected and visible —
@@ -57,7 +62,8 @@ to Omassh dies with it, so each session is instead run as
 `tmux new-session -A -s omassh-<host> ssh …` on a private tmux server — closing
 Omassh detaches rather than disconnects, and reconnecting reattaches with the
 screen and shell state intact. A yellow `●` beside a host means a session is
-waiting to be reattached. Without tmux, sessions are ephemeral as before. Those sessions live on their own server socket, so `tmux ls` in your
+waiting — press `t` to reattach. Without tmux, sessions are ephemeral as
+before. Those sessions live on their own server socket, so `tmux ls` in your
 shell is unaffected.
 
 Scrollback is `ctrl+\ k` and `ctrl+\ j` to page, `ctrl+\ G` to return live;
@@ -65,9 +71,6 @@ typing anything snaps back on its own, since a terminal that stayed scrolled
 while you typed would hide your own output. For persistent sessions the history
 belongs to tmux — 10000 lines, surviving restarts — and those keys drive its
 copy mode. Without tmux the emulator keeps 2000 lines itself.
-
-`o` hands the whole terminal to `ssh` instead. That path is emulation-free and
-remains the highest-fidelity way to work on a single host.
 
 A pty runs `ssh`, its output feeds a VT emulator, and keys go back the other
 way, so the remote gets a real terminal the size of the pane, `SIGWINCH` and

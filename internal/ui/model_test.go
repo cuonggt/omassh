@@ -265,7 +265,7 @@ func TestRedrawIsReachableFromASession(t *testing.T) {
 func (h *harness) openSession(name string) {
 	h.t.Helper()
 	h.addHost(name, "127.0.0.1:1")
-	h.press("enter")
+	h.press("t") // enter hands the terminal over; t is the embedded pane
 	h.t.Cleanup(func() {
 		if h.m.attached != nil {
 			_ = h.m.attached.Kill()
@@ -338,7 +338,7 @@ func TestConnectingElsewhereReplacesTheSession(t *testing.T) {
 	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
 	h.press("w")
 	h.press("j")
-	h.press("enter")
+	h.press("t")
 	t.Cleanup(func() {
 		if h.m.attached != nil {
 			_ = h.m.attached.Kill()
@@ -384,4 +384,24 @@ func TestGroupSplitIsUnbound(t *testing.T) {
 	if a := keymap.Default().Lookup("T"); a != keymap.None {
 		t.Errorf("T is still bound to %q — the group split was meant to go", a)
 	}
+}
+
+// enter is the full-screen handoff, not the embedded pane. The two were the
+// other way round for a while, and the difference is invisible in a unit test
+// unless it is asserted: the handoff opens no pane at all.
+func TestEnterHandsTheTerminalOverRatherThanOpeningAPane(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web", "10.0.0.1")
+
+	h.press("2")
+	cmd := h.send(tea.KeyPressMsg{Code: '\r'})
+
+	if h.m.attached != nil {
+		_ = h.m.attached.Kill()
+		t.Fatal("enter opened an embedded pane; it should hand the terminal to ssh")
+	}
+	if cmd == nil {
+		t.Fatal("enter produced no command, so nothing was executed")
+	}
+	h.mustContain("connecting to web")
 }

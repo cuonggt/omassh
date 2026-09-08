@@ -238,8 +238,8 @@ func (m Model) helpBody() string {
 			{"esc", "clear the search"},
 		}},
 		{"Act", [][2]string{
-			{m.keys.Key(keymap.Connect), "connect — the session opens in the main pane"},
-			{m.keys.Key(keymap.Handoff), "hand the whole terminal to ssh instead (highest fidelity)"},
+			{m.keys.Key(keymap.Connect), "connect — ssh takes the whole terminal, exit returns here"},
+			{m.keys.Key(keymap.Pane), "connect in the main pane instead, keeping the host list"},
 			{m.keys.Key(keymap.NewItem), "new host, or new group when Groups is focused"},
 			{m.keys.Key(keymap.Edit), "edit the selection"},
 			{m.keys.Key(keymap.Delete), "delete the selection"},
@@ -248,11 +248,11 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 		}},
-		{"Attached session (" + prefixKey + " prefix)", [][2]string{
+		{"Main-pane session (" + m.keys.Key(keymap.Pane) + ", then the " + prefixKey + " prefix)", [][2]string{
 			{"prefix w", "back to the host list; the session keeps running"},
 			{"prefix k / j", "scroll back and forward a page through the output"},
 			{"prefix G", "return to the live view"},
-			{"prefix d", "detach — the session keeps running, reconnect to reattach"},
+			{"prefix d", "detach — the session keeps running, " + m.keys.Key(keymap.Pane) + " to reattach"},
 			{"prefix X", "end the session for good"},
 			{"prefix r", "redraw the screen"},
 			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
@@ -315,6 +315,7 @@ func (m Model) statusBar() string {
 				theme.Dim.Render("every other key goes to the remote")
 		default:
 			hints = hint(m.keys.Key(keymap.Connect), "connect") + sep() +
+				hint(m.keys.Key(keymap.Pane), "in pane") + sep() +
 				hint(m.keys.Key(keymap.Search), "search") + sep() +
 				hint(m.keys.Key(keymap.Probe), "probe") + sep() +
 				hint("n/e/d", "new/edit/delete") + sep() +

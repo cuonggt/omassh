@@ -145,7 +145,7 @@ func (m Model) detachMessage() string {
 	name := m.attached.Host.Name
 	if m.attached.Persistent() {
 		return "detached from " + name + " — session still running, " +
-			m.keys.Key(keymap.Connect) + " to reattach"
+			m.keys.Key(keymap.Pane) + " to reattach"
 	}
 	return "disconnected from " + name
 }

@@ -263,8 +263,6 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.filter.Focus()
 
 	case keymap.Connect:
-		return m.attachSession()
-	case keymap.Handoff:
 		return m.connect()
 	case keymap.NewItem:
 		return m.openNewForm()

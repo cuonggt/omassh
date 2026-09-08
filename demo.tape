@@ -26,8 +26,8 @@ Type "1"     Sleep 600ms
 Type "j"     Sleep 1200ms
 Type "2"     Sleep 900ms
 
-# the headline: enter opens the session in the main pane
-Enter        Sleep 3500ms
+# the headline: t opens the session in the main pane
+Type "t"     Sleep 3500ms
 Type "uptime" Enter
 Sleep 1800ms
 
@@ -37,7 +37,7 @@ Type "w"     Sleep 1800ms
 
 # another host takes the pane
 Type "j"     Sleep 600ms
-Enter        Sleep 3000ms
+Type "t"     Sleep 3000ms
 Type "df -h /" Enter
 Sleep 2000ms
 
