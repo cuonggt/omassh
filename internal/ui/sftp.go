@@ -314,17 +314,26 @@ func (m Model) sftpView(content int) string {
 	rightW := m.w - leftW
 	body := content - 1 // one row for the transfer strip
 
-	left := box(m.paneTitle(0), m.paneFocus == 0, leftW, body, m.paneBody(0, leftW-4))
-	right := box(m.paneTitle(1), m.paneFocus == 1, rightW, body, m.paneBody(1, rightW-4))
+	rows := max(body-2, 1) // the box's own borders
+	left := box(m.paneTitle(0, rows), m.paneFocus == 0, leftW, body, m.paneBody(0, leftW-4, rows))
+	right := box(m.paneTitle(1, rows), m.paneFocus == 1, rightW, body, m.paneBody(1, rightW-4, rows))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right) + "\n" + m.transferStrip()
 }
 
-func (m Model) paneTitle(i int) string {
+func (m Model) paneTitle(i, rows int) string {
 	p := m.panes[i]
-	return p.fs.Label() + "  " + p.path
+	// A directory that does not fit says where in it you are, since the list
+	// scrolls and the borders alone no longer show that there is more. It goes
+	// before the path, which is long and gets truncated — putting the position
+	// after it loses the position exactly when there is enough to need one.
+	title := p.fs.Label()
+	if len(p.entries) > rows {
+		title += theme.Dim.Render(fmt.Sprintf("  %d/%d", p.idx+1, len(p.entries)))
+	}
+	return title + "  " + p.path
 }
 
-func (m Model) paneBody(i, w int) string {
+func (m Model) paneBody(i, w, rows int) string {
 	p := m.panes[i]
 	if p.err != nil {
 		return theme.Fg(theme.Red).Render(p.err.Error())
@@ -333,8 +342,15 @@ func (m Model) paneBody(i, w int) string {
 		return theme.Dim.Render("empty")
 	}
 
-	lines := make([]string, 0, len(p.entries))
-	for j, e := range p.entries {
+	// Render only the window the pane can show. Drawing every entry and
+	// letting the box cut it off meant the cursor walked out of sight in any
+	// directory bigger than the pane, with nothing on screen saying what was
+	// about to be copied or deleted.
+	start, end := listWindow(p.idx, len(p.entries), rows)
+
+	lines := make([]string, 0, end-start)
+	for j, e := range p.entries[start:end] {
+		j += start
 		name := e.Name
 		if e.IsDir {
 			name += "/"
@@ -398,4 +414,20 @@ func lpad(s string, n int) string {
 		return s
 	}
 	return strings.Repeat(" ", n-len(s)) + s
+}
+
+// listWindow is the slice of a list to draw so that idx stays visible.
+//
+// The window moves only when the cursor would leave it, which keeps the list
+// still while you move within the visible part — a window centred on the
+// cursor would scroll the whole pane on every keystroke.
+func listWindow(idx, n, rows int) (start, end int) {
+	if rows >= n {
+		return 0, n
+	}
+	start = clamp(idx-rows+1, 0, max(n-rows, 0))
+	if idx < start {
+		start = idx
+	}
+	return start, min(start+rows, n)
 }

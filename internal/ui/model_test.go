@@ -1184,3 +1184,54 @@ func TestHelpWithoutAVersionJustNamesTheApp(t *testing.T) {
 	h.mustContain("omassh  keyboard-driven SSH client")
 	h.mustNotContain("omassh   keyboard") // the extra space a bare join leaves
 }
+
+// The window follows the cursor rather than centring on it, so moving within
+// the visible part does not scroll the whole pane on every keystroke.
+func TestListWindowFollowsTheCursor(t *testing.T) {
+	cases := []struct {
+		name               string
+		idx, n, rows       int
+		wantStart, wantEnd int
+	}{
+		{"everything fits", 3, 5, 10, 0, 5},
+		{"cursor inside the first window", 2, 100, 10, 0, 10},
+		{"cursor at the last visible row", 9, 100, 10, 0, 10},
+		{"one past it scrolls by one", 10, 100, 10, 1, 11},
+		{"cursor at the end", 99, 100, 10, 90, 100},
+		{"cursor at the start", 0, 100, 10, 0, 10},
+		{"single row", 42, 100, 1, 42, 43},
+		{"empty list", 0, 0, 10, 0, 0},
+	}
+	for _, c := range cases {
+		start, end := listWindow(c.idx, c.n, c.rows)
+		if start != c.wantStart || end != c.wantEnd {
+			t.Errorf("%s: listWindow(%d,%d,%d) = %d,%d want %d,%d",
+				c.name, c.idx, c.n, c.rows, start, end, c.wantStart, c.wantEnd)
+		}
+		// Whatever it returns, the cursor must be inside it and the slice valid.
+		if c.n > 0 && (c.idx < start || c.idx >= end) {
+			t.Errorf("%s: cursor %d outside window %d..%d", c.name, c.idx, start, end)
+		}
+		if start < 0 || end > c.n || start > end {
+			t.Errorf("%s: window %d..%d is not a valid slice of %d", c.name, start, end, c.n)
+		}
+	}
+}
+
+// A window must never be larger than the rows available, or the box would cut
+// it off again and the cursor could still be the row that got cut.
+func TestListWindowNeverExceedsTheRows(t *testing.T) {
+	for n := 0; n < 40; n++ {
+		for rows := 1; rows < 12; rows++ {
+			for idx := 0; idx < max(n, 1); idx++ {
+				start, end := listWindow(idx, n, rows)
+				if end-start > rows {
+					t.Fatalf("listWindow(%d,%d,%d) spans %d rows", idx, n, rows, end-start)
+				}
+				if n > 0 && (idx < start || idx >= end) {
+					t.Fatalf("listWindow(%d,%d,%d) hides the cursor", idx, n, rows)
+				}
+			}
+		}
+	}
+}
