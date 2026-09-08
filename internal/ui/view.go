@@ -67,7 +67,18 @@ func (m Model) dialog(content int) (string, bool) {
 	switch m.mode {
 	case modeForm:
 		body := m.form.render(w - 4)
-		return box(m.form.title, true, w, dialogHeight(body, content), body), true
+		h := dialogHeight(body, content)
+		if !m.form.picking {
+			return box(m.form.title, true, w, h, body), true
+		}
+		// The list sits on the field it belongs to, so the choice and the
+		// thing being chosen for are visible together. The dialog grows if it
+		// has to, rather than letting the list spill past its own border.
+		list := m.pickerList(w - 8)
+		top := m.form.idx + 3
+		h = clamp(max(h, top+strings.Count(list, "\n")+2), 3, content)
+		d := box(m.form.title, true, w, h, body)
+		return overlay(d, list, 4, top), true
 	case modeConfirm:
 		body := m.confirmBody()
 		return box("Confirm", true, w, dialogHeight(body, content), body), true
@@ -107,6 +118,30 @@ func (m Model) browserBody(content int) string {
 		mainFocused = m.focus == panelSession
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, mainFocused, main, content, detail))
+}
+
+// pickerList renders the open choice list for the focused field.
+func (m Model) pickerList(w int) string {
+	f := m.form
+	choices := f.fields[f.idx].choices
+
+	// Keep the list short enough to leave the form readable behind it.
+	const maxRows = 6
+	start := 0
+	if f.pickIdx >= maxRows {
+		start = f.pickIdx - maxRows + 1
+	}
+	end := min(start+maxRows, len(choices))
+
+	// A row sits inside the list's border (w-4) behind a two-space indent.
+	rows := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
+		rows = append(rows, "  "+row(choices[i], i == f.pickIdx, w-6))
+	}
+	if end < len(choices) {
+		rows = append(rows, "  "+theme.Dim.Render(fmt.Sprintf("  +%d more", len(choices)-end)))
+	}
+	return box("pick  ↑↓ ↵", true, w, len(rows)+2, strings.Join(rows, "\n"))
 }
 
 // tooSmall fills the frame with a single line, since the real layout cannot
@@ -300,6 +335,13 @@ func (m Model) helpBody() string {
 			{"m / r / M / d", "mkdir / rename / chmod / delete"},
 			{"", "OpenSSH performs the connection, so jump hosts,"},
 			{"", "certificates and ProxyCommand all apply as usual"},
+		}},
+		{"Forms", [][2]string{
+			{"tab / shift+tab", "next and previous field"},
+			{"↓", "on Jump host, pick from the hosts you already have"},
+			{"↵ / esc", "save / cancel"},
+			{"", "a picked jump host is still free text: any ssh"},
+			{"", "destination works, whether Omassh knows it or not"},
 		}},
 		{"Inheritance", [][2]string{
 			{"", "a host inherits user, identity and jump host from its"},

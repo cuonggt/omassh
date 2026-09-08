@@ -501,3 +501,100 @@ func TestPasteIntoSearchFiltersImmediately(t *testing.T) {
 		t.Errorf("selected %+v after pasting a search, want bravo", got)
 	}
 }
+
+// The jump host is chosen from the hosts you already have, rather than
+// remembered and retyped.
+func TestJumpHostIsPickedFromAList(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("bastion", "10.0.0.1")
+	h.addHost("web", "10.0.0.2")
+
+	h.press("2")
+	h.press("e") // edit the selected host
+	if h.m.mode != modeForm {
+		t.Fatal("e did not open a form")
+	}
+	for h.m.form.fields[h.m.form.idx].label != "Jump host" {
+		h.press("tab")
+	}
+
+	h.press("down") // opens the picker rather than leaving the field
+	if !h.m.form.picking {
+		t.Fatal("down on the jump host field did not open the picker")
+	}
+	if h.m.form.fields[h.m.form.idx].label != "Jump host" {
+		t.Fatal("down moved to the next field instead of opening the picker")
+	}
+
+	// Walk to a real host and take it.
+	for h.m.form.currentChoice() == noChoice {
+		h.press("down")
+	}
+	want := h.m.form.currentChoice()
+	h.press("enter")
+
+	if h.m.form.picking {
+		t.Error("enter left the picker open")
+	}
+	if got := h.m.form.value("Jump host"); got != want {
+		t.Errorf("Jump host = %q, want %q", got, want)
+	}
+}
+
+// A host cannot jump through itself; offering it would only build a
+// connection that hangs.
+func TestJumpHostPickerExcludesTheHostBeingEdited(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("only", "10.0.0.1")
+
+	h.press("2", "e")
+	for h.m.form.fields[h.m.form.idx].label != "Jump host" {
+		h.press("tab")
+	}
+	for _, c := range h.m.form.fields[h.m.form.idx].choices {
+		if c == "only" {
+			t.Fatal("the host being edited is offered as its own jump host")
+		}
+	}
+}
+
+// The list must never trap the keyboard: esc dismisses it without changing
+// the value, and an ordinary keystroke dismisses it and is typed.
+func TestPickerDoesNotTrapTheKeyboard(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("bastion", "10.0.0.1")
+	h.addHost("web", "10.0.0.2")
+
+	openPicker := func() {
+		h.press("2", "e")
+		for h.m.form.fields[h.m.form.idx].label != "Jump host" {
+			h.press("tab")
+		}
+		h.press("down")
+		if !h.m.form.picking {
+			h.t.Fatal("the picker did not open")
+		}
+	}
+
+	openPicker()
+	h.press("esc")
+	if h.m.form.picking {
+		t.Error("esc left the picker open")
+	}
+	if got := h.m.form.value("Jump host"); got != "" {
+		t.Errorf("esc changed the value to %q", got)
+	}
+	if h.m.mode != modeForm {
+		t.Error("esc closed the whole form rather than just the list")
+	}
+	h.press("esc") // now leave the form
+
+	openPicker()
+	h.type_("z")
+	if h.m.form.picking {
+		t.Error("typing left the picker open")
+	}
+	if got := h.m.form.value("Jump host"); got != "z" {
+		t.Errorf("Jump host = %q, want the typed character", got)
+	}
+}

@@ -23,6 +23,11 @@ type field struct {
 	label string
 	hint  string
 	input textinput.Model
+
+	// choices are the known values for this field, offered as a picker. The
+	// field stays free text — a jump host can be any ssh destination, not only
+	// one Omassh happens to know about.
+	choices []string
 }
 
 // form is the modal used to add and edit hosts and groups.
@@ -33,6 +38,13 @@ type form struct {
 	fields  []field
 	idx     int
 	problem string
+
+	// picking is whether the choice list for the current field is open, and
+	// pickIdx the highlighted entry. A bool rather than a sentinel index so a
+	// form built somewhere new starts closed without having to remember to say
+	// so.
+	picking bool
+	pickIdx int
 }
 
 // newSecretField is a masked input for passphrases and passwords.
@@ -40,6 +52,12 @@ func newSecretField(label, hint string) field {
 	f := newField(label, hint, "")
 	f.input.EchoMode = textinput.EchoPassword
 	f.input.EchoCharacter = '•'
+	return f
+}
+
+// withChoices offers a picker of known values on a field.
+func withChoices(f field, choices []string) field {
+	f.choices = choices
 	return f
 }
 
@@ -122,4 +140,52 @@ func pad(s string, n int) string {
 
 func equalFold(a, b string) bool {
 	return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b))
+}
+
+// --- choice picker -----------------------------------------------------
+
+// hasChoices reports whether the focused field offers a picker.
+func (f *form) hasChoices() bool { return len(f.fields[f.idx].choices) > 0 }
+
+// openPicker starts on whatever the field already holds, so reopening it lands
+// on the current value rather than at the top of the list.
+func (f *form) openPicker() {
+	cur := strings.TrimSpace(f.fields[f.idx].input.Value())
+	f.picking, f.pickIdx = true, 0
+	for i, c := range f.fields[f.idx].choices {
+		if c == cur {
+			f.pickIdx = i
+			break
+		}
+	}
+}
+
+func (f *form) closePicker() { f.picking = false }
+
+func (f *form) movePicker(d int) {
+	n := len(f.fields[f.idx].choices)
+	f.pickIdx = (f.pickIdx + d + n) % n
+}
+
+// choosePicked writes the highlighted choice into the field.
+func (f *form) choosePicked() {
+	c := f.fields[f.idx].choices[f.pickIdx]
+	if c == noChoice {
+		c = ""
+	}
+	f.fields[f.idx].input.SetValue(c)
+	f.fields[f.idx].input.CursorEnd()
+	f.closePicker()
+}
+
+// noChoice is the list entry that clears the field.
+const noChoice = "— none —"
+
+// currentChoice is the highlighted entry, for tests and for rendering.
+func (f *form) currentChoice() string {
+	c := f.fields[f.idx].choices
+	if !f.picking || len(c) == 0 {
+		return ""
+	}
+	return c[f.pickIdx]
 }

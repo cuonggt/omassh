@@ -72,6 +72,14 @@ func (h *harness) press(keys ...string) {
 			h.send(tea.KeyPressMsg{Code: tea.KeyTab})
 		case "backspace":
 			h.send(tea.KeyPressMsg{Code: tea.KeyBackspace})
+		case "up":
+			h.send(tea.KeyPressMsg{Code: tea.KeyUp})
+		case "down":
+			h.send(tea.KeyPressMsg{Code: tea.KeyDown})
+		case "left":
+			h.send(tea.KeyPressMsg{Code: tea.KeyLeft})
+		case "right":
+			h.send(tea.KeyPressMsg{Code: tea.KeyRight})
 		default:
 			for _, r := range k {
 				h.send(tea.KeyPressMsg{Code: r, Text: string(r)})

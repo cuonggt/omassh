@@ -371,12 +371,43 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	key := msg.String()
+
+	// An open picker takes the keys that drive a list, since those are the
+	// same ones that would otherwise leave the field. Anything else dismisses
+	// it and is handled normally, so the list never traps the keyboard.
+	if m.form.picking {
+		switch key {
+		case "down", "ctrl+n":
+			m.form.movePicker(1)
+			return m, nil
+		case "up", "ctrl+p":
+			m.form.movePicker(-1)
+			return m, nil
+		case "enter", "tab":
+			m.form.choosePicked()
+			return m, nil
+		case "esc":
+			m.form.closePicker()
+			return m, nil
+		}
+		m.form.closePicker()
+	}
+
+	switch key {
 	case "esc":
 		m.form, m.mode = nil, m.returnTo
 		m.setStatus("cancelled")
 		return m, nil
-	case "tab", "down":
+	case "down":
+		// On a field that offers known values, down opens the list rather
+		// than skipping past it; tab is still how you move on.
+		if m.form.hasChoices() {
+			m.form.openPicker()
+			return m, nil
+		}
+		return m, m.form.move(1)
+	case "tab":
 		return m, m.form.move(1)
 	case "shift+tab", "up":
 		return m, m.form.move(-1)
@@ -475,7 +506,7 @@ func (m Model) openNewForm() (tea.Model, tea.Cmd) {
 		if g.ID != UngroupedID {
 			name = g.Name
 		}
-		m.form = newHostForm(store.Host{}, name)
+		m.form = newHostForm(store.Host{}, name, m.jumpCandidates(""))
 	}
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
@@ -497,7 +528,7 @@ func (m Model) openEditForm() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	m.form = newHostForm(h, m.d.groupName(h.GroupID))
+	m.form = newHostForm(h, m.d.groupName(h.GroupID), m.jumpCandidates(h.ID))
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
 }
@@ -646,7 +677,7 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 
 // --- helpers -----------------------------------------------------------
 
-func newHostForm(h store.Host, groupName string) *form {
+func newHostForm(h store.Host, groupName string, jumpHosts []string) *form {
 	port := ""
 	if h.Port != 0 {
 		port = strconv.Itoa(h.Port)
@@ -663,7 +694,7 @@ func newHostForm(h store.Host, groupName string) *form {
 			newField("Port", "22", port),
 			newField("User", "inherited from group", h.User),
 			newField("Identity", "path to a private key", h.Identity),
-			newField("Jump host", "inherited from group", h.ProxyJump),
+			withChoices(newField("Jump host", "inherited from group — ↓ to pick", h.ProxyJump), jumpHosts),
 			newField("Tags", "prod, web", strings.Join(h.Tags, ", ")),
 			newField("Group", "unknown names are created", groupName),
 		},
@@ -762,4 +793,18 @@ func strOr(s, fallback string) string {
 		return fallback
 	}
 	return s
+}
+
+// jumpCandidates lists the hosts that can serve as a jump host, for the form's
+// picker. The host being edited is left out: a host cannot jump through
+// itself, and offering it would only produce a connection that hangs.
+func (m Model) jumpCandidates(excludeID string) []string {
+	out := []string{noChoice}
+	for _, h := range m.d.hosts {
+		if h.ID == excludeID {
+			continue
+		}
+		out = append(out, h.Name)
+	}
+	return out
 }
