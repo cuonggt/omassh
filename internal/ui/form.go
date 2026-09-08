@@ -14,8 +14,6 @@ type formKind int
 const (
 	formHost formKind = iota
 	formGroup
-	formIdentity
-	formGenKey
 	formMkdir
 	formRename
 	formChmod

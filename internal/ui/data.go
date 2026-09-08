@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/cuonggt/omassh/internal/keys"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
 )
@@ -16,13 +15,11 @@ const UngroupedID = "__ungrouped"
 // data is one consistent snapshot of everything the UI draws: the persisted
 // store plus whatever ~/.ssh/config currently says.
 type data struct {
-	groups     []store.Group // persisted groups only
-	hosts      []store.Host  // persisted hosts plus config-sourced hosts
-	identities []store.Identity
-	stats      map[string]store.Stat
-	tree       []store.GroupNode    // display order, including synthetic groups
-	keyInfo    map[string]keys.Info // identity id -> on-disk key metadata
-	resolver   store.Resolver
+	groups   []store.Group // persisted groups only
+	hosts    []store.Host  // persisted hosts plus config-sourced hosts
+	stats    map[string]store.Stat
+	tree     []store.GroupNode // display order, including synthetic groups
+	resolver store.Resolver
 	// live maps a tmux session name to whether it is running, so the host
 	// list can show which hosts have a session waiting to be reattached.
 	live map[string]bool
@@ -58,23 +55,8 @@ func load(s *store.Store, sshConfig string) (data, error) {
 	if d.hosts, err = s.Hosts(); err != nil {
 		return d, err
 	}
-	if d.identities, err = s.Identities(); err != nil {
-		return d, err
-	}
 	if d.stats, err = s.Stats(); err != nil {
 		return d, err
-	}
-
-	// Read each credential's key once per load rather than per frame; Inspect
-	// shells out to ssh-keygen twice, which is far too costly to render with.
-	d.keyInfo = map[string]keys.Info{}
-	for _, i := range d.identities {
-		if i.KeyPath == "" {
-			continue
-		}
-		if info, err := keys.Inspect(ExpandTilde(i.KeyPath)); err == nil {
-			d.keyInfo[i.ID] = info
-		}
 	}
 
 	// A broken ~/.ssh/config must not take the whole app down; the store side
@@ -89,7 +71,7 @@ func load(s *store.Store, sshConfig string) (data, error) {
 		}
 	}
 
-	d.resolver = store.NewResolver(d.groups, d.identities)
+	d.resolver = store.NewResolver(d.groups)
 	d.tree = store.FlattenGroups(d.groups)
 
 	ungrouped := 0
@@ -133,25 +115,6 @@ func (d data) groupName(id string) string {
 		}
 	}
 	return ""
-}
-
-// identityByName finds a credential by case-insensitive name.
-func (d data) identityByName(name string) (store.Identity, bool) {
-	for _, i := range d.identities {
-		if equalFold(i.Name, name) {
-			return i, true
-		}
-	}
-	return store.Identity{}, false
-}
-
-func (d data) identityByID(id string) (store.Identity, bool) {
-	for _, i := range d.identities {
-		if i.ID == id {
-			return i, true
-		}
-	}
-	return store.Identity{}, false
 }
 
 // ExpandTilde resolves a leading ~ so paths shown in the UI can also be opened.

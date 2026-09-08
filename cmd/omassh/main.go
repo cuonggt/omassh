@@ -10,15 +10,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/cuonggt/omassh/internal/config"
-	"github.com/cuonggt/omassh/internal/secrets"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui"
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
-
-// keyringService namespaces Omassh's entries in the OS credential store.
-const keyringService = "omassh"
 
 // Build information, set by the linker at release time.
 var (
@@ -38,11 +34,6 @@ func (m *multiFlag) Set(v string) error {
 }
 
 func main() {
-	// ssh-add executes this binary as its SSH_ASKPASS helper. That mode must
-	// be handled before anything else: no flags, no database, no UI.
-	if secrets.ServeAskpass() {
-		return
-	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "omassh:", err)
 		os.Exit(1)
@@ -65,8 +56,6 @@ func run() error {
 	cfgPath := flag.String("config", defaultCfg, "path to the config file")
 	printCfg := flag.Bool("print-config", false, "write a documented example config to stdout and exit")
 	showVer := flag.Bool("version", false, "print version information and exit")
-	secretStore := flag.String("secrets", "keyring",
-		"where identity secrets live: keyring (OS credential store) or memory (this run only)")
 	flag.Parse()
 
 	if *showVer {
@@ -100,10 +89,6 @@ func run() error {
 	// Command-line options come last so they win over the config file.
 	sshx.SetGlobalOptions(append(append([]string{}, cfg.SSHOptions...), sshOpts...))
 
-	vault, err := secrets.Open(*secretStore, keyringService)
-	if err != nil {
-		return err
-	}
 	st, err := store.Open(*dbPath)
 	if err != nil {
 		return err
@@ -114,7 +99,7 @@ func run() error {
 	// what makes that honest rather than a leak.
 
 	opts := ui.Options{Keys: km, ProbeTimeout: probeTimeout}
-	final, err := tea.NewProgram(ui.New(st, vault, opts)).Run()
+	final, err := tea.NewProgram(ui.New(st, opts)).Run()
 	// An SFTP session or an embedded pane owns an ssh child of its own; close
 	// them explicitly rather than relying on process exit to reap them.
 	if m, ok := final.(ui.Model); ok {

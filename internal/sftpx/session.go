@@ -86,7 +86,7 @@ func connectError(err error, stderr string) error {
 		msg = strings.TrimSpace(msg[i+1:])
 	}
 	if strings.Contains(msg, "Permission denied") || strings.Contains(msg, "publickey") {
-		msg += " — unlock the credential first (K, then u) or add a key to your agent"
+		msg += " — add the key to your ssh-agent first (ssh-add)"
 	}
 	return fmt.Errorf("%s", msg)
 }

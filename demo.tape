@@ -12,7 +12,7 @@ Set Theme "TokyoNight"
 Set TypingSpeed 55ms
 
 Hide
-Type "clear && /tmp/omassh-demo/omassh -db /tmp/omassh-demo/omassh.db -secrets=memory -o UserKnownHostsFile=/tmp/omassh-demo/known_hosts" Enter
+Type "clear && /tmp/omassh-demo/omassh -db /tmp/omassh-demo/omassh.db -o UserKnownHostsFile=/tmp/omassh-demo/known_hosts" Enter
 Sleep 3s
 Show
 

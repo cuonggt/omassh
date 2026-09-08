@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,7 +13,6 @@ import (
 	gssh "github.com/gliderlabs/ssh"
 	"github.com/pkg/sftp"
 
-	"github.com/cuonggt/omassh/internal/keys"
 	"github.com/cuonggt/omassh/internal/sftpx"
 	"github.com/cuonggt/omassh/internal/store"
 )
@@ -49,24 +49,29 @@ func startSFTPServer(t *testing.T, hostKey string) int {
 	return port
 }
 
+// genKey writes an unencrypted ed25519 key pair at path and returns that path.
+func genKey(t *testing.T, path string) string {
+	t.Helper()
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "test", "-f", path, "-q")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("ssh-keygen: %v: %s", err, out)
+	}
+	return path
+}
+
 // connect opens a session against the test server.
 func connect(t *testing.T) (*sftpx.Session, string) {
 	t.Helper()
 	dir := t.TempDir()
-	hostKey, err := keys.Generate(filepath.Join(dir, "host"), "host", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	clientKey, err := keys.Generate(filepath.Join(dir, "client"), "client", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := startSFTPServer(t, hostKey.Path)
+	hostKey := genKey(t, filepath.Join(dir, "host"))
+	clientKey := genKey(t, filepath.Join(dir, "client"))
+	port := startSFTPServer(t, hostKey)
 
 	host := store.Host{Name: "testsrv", Addr: "127.0.0.1", Port: port,
-		User: "tester", Identity: clientKey.Path}
+		User: "tester", Identity: clientKey}
 
 	var sess *sftpx.Session
+	var err error
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		sess, err = sftpx.Connect(host,

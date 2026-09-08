@@ -14,7 +14,6 @@ import (
 
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/probe"
-	"github.com/cuonggt/omassh/internal/secrets"
 	"github.com/cuonggt/omassh/internal/sftpx"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
@@ -38,7 +37,6 @@ const (
 	modeForm
 	modeConfirm
 	modeHelp
-	modeIdentities
 	modeSFTP
 )
 
@@ -74,18 +72,12 @@ type Model struct {
 	focus panel
 	mode  mode
 
-	opts  Options
-	keys  keymap.Map
-	st    *store.Store
-	vault secrets.Vault
-	d     data
+	opts Options
+	keys keymap.Map
+	st   *store.Store
+	d    data
 
-	groupIdx, hostIdx, identityIdx int
-
-	// agentKeys is the set of fingerprints the ssh-agent holds, refreshed on
-	// demand rather than per frame: reading it runs ssh-add.
-	agentKeys map[string]bool
-	agentErr  error
+	groupIdx, hostIdx int
 
 	filter  textinput.Model
 	matches []store.Host
@@ -121,7 +113,7 @@ type Model struct {
 	ready bool
 }
 
-func New(st *store.Store, vault secrets.Vault, opts Options) Model {
+func New(st *store.Store, opts Options) Model {
 	ti := textinput.New()
 	ti.Prompt = ""
 	ti.Placeholder = "fuzzy search all hosts"
@@ -133,8 +125,8 @@ func New(st *store.Store, vault secrets.Vault, opts Options) Model {
 		opts.SSHConfigPath = DefaultSSHConfigPath()
 	}
 
-	m := Model{opts: opts, keys: opts.Keys, st: st, vault: vault,
-		focus: panelHosts, filter: ti, agentKeys: map[string]bool{},
+	m := Model{opts: opts, keys: opts.Keys, st: st,
+		focus: panelHosts, filter: ti,
 		transfers: make(chan transferMsg, 32),
 		probeCh:   make(chan probeEvent, 64), probes: map[string]probe.State{}}
 	m.reload()
@@ -220,8 +212,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleFormKey(msg)
 	case modeFilter:
 		return m.handleFilterKey(msg)
-	case modeIdentities:
-		return m.handleIdentitiesKey(msg)
 	case modeSFTP:
 		return m.handleSFTPKey(msg)
 	}
@@ -295,8 +285,6 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.importSelected()
 	case keymap.Probe:
 		return m.startProbe()
-	case keymap.Credentials:
-		return m.openIdentities()
 	case keymap.SFTP:
 		return m.openSFTP()
 	case keymap.Pane:
@@ -462,14 +450,14 @@ func (m Model) connect() (tea.Model, tea.Cmd) {
 
 func (m Model) openNewForm() (tea.Model, tea.Cmd) {
 	if m.focus == panelGroups {
-		m.form = newGroupForm(store.Group{}, "", "")
+		m.form = newGroupForm(store.Group{}, "")
 	} else {
 		g, _ := m.currentGroup()
 		name := ""
 		if g.ID != store.SSHConfigGroupID && g.ID != UngroupedID {
 			name = g.Name
 		}
-		m.form = newHostForm(store.Host{}, name, "")
+		m.form = newHostForm(store.Host{}, name)
 	}
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
@@ -482,7 +470,7 @@ func (m Model) openEditForm() (tea.Model, tea.Cmd) {
 			m.setStatus("that group is generated, not stored")
 			return m, nil
 		}
-		m.form = newGroupForm(g.Group, m.d.groupName(g.ParentID), m.identityLabel(g.IdentityID, g.Identity))
+		m.form = newGroupForm(g.Group, m.d.groupName(g.ParentID))
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
 	}
@@ -495,7 +483,7 @@ func (m Model) openEditForm() (tea.Model, tea.Cmd) {
 		m.setStatus("ssh_config hosts are read-only — press i to import a copy")
 		return m, nil
 	}
-	m.form = newHostForm(h, m.d.groupName(h.GroupID), m.identityLabel(h.IdentityID, h.Identity))
+	m.form = newHostForm(h, m.d.groupName(h.GroupID))
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
 }
@@ -590,10 +578,6 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 func (m Model) saveForm() (tea.Model, tea.Cmd) {
 	f := m.form
 	switch f.kind {
-	case formIdentity:
-		return m.saveIdentityForm()
-	case formGenKey:
-		return m.saveGenKeyForm()
 	case formMkdir, formRename, formChmod:
 		return m.saveFileForm()
 	}
@@ -603,14 +587,9 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 			f.problem = "a group needs a name"
 			return m, nil
 		}
-		credID, keyPath, err := m.resolveIdentityField(f.value("Identity"))
-		if err != nil {
-			f.problem = err.Error()
-			return m, nil
-		}
 		g := store.Group{
 			ID: f.editID, Name: name,
-			User: f.value("User"), Identity: keyPath, IdentityID: credID,
+			User: f.value("User"), Identity: f.value("Identity"),
 			ProxyJump: f.value("Jump host"),
 		}
 		if p := f.value("Parent"); p != "" {
@@ -650,14 +629,9 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 		port = n
 	}
 
-	credID, keyPath, err := m.resolveIdentityField(f.value("Identity"))
-	if err != nil {
-		f.problem = err.Error()
-		return m, nil
-	}
 	h := store.Host{
 		ID: f.editID, Name: name, Addr: addr, Port: port,
-		User: f.value("User"), Identity: keyPath, IdentityID: credID,
+		User: f.value("User"), Identity: f.value("Identity"),
 		ProxyJump: f.value("Jump host"),
 		Tags:      splitTags(f.value("Tags")),
 	}
@@ -691,35 +665,7 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 
 // --- helpers -----------------------------------------------------------
 
-// identityLabel renders a binding for a form field: the credential name when
-// one is bound, otherwise the raw key path.
-func (m Model) identityLabel(identityID, keyPath string) string {
-	if identityID != "" {
-		if idn, ok := m.d.identityByID(identityID); ok {
-			return idn.Name
-		}
-	}
-	return keyPath
-}
-
-// resolveIdentityField interprets the single Identity field, which accepts
-// either a stored credential's name or a raw key path. One field rather than
-// two keeps the common case short, and an unknown bare word is far more likely
-// to be a typo'd credential name than a key file in the current directory.
-func (m Model) resolveIdentityField(val string) (identityID, keyPath string, err error) {
-	if val == "" {
-		return "", "", nil
-	}
-	if idn, ok := m.d.identityByName(val); ok {
-		return idn.ID, "", nil
-	}
-	if strings.ContainsAny(val, `/\`) || strings.HasPrefix(val, "~") || strings.HasPrefix(val, ".") {
-		return "", val, nil
-	}
-	return "", "", fmt.Errorf("no credential named %q — give a path for a key file", val)
-}
-
-func newHostForm(h store.Host, groupName, identityLabel string) *form {
+func newHostForm(h store.Host, groupName string) *form {
 	port := ""
 	if h.Port != 0 {
 		port = strconv.Itoa(h.Port)
@@ -735,7 +681,7 @@ func newHostForm(h store.Host, groupName, identityLabel string) *form {
 			newField("Address", "10.0.1.14", h.Addr),
 			newField("Port", "22", port),
 			newField("User", "inherited from group", h.User),
-			newField("Identity", "credential name or key path", identityLabel),
+			newField("Identity", "path to a private key", h.Identity),
 			newField("Jump host", "inherited from group", h.ProxyJump),
 			newField("Tags", "prod, web", strings.Join(h.Tags, ", ")),
 			newField("Group", "unknown names are created", groupName),
@@ -743,7 +689,7 @@ func newHostForm(h store.Host, groupName, identityLabel string) *form {
 	}
 }
 
-func newGroupForm(g store.Group, parentName, identityLabel string) *form {
+func newGroupForm(g store.Group, parentName string) *form {
 	title := "New group"
 	if g.ID != "" {
 		title = "Edit " + g.Name
@@ -754,7 +700,7 @@ func newGroupForm(g store.Group, parentName, identityLabel string) *form {
 			newField("Name", "Production", g.Name),
 			newField("Parent", "none", parentName),
 			newField("User", "applies to hosts below", g.User),
-			newField("Identity", "credential name or key path", identityLabel),
+			newField("Identity", "path to a private key", g.Identity),
 			newField("Jump host", "applies to hosts below", g.ProxyJump),
 		},
 	}
@@ -764,7 +710,7 @@ func newGroupForm(g store.Group, parentName, identityLabel string) *form {
 // A modal opened from another modal still returns to the underlying view.
 func backFor(current mode) mode {
 	switch current {
-	case modeIdentities, modeSFTP:
+	case modeSFTP:
 		return current
 	default:
 		return modeBrowse

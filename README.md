@@ -7,8 +7,8 @@ interaction model, running on top of real OpenSSH.
 
 ## Status
 
-Hosts and groups, credentials and SFTP, plus theming, rebindable keys and
-reachability probes.
+Hosts and groups with attribute inheritance, embedded sessions and SFTP, plus
+theming, rebindable keys and reachability probes.
 
 ## Keys
 
@@ -20,7 +20,6 @@ reachability probes.
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete |
 | `i` | import an `ssh_config` host so it can be edited |
-| `K` | credentials: keys, stored secrets, ssh-agent |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect, from whichever panel has focus |
@@ -40,12 +39,10 @@ agent config are honoured because OpenSSH itself is honouring them.
 sessions, probes and the native SFTP dialer all funnel through
 it, so connection behaviour cannot drift between them.
 
-Secrets never enter the database. A credential record holds a name, a login
-user and a key path; the passphrase lives in the OS keychain under the
-credential's id. Unlocking a key runs the real `ssh-add`, with the passphrase
-handed over through an `SSH_ASKPASS` helper on a single-use unix socket in a
-0700 directory — it never appears in an environment variable, a command line,
-or a file. Run with `-secrets=memory` to keep secrets in the process only.
+Omassh stores no secrets and never asks for a passphrase. A host names a key
+path, which becomes `ssh -i`; a passphrase-protected key is unlocked the usual
+way, with `ssh-add` or `AddKeysToAgent yes` in your `~/.ssh/config`. Nothing
+here duplicates what ssh-agent already does.
 
 `enter` opens a session in the **main pane**, with the host list still beside
 it. There is one session at a time, so connecting somewhere else replaces it
@@ -87,7 +84,7 @@ connection exactly as it would for an interactive session — `ProxyJump`
 chains, `ProxyCommand`, certificates, `Match` blocks, `IdentityAgent` and
 `known_hosts` all apply, with no second implementation to keep in step.
 `BatchMode` is forced on, because the child's stdin carries the protocol and
-there is nowhere to prompt; unlock a credential into the agent first.
+there is nowhere to prompt; `ssh-add` the key first if it has a passphrase.
 
 Hosts defined in `~/.ssh/config` are read live on every load rather than copied
 into the store, so Omassh can never show a stale version of a file you edit by

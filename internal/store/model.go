@@ -31,38 +31,22 @@ type Group struct {
 	Name     string `json:"name"`
 	ParentID string `json:"parent_id,omitempty"`
 
-	User       string `json:"user,omitempty"`
-	Identity   string `json:"identity,omitempty"`
-	ProxyJump  string `json:"proxy_jump,omitempty"`
-	IdentityID string `json:"identity_id,omitempty"`
-}
-
-// Identity is a named credential: a login user, optionally a private key, and
-// optionally a secret. The secret itself never appears here — it lives in the
-// OS keychain under the identity's id, and HasSecret only records that one was
-// stored, so the UI can render without unlocking the keychain on every frame.
-type Identity struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
 	User      string `json:"user,omitempty"`
-	KeyPath   string `json:"key_path,omitempty"`
-	HasSecret bool   `json:"has_secret,omitempty"`
+	Identity  string `json:"identity,omitempty"`
+	ProxyJump string `json:"proxy_jump,omitempty"`
 }
 
 // Host is a single reachable machine.
 type Host struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Addr      string `json:"addr"`
-	Port      int    `json:"port,omitempty"`
-	User      string `json:"user,omitempty"`
-	Identity  string `json:"identity,omitempty"`
-	ProxyJump string `json:"proxy_jump,omitempty"`
-	GroupID   string `json:"group_id,omitempty"`
-	// IdentityID binds a stored credential; Identity is a raw key path that
-	// overrides it. Both are optional and both are inherited from groups.
-	IdentityID string   `json:"identity_id,omitempty"`
-	Tags       []string `json:"tags,omitempty"`
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Addr      string   `json:"addr"`
+	Port      int      `json:"port,omitempty"`
+	User      string   `json:"user,omitempty"`
+	Identity  string   `json:"identity,omitempty"`
+	ProxyJump string   `json:"proxy_jump,omitempty"`
+	GroupID   string   `json:"group_id,omitempty"`
+	Tags      []string `json:"tags,omitempty"`
 
 	// Source is runtime-only: ssh_config hosts are never written to the store.
 	Source Source `json:"-"`

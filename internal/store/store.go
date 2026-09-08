@@ -19,7 +19,6 @@ var (
 	bucketGroups = []byte("groups")
 	bucketHosts  = []byte("hosts")
 	bucketStats  = []byte("stats")
-	bucketIdents = []byte("identities")
 )
 
 // Store is the on-disk database of locally-defined hosts and groups, plus
@@ -54,7 +53,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	err = db.Update(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketIdents} {
+		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -205,92 +204,6 @@ func (s *Store) Counts(groupID string) (groups, hosts int) {
 		}
 	}
 	return groups, hosts
-}
-
-func (s *Store) Identities() ([]Identity, error) {
-	var out []Identity
-	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketIdents).ForEach(func(_, v []byte) error {
-			var i Identity
-			if err := json.Unmarshal(v, &i); err != nil {
-				return err
-			}
-			out = append(out, i)
-			return nil
-		})
-	})
-	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-	})
-	return out, err
-}
-
-func (s *Store) PutIdentity(i Identity) (Identity, error) {
-	if i.ID == "" {
-		i.ID = newID()
-	}
-	return i, s.put(bucketIdents, i.ID, i)
-}
-
-// DeleteIdentity removes a credential and unbinds it from every host and group
-// that referenced it, so nothing is left pointing at an id that no longer
-// resolves. The secret itself is the caller's to remove from the vault.
-func (s *Store) DeleteIdentity(id string) error {
-	hosts, err := s.Hosts()
-	if err != nil {
-		return err
-	}
-	groups, err := s.Groups()
-	if err != nil {
-		return err
-	}
-	return s.db.Update(func(tx *bolt.Tx) error {
-		hb, gb := tx.Bucket(bucketHosts), tx.Bucket(bucketGroups)
-		for _, h := range hosts {
-			if h.IdentityID != id {
-				continue
-			}
-			h.IdentityID = ""
-			b, err := json.Marshal(h)
-			if err != nil {
-				return err
-			}
-			if err := hb.Put([]byte(h.ID), b); err != nil {
-				return err
-			}
-		}
-		for _, g := range groups {
-			if g.IdentityID != id {
-				continue
-			}
-			g.IdentityID = ""
-			b, err := json.Marshal(g)
-			if err != nil {
-				return err
-			}
-			if err := gb.Put([]byte(g.ID), b); err != nil {
-				return err
-			}
-		}
-		return tx.Bucket(bucketIdents).Delete([]byte(id))
-	})
-}
-
-// IdentityUsage counts the hosts and groups bound to a credential.
-func (s *Store) IdentityUsage(id string) (hosts, groups int) {
-	hs, _ := s.Hosts()
-	gs, _ := s.Groups()
-	for _, h := range hs {
-		if h.IdentityID == id {
-			hosts++
-		}
-	}
-	for _, g := range gs {
-		if g.IdentityID == id {
-			groups++
-		}
-	}
-	return hosts, groups
 }
 
 func (s *Store) Stats() (map[string]Stat, error) {

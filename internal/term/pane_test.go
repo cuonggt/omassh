@@ -17,7 +17,6 @@ import (
 	cpty "github.com/creack/pty"
 	gssh "github.com/gliderlabs/ssh"
 
-	"github.com/cuonggt/omassh/internal/keys"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
@@ -68,20 +67,24 @@ func startShellServer(t *testing.T, hostKey string) int {
 	return l.Addr().(*net.TCPAddr).Port
 }
 
+// genKey writes an unencrypted ed25519 key pair at path and returns that path.
+func genKey(t *testing.T, path string) string {
+	t.Helper()
+	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "test", "-f", path, "-q")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("ssh-keygen: %v: %s", err, out)
+	}
+	return path
+}
+
 func testHost(t *testing.T) store.Host {
 	t.Helper()
 	dir := t.TempDir()
-	hk, err := keys.Generate(filepath.Join(dir, "host"), "host", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	ck, err := keys.Generate(filepath.Join(dir, "client"), "client", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := startShellServer(t, hk.Path)
+	hk := genKey(t, filepath.Join(dir, "host"))
+	ck := genKey(t, filepath.Join(dir, "client"))
+	port := startShellServer(t, hk)
 	return store.Host{ID: "h1", Name: "testsrv", Addr: "127.0.0.1", Port: port,
-		User: "tester", Identity: ck.Path}
+		User: "tester", Identity: ck}
 }
 
 // waitFor polls the pane's rendered screen until it contains want.

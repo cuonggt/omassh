@@ -45,8 +45,6 @@ func (m Model) render() string {
 		return box(m.form.title, true, m.w, content, m.form.render(m.w-4)) + "\n" + m.statusBar()
 	case modeConfirm:
 		return box("Confirm", true, m.w, content, m.confirmBody()) + "\n" + m.statusBar()
-	case modeIdentities:
-		return box("Credentials", true, m.w, content, m.identitiesBody()) + "\n" + m.statusBar()
 	case modeSFTP:
 		return m.sftpView(content) + "\n" + m.statusBar()
 	}
@@ -206,21 +204,6 @@ func (m Model) detailBody() (string, string) {
 	if r.UserFrom != "" {
 		lines = append(lines, detailField("user", r.User, r.UserFrom))
 	}
-	if r.Credential.ID != "" {
-		state := "no key"
-		if info, ok := m.d.keyInfo[r.Credential.ID]; ok {
-			state = info.Type
-			switch {
-			case m.agentKeys[info.Fingerprint]:
-				state += ", in agent"
-			case info.Encrypted && r.Credential.HasSecret:
-				state += ", locked — K then u to unlock"
-			case info.Encrypted:
-				state += ", locked, no secret stored"
-			}
-		}
-		lines = append(lines, detailField("cred", r.Credential.Name+"  "+state, ""))
-	}
 	if h.Note != "" {
 		lines = append(lines, detailField("note", h.Note, ""))
 	}
@@ -281,7 +264,6 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.Probe), "probe reachability of the hosts in this group"},
 			{m.keys.Key(keymap.Reload), "reload the store and re-read ~/.ssh/config"},
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
-			{m.keys.Key(keymap.Credentials), "credentials: keys, stored secrets and the ssh-agent"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 		}},
 		{"Attached session (" + prefixKey + " prefix)", [][2]string{
@@ -304,13 +286,6 @@ func (m Model) helpBody() string {
 			{"m / r / M / d", "mkdir / rename / chmod / delete"},
 			{"", "OpenSSH performs the connection, so jump hosts,"},
 			{"", "certificates and ProxyCommand all apply as usual"},
-		}},
-		{"Credentials (" + m.keys.Key(keymap.Credentials) + ")", [][2]string{
-			{"n / g", "add a credential, or generate a key and a credential"},
-			{"u", "load its key into the ssh-agent, unlocking with the"},
-			{"", "stored passphrase — no prompt, nothing typed"},
-			{"x", "remove its key from the agent"},
-			{"", "bind one to a host or group by naming it in Identity"},
 		}},
 		{"Inheritance", [][2]string{
 			{"", "a host inherits user, identity and jump host from its"},
@@ -342,9 +317,6 @@ func (m Model) statusBar() string {
 		hints = hint("↑↓", "select") + sep() + hint("↵", "keep") + sep() + hint("esc", "clear")
 	case modeHelp:
 		hints = hint("any key", "back")
-	case modeIdentities:
-		hints = hint("n/g", "new/generate") + sep() + hint("u", "unlock") +
-			sep() + hint("e/d", "edit/delete") + sep() + hint("esc", "back")
 	case modeSFTP:
 		hints = hint("tab", "pane") + sep() + hint("c", "copy") +
 			sep() + hint("↵/-", "in/up") + sep() + hint("esc", "close")
