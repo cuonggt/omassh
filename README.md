@@ -16,6 +16,7 @@ theming, rebindable keys and reachability probes.
 |---|---|
 | `j`/`k`, `tab`, `1`/`2` | move and switch panel |
 | click | select a group, host or file, or focus the session pane |
+| double click | in sftp, enter the directory under the pointer |
 | `enter` | connect — `ssh` takes the whole terminal, exit returns here |
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete, in a dialog over the list |

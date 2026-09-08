@@ -2,6 +2,10 @@ package ui
 
 import (
 	"github.com/charmbracelet/x/ansi"
+	"github.com/cuonggt/omassh/internal/sftpx"
+	"io"
+	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -190,3 +194,22 @@ func keymapHas(h *harness, action string) (string, bool) {
 
 // ansiWidth measures a rendered line in terminal cells, ignoring escapes.
 func ansiWidth(s string) int { return ansi.StringWidth(s) }
+
+// fakeFS is a filesystem that exists only to be navigated: enough for the
+// pane to join a path and list what is there, with no server behind it.
+type fakeFS struct {
+	entries map[string][]sftpx.Entry
+}
+
+func (f fakeFS) Home() string                           { return "/" }
+func (f fakeFS) Join(dir, name string) string           { return path.Join(dir, name) }
+func (f fakeFS) Parent(dir string) string               { return path.Dir(dir) }
+func (f fakeFS) List(dir string) ([]sftpx.Entry, error) { return f.entries[dir], nil }
+func (f fakeFS) Mkdir(string) error                     { return nil }
+func (f fakeFS) Remove(string) error                    { return nil }
+func (f fakeFS) Rename(string, string) error            { return nil }
+func (f fakeFS) Chmod(string, os.FileMode) error        { return nil }
+func (f fakeFS) Open(string) (io.ReadCloser, error)     { return nil, nil }
+func (f fakeFS) Create(string) (io.WriteCloser, error)  { return nil, nil }
+func (f fakeFS) Stat(string) (sftpx.Entry, error)       { return sftpx.Entry{}, nil }
+func (f fakeFS) Label() string                          { return "fake" }

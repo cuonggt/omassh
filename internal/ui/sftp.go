@@ -155,11 +155,7 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("refreshed")
 
 	case "enter":
-		if e, ok := p.selected(); ok && e.IsDir {
-			p.path = p.fs.Join(p.path, e.Name)
-			p.idx = 0
-			p.reload()
-		}
+		p.enterSelected()
 	case "backspace", "-":
 		p.path = p.fs.Parent(p.path)
 		p.idx = 0
@@ -430,4 +426,17 @@ func listWindow(idx, n, rows int) (start, end int) {
 		start = idx
 	}
 	return start, min(start+rows, n)
+}
+
+// enterSelected descends into the highlighted entry when it is a directory.
+// Shared by ↵ and by a double click, so the two cannot drift apart.
+func (p *filePane) enterSelected() bool {
+	e, ok := p.selected()
+	if !ok || !e.IsDir {
+		return false
+	}
+	p.path = p.fs.Join(p.path, e.Name)
+	p.idx = 0
+	p.reload()
+	return true
 }

@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -115,9 +117,39 @@ func (m Model) clickFilePane(e tea.Mouse) (tea.Model, tea.Cmd) {
 
 	rows := max(body-2, 1)
 	start, _ := listWindow(p.idx, len(p.entries), rows)
-	if j, ok := rowIndex(e.Y, 0, body, len(p.entries), start); ok {
-		m.paneFocus = i
-		m.panes[i].idx = j
+	j, ok := rowIndex(e.Y, 0, body, len(p.entries), start)
+	if !ok {
+		return m, nil
+	}
+
+	// A second click on the same row opens it, the way a file browser does.
+	// The first click has already selected it, so this only has to act.
+	double := m.lastClick.repeats(e, i)
+	m.lastClick = clickAt{x: e.X, y: e.Y, pane: i, at: time.Now()}
+
+	m.paneFocus = i
+	m.panes[i].idx = j
+	if double {
+		m.panes[i].enterSelected()
 	}
 	return m, nil
+}
+
+// clickAt is where and when the pointer last went down.
+type clickAt struct {
+	x, y int
+	pane int
+	at   time.Time
+}
+
+// doubleClickWithin is how close together two presses have to be to count as
+// one double click. Long enough to be comfortable, short enough that two
+// deliberate clicks on the same file are not read as an open.
+const doubleClickWithin = 500 * time.Millisecond
+
+// repeats reports whether a press continues the previous one into a double
+// click: the same cell, the same pane, and soon enough after it.
+func (c clickAt) repeats(e tea.Mouse, pane int) bool {
+	return !c.at.IsZero() && c.pane == pane && c.x == e.X && c.y == e.Y &&
+		time.Since(c.at) < doubleClickWithin
 }

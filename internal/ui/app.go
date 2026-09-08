@@ -103,8 +103,12 @@ type Model struct {
 	sftpSess    *sftpx.Session
 	panes       [2]filePane
 	paneFocus   int
-	transfers   chan transferMsg
-	transfer    transferMsg
+	// lastClick is where and when the pointer last went down, which is all a
+	// double click is: terminals report each press separately and carry no
+	// click count of their own.
+	lastClick clickAt
+	transfers chan transferMsg
+	transfer  transferMsg
 
 	status string
 	failed bool

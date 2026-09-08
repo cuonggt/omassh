@@ -367,6 +367,7 @@ func (m Model) helpBody() string {
 		{"SFTP (" + m.keys.Key(keymap.SFTP) + ")", [][2]string{
 			{"tab / shift+tab", "switch between the local and remote pane"},
 			{"click", "select a file, and focus the pane it is in"},
+			{"double click", "enter a directory, as ↵ does"},
 			{"↵ / -", "enter a directory / go up"},
 			{"c", "copy the highlighted file to the other pane"},
 			{"m / r / M / d", "mkdir / rename / chmod / delete"},

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -1365,5 +1366,74 @@ func TestClickOnFilePaneChromeDoesNothing(t *testing.T) {
 		if h.m.panes[0].idx != before {
 			t.Errorf("clicking row %d moved the cursor to %d", y, h.m.panes[0].idx)
 		}
+	}
+}
+
+// A second click on the same row opens a directory, the way a file browser
+// does. Terminals report each press separately with no click count, so this
+// is inferred from position and timing.
+func TestDoubleClickEntersADirectory(t *testing.T) {
+	h := sftpHarness(t, 5, 5)
+	h.m.paneFocus = 0
+	h.m.panes[0].fs = fakeFS{}
+	h.m.panes[0].path = "/start"
+	h.m.panes[0].entries[1] = sftpx.Entry{Name: "sub", IsDir: true}
+
+	h.click(2, 2) // selects
+	if h.m.panes[0].path != "/start" {
+		t.Fatal("one click entered the directory")
+	}
+	h.click(2, 2) // opens
+	if h.m.panes[0].path != "/start/sub" {
+		t.Errorf("path = %q, want the directory entered", h.m.panes[0].path)
+	}
+}
+
+// Two clicks far enough apart in time are two selections, not an open.
+func TestSlowSecondClickDoesNotEnter(t *testing.T) {
+	h := sftpHarness(t, 5, 5)
+	h.m.paneFocus = 0
+	h.m.panes[0].fs = fakeFS{}
+	h.m.panes[0].path = "/start"
+	h.m.panes[0].entries[1] = sftpx.Entry{Name: "sub", IsDir: true}
+
+	h.click(2, 2)
+	h.m.lastClick.at = time.Now().Add(-2 * doubleClickWithin) // as if long ago
+	h.click(2, 2)
+
+	if h.m.panes[0].path != "/start" {
+		t.Errorf("path = %q, want no entry from two slow clicks", h.m.panes[0].path)
+	}
+}
+
+// Two clicks on different rows are two selections, however fast.
+func TestDoubleClickOnADifferentRowDoesNotEnter(t *testing.T) {
+	h := sftpHarness(t, 5, 5)
+	h.m.paneFocus = 0
+	h.m.panes[0].fs = fakeFS{}
+	h.m.panes[0].path = "/start"
+	h.m.panes[0].entries[1] = sftpx.Entry{Name: "sub", IsDir: true}
+
+	h.click(2, 1)
+	h.click(2, 2)
+	if h.m.panes[0].path != "/start" {
+		t.Errorf("path = %q, want no entry when the rows differ", h.m.panes[0].path)
+	}
+}
+
+// Double-clicking a plain file selects it and does nothing else.
+func TestDoubleClickOnAFileDoesNothing(t *testing.T) {
+	h := sftpHarness(t, 5, 5)
+	h.m.paneFocus = 0
+	h.m.panes[0].fs = fakeFS{}
+	h.m.panes[0].path = "/start"
+
+	h.click(2, 2)
+	h.click(2, 2)
+	if h.m.panes[0].path != "/start" {
+		t.Errorf("path = %q, want a file not to open", h.m.panes[0].path)
+	}
+	if h.m.panes[0].idx != 1 {
+		t.Errorf("idx = %d, want the file still selected", h.m.panes[0].idx)
 	}
 }
