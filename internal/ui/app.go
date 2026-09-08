@@ -85,9 +85,11 @@ type Model struct {
 	// dump the user back at the host list.
 	returnTo mode
 
-	probes  map[string]probe.State
-	probeCh chan probeEvent
-	probing bool
+	probes map[string]probe.State
+	// probeCounts is this sweep's tally, reset when a sweep starts.
+	probeCounts map[probe.State]int
+	probeCh     chan probeEvent
+	probing     bool
 
 	runCancel context.CancelFunc
 

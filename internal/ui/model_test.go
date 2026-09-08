@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/cuonggt/omassh/internal/keymap"
+	"github.com/cuonggt/omassh/internal/probe"
 	"github.com/cuonggt/omassh/internal/store"
 )
 
@@ -724,5 +725,44 @@ func TestNewHostJumpFieldHasNothingToReplace(t *testing.T) {
 	h.type_("edge")
 	if got := h.m.form.value("Jump host"); got != "edge" {
 		t.Errorf("Jump host = %q, want the typed text", got)
+	}
+}
+
+// A sweep that dialled nothing used to read "0 up, 0 down", which looks like
+// the probe failed rather than like it declined on purpose.
+func TestProbeSummaryNamesSkippedHosts(t *testing.T) {
+	cases := []struct {
+		name   string
+		counts map[probe.State]int
+		want   string
+	}{
+		{"all skipped", map[probe.State]int{probe.Skipped: 2},
+			"2 skipped — a host behind a jump host is not dialled directly"},
+		{"mixed keeps the counts uncluttered", map[probe.State]int{probe.Up: 3, probe.Skipped: 1},
+			"3 up · 1 skipped"},
+		{"every bucket", map[probe.State]int{probe.Up: 1, probe.Down: 2, probe.Skipped: 3, probe.Unknown: 4},
+			"1 up · 2 down · 3 skipped · 4 no address"},
+		{"nothing at all", map[probe.State]int{}, "nothing probed"},
+	}
+	for _, c := range cases {
+		if got := probeSummary(c.counts); got != c.want {
+			t.Errorf("%s: probeSummary = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// The tally is per sweep. Summing every result ever seen would report on
+// hosts in groups this sweep never touched.
+func TestProbeCountsResetBetweenSweeps(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("one", "10.0.0.1")
+
+	h.press("2")
+	h.press("p")
+	h.m.probeCounts[probe.Up] = 7 // as if a previous group had been probed
+	h.press("p")
+
+	if got := h.m.probeCounts[probe.Up]; got != 0 {
+		t.Errorf("probeCounts[Up] = %d at the start of a sweep, want 0", got)
 	}
 }
