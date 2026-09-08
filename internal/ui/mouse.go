@@ -55,19 +55,21 @@ func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
 
 	switch {
 	case e.Y < l.groupsH:
-		if i, ok := rowIndex(e.Y, 0, l.groupsH, len(m.d.tree)); ok {
+		// A list that scrolls no longer starts at its first entry, so the row
+		// is an offset into the window rather than into the list itself.
+		start, _ := listWindow(m.groupIdx, len(m.d.tree), max(l.groupsH-2, 1))
+		if i, ok := rowIndex(e.Y, 0, l.groupsH, len(m.d.tree), start); ok {
 			m.focus = panelGroups
 			m.groupIdx = i
 			m.hostIdx = 0
 		}
 	default:
 		// The search box and the blank line under it push the list down.
-		offset := 0
-		if m.filtering() || m.mode == modeFilter {
-			offset = 2
-		}
+		offset := m.searchLines()
 		hosts := m.visibleHosts()
-		if i, ok := rowIndex(e.Y, l.groupsH+offset, l.hostsH-offset, len(hosts)); ok {
+		rows := max(l.hostsH-2-offset, 1)
+		start, _ := listWindow(m.hostIdx, len(hosts), rows)
+		if i, ok := rowIndex(e.Y, l.groupsH+offset, l.hostsH-offset, len(hosts), start); ok {
 			m.focus = panelHosts
 			m.hostIdx = i
 		}
@@ -76,12 +78,16 @@ func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
 }
 
 // rowIndex maps a screen row to a list index, given the box's top row and
-// height. It reports false for the borders and for empty space past the end of
-// the list, so clicking those changes nothing rather than selecting the
-// nearest row.
-func rowIndex(y, top, height, n int) (int, bool) {
+// height and the entry the visible window starts at. It reports false for the
+// borders and for empty space past the end of the list, so clicking those
+// changes nothing rather than selecting the nearest row.
+func rowIndex(y, top, height, n, start int) (int, bool) {
 	i := y - top - 1 // the box's top border
-	if i < 0 || i >= height-2 || i >= n {
+	if i < 0 || i >= height-2 {
+		return 0, false
+	}
+	i += start
+	if i >= n {
 		return 0, false
 	}
 	return i, true

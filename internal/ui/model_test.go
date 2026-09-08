@@ -1235,3 +1235,47 @@ func TestListWindowNeverExceedsTheRows(t *testing.T) {
 		}
 	}
 }
+
+// A host list longer than its panel must scroll, or the selection walks out
+// of sight and you cannot see what enter would connect to.
+func TestHostListScrollsToKeepTheSelectionVisible(t *testing.T) {
+	h := newHarness(t)
+	for i := range 40 {
+		h.addHost(fmt.Sprintf("host-%02d", i), "10.0.0.1")
+	}
+
+	// Walk to the end of the list.
+	for range 40 {
+		h.press("j")
+	}
+	if _, ok := h.m.selectedHost(); !ok {
+		t.Fatal("nothing selected")
+	}
+	// The top of the list must have scrolled away. Asserting the selected
+	// host is present would not prove anything: its name is also the detail
+	// pane's title, so that passes whether the list scrolled or not.
+	h.mustNotContain("host-00")
+	h.mustContain("host-39")
+	h.mustContain("40/40")
+}
+
+// Clicking must select what is under the pointer, which is an offset into the
+// visible window once the list has scrolled — not into the list itself.
+func TestClickSelectsTheRightHostAfterScrolling(t *testing.T) {
+	h := newHarness(t)
+	for i := range 40 {
+		h.addHost(fmt.Sprintf("host-%02d", i), "10.0.0.1")
+	}
+	for range 40 {
+		h.press("j") // scroll to the bottom
+	}
+
+	l := h.m.layout()
+	h.click(2, l.groupsH+1) // the first visible row
+
+	got, _ := h.m.selectedHost()
+	if got.Name == "host-00" {
+		t.Fatal("the click mapped to the first host in the list, not the first visible row")
+	}
+	h.mustContain(got.Name)
+}

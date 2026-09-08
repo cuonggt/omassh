@@ -111,10 +111,14 @@ func (m Model) browserBody(content int) string {
 	if m.filtering() || m.mode == modeFilter {
 		hostsTitle = "Search"
 	}
+	groupRows, hostRows := max(groupsH-2, 1), max(hostsH-2, 1)
+	hostsTitle += listPosition(m.hostIdx, len(m.visibleHosts()), hostRows-m.searchLines())
 
 	sidebar := lipgloss.JoinVertical(lipgloss.Left,
-		box("Groups", m.focus == panelGroups && m.mode == modeBrowse, side, groupsH, m.groupsBody(side-4)),
-		box(hostsTitle, m.focus == panelHosts || m.mode == modeFilter, side, hostsH, m.hostsBody(side-4)),
+		box("Groups"+listPosition(m.groupIdx, len(m.d.tree), groupRows),
+			m.focus == panelGroups && m.mode == modeBrowse, side, groupsH, m.groupsBody(side-4, groupRows)),
+		box(hostsTitle, m.focus == panelHosts || m.mode == modeFilter,
+			side, hostsH, m.hostsBody(side-4, hostRows)),
 	)
 
 	title, detail := m.detailBody()
@@ -182,12 +186,14 @@ func tooSmall(w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) groupsBody(w int) string {
+func (m Model) groupsBody(w, rows int) string {
 	if len(m.d.tree) == 0 {
 		return theme.Dim.Render("no groups yet — n to add")
 	}
-	lines := make([]string, 0, len(m.d.tree))
-	for i, g := range m.d.tree {
+	start, end := listWindow(m.groupIdx, len(m.d.tree), rows)
+	lines := make([]string, 0, end-start)
+	for i, g := range m.d.tree[start:end] {
+		i += start
 		n := len(m.d.hostsIn(g.ID))
 		label := strings.Repeat("  ", g.Depth) + g.Name
 		text := fmt.Sprintf("%s %d", pad(label, max(w-4, 1)), n)
@@ -202,7 +208,7 @@ func (m Model) groupsBody(w int) string {
 	return strings.Join(lines, "\n")
 }
 
-func (m Model) hostsBody(w int) string {
+func (m Model) hostsBody(w, rows int) string {
 	var lines []string
 	if m.filtering() || m.mode == modeFilter {
 		lines = append(lines, theme.Fg(theme.Accent).Render("/ ")+m.filter.View(), "")
@@ -217,7 +223,9 @@ func (m Model) hostsBody(w int) string {
 		return strings.Join(append(lines, theme.Dim.Render(empty)), "\n")
 	}
 
-	for i, h := range hosts {
+	start, end := listWindow(m.hostIdx, len(hosts), rows-len(lines))
+	for i, h := range hosts[start:end] {
+		i += start
 		mark, markColour := m.hostMarker(h.StatKey())
 		label := h.Name
 		if m.filtering() {
@@ -473,4 +481,21 @@ func relTime(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
+}
+
+// searchLines is how many rows the search box takes from the Hosts panel.
+func (m Model) searchLines() int {
+	if m.filtering() || m.mode == modeFilter {
+		return 2 // the input and the blank line under it
+	}
+	return 0
+}
+
+// listPosition labels a list that does not fit, since once it scrolls the
+// borders alone no longer show that there is more below.
+func listPosition(idx, n, rows int) string {
+	if n <= rows || n == 0 {
+		return ""
+	}
+	return theme.Dim.Render(fmt.Sprintf("  %d/%d", idx+1, n))
 }
