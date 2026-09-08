@@ -265,168 +265,124 @@ func TestRedrawIsReachableFromASession(t *testing.T) {
 	h.mustContain("redraw")
 }
 
-// The tab bar is always present, and the browser is always tab 1 — it is the
-// way back to everything else.
-func TestTabBarShowsTheBrowserTab(t *testing.T) {
-	h := newHarness(t)
-
-	if len(h.m.tabs) != 1 || !h.m.tabs[0].isBrowser() {
-		t.Fatalf("expected exactly one browser tab, got %+v", h.m.tabs)
-	}
-	if h.m.activeIsSession() {
-		t.Error("the browser tab reports itself as a session")
-	}
-	h.mustContain("1 hosts")
-
-	// The frame must still fit exactly, now that a row is given to the bar.
-	lines := strings.Split(h.screen(), "\n")
-	if len(lines) != testH {
-		t.Errorf("rendered %d lines, want %d", len(lines), testH)
-	}
-}
-
-// The prefix works from the browser too, so switching tabs is the same gesture
-// wherever you are.
-func TestPrefixArmsFromTheBrowser(t *testing.T) {
-	h := newHarness(t)
-
-	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
-	if !h.m.prefixArmed {
-		t.Fatal("the prefix did not arm from the browser tab")
-	}
-	h.mustContain("prefix")
-
-	// A command that needs no session still works: w returns to tab 1.
-	h.press("w")
-	if h.m.prefixArmed {
-		t.Error("the prefix stayed armed after a command")
-	}
-	if h.m.activeTab != 0 {
-		t.Errorf("activeTab = %d, want 0", h.m.activeTab)
-	}
-}
-
-func TestTabLabels(t *testing.T) {
-	if got := (tab{}).label(); got != "hosts" {
-		t.Errorf("browser tab label = %q, want hosts", got)
-	}
-}
-
-// openPaneTab connects the selected host in a real tab. The connection itself
-// is expected to fail — port 1 answers nothing — but a pane is still created,
+// openSession connects the selected host for real. The connection itself is
+// expected to fail — port 1 answers nothing — but a pane is still created,
 // which is all the rendering path needs. Sessions are killed rather than
 // closed so no tmux session outlives the test.
-func (h *harness) openPaneTab(name string) {
+func (h *harness) openSession(name string) {
 	h.t.Helper()
 	h.addHost(name, "127.0.0.1:1")
 	h.press("enter")
 	h.t.Cleanup(func() {
-		for _, t := range h.m.tabs {
-			if !t.isBrowser() {
-				_ = t.pane.Kill()
-			}
+		if h.m.attached != nil {
+			_ = h.m.attached.Kill()
 		}
 	})
-	if !h.m.activeIsSession() {
-		h.t.Fatalf("connecting did not open a session tab: tabs=%d active=%d", len(h.m.tabs), h.m.activeTab)
+	if h.m.attached == nil {
+		h.t.Fatal("connecting did not attach a session")
 	}
 }
 
-// Connecting opens a tab rather than taking over the browser, and the frame
-// that comes back is the session — not the host list behind it. render() has
-// silently kept drawing the browser here before, which looks like nothing
-// happened at all.
-func TestConnectOpensATabShowingTheSession(t *testing.T) {
+// Connecting shows the session in the main pane and gives it the keyboard,
+// with the host list still beside it. render() has silently kept drawing the
+// host detail here before, which looks like nothing happened at all.
+func TestConnectShowsTheSessionInTheMainPane(t *testing.T) {
 	h := newHarness(t)
-	h.openPaneTab("alpha")
+	h.openSession("alpha")
 
-	if h.m.activeTab != 1 {
-		t.Errorf("activeTab = %d, want 1", h.m.activeTab)
+	if h.m.focus != panelSession {
+		t.Errorf("focus = %v, want panelSession", h.m.focus)
 	}
-	h.mustContain("1 hosts")
-	h.mustContain("2 alpha")
-	// The browser's panels must be gone; a session tab owns the whole frame.
-	h.mustNotContain("Groups")
-	h.mustNotContain("Forwards")
+	// The sidebar stays: that is the whole point of the main pane.
+	h.mustContain("Groups")
+	h.mustContain("Hosts")
+	// Only the session title says this, so it proves the main pane is the
+	// session and not the host detail that would otherwise be there.
+	h.mustContain(prefixKey + " w for the host list")
+	// "history" belongs to the host detail, which the session has displaced.
+	h.mustNotContain("history")
 
 	lines := strings.Split(h.screen(), "\n")
 	if len(lines) != testH {
-		t.Errorf("session frame is %d lines, want %d", len(lines), testH)
+		t.Errorf("frame is %d lines, want %d", len(lines), testH)
 	}
 }
 
-// Tab 1 is always the way back, and the sessions keep running behind it.
-func TestPrefixReturnsToTheBrowserWithoutClosingTheSession(t *testing.T) {
+// The prefix hands the keyboard back without ending the session.
+func TestPrefixWReturnsToTheListKeepingTheSession(t *testing.T) {
 	h := newHarness(t)
-	h.openPaneTab("alpha")
+	h.openSession("alpha")
 
 	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
+	if !h.m.prefixArmed {
+		t.Fatal("the prefix did not arm from a focused session")
+	}
 	h.press("w")
 
-	if h.m.activeIsSession() {
-		t.Fatal("prefix w did not return to the browser")
+	if h.m.focus != panelHosts {
+		t.Errorf("focus = %v, want panelHosts", h.m.focus)
 	}
-	h.mustContain("Groups")
-	if len(h.m.tabs) != 2 {
-		t.Errorf("tabs = %d, want the session tab kept", len(h.m.tabs))
+	if h.m.attached == nil {
+		t.Fatal("prefix w ended the session instead of just moving focus")
 	}
-	// The host list says where the session went.
-	if got := h.m.tabForHost(h.m.d.hosts[0]); got != 2 {
-		t.Errorf("tabForHost = %d, want 2", got)
+	// Still connected, so the list marks it and the pane still shows it.
+	if !h.m.attachedTo(h.m.d.hosts[0]) {
+		t.Error("the connected host is not marked in the list")
 	}
+	// The session keeps the main pane even unfocused, so the host detail
+	// stays displaced.
+	h.mustNotContain("history")
 }
 
-// Connecting to a host that is already open goes to its tab instead of
-// stacking a second session onto the same machine.
-func TestConnectingTwiceReusesTheTab(t *testing.T) {
-	h := newHarness(t)
-	h.openPaneTab("alpha")
-
-	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
-	h.press("w")
-	h.press("enter")
-
-	if len(h.m.tabs) != 2 {
-		t.Fatalf("tabs = %d, want 2 — a second tab was opened for the same host", len(h.m.tabs))
-	}
-	if h.m.activeTab != 1 {
-		t.Errorf("activeTab = %d, want 1", h.m.activeTab)
-	}
-}
-
-// Several hosts means several tabs — that is what replaced the group split, so
-// a tab must never end up holding more than the one session.
-func TestEachHostGetsItsOwnTab(t *testing.T) {
+// Only one session exists at a time, so connecting elsewhere replaces it
+// rather than leaving a connection the interface cannot reach.
+func TestConnectingElsewhereReplacesTheSession(t *testing.T) {
 	h := newHarness(t)
 	h.addHost("bravo", "127.0.0.1:1")
-	h.openPaneTab("alpha")
+	h.openSession("alpha")
+	first := h.m.attached
 
 	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
 	h.press("w")
-	h.press("j") // the second host
+	h.press("j")
 	h.press("enter")
 	t.Cleanup(func() {
-		for _, tb := range h.m.tabs {
-			if !tb.isBrowser() {
-				_ = tb.pane.Kill()
-			}
+		if h.m.attached != nil {
+			_ = h.m.attached.Kill()
 		}
 	})
 
-	if len(h.m.tabs) != 3 {
-		t.Fatalf("tabs = %d, want 3 (browser + two sessions)", len(h.m.tabs))
+	if h.m.attached == first {
+		t.Fatal("connecting to a second host did not replace the session")
 	}
-	if h.m.activeTab != 2 {
-		t.Errorf("activeTab = %d, want 2", h.m.activeTab)
+	if got := h.m.attached.Host.Name; got != "bravo" {
+		t.Errorf("attached to %q, want bravo", got)
 	}
-	h.mustContain("2 alpha")
-	h.mustContain("3 bravo")
+}
 
-	// prefix 2 goes back to the first session, not to a pane within one.
+// tab must not land on an empty main pane when nothing is connected.
+func TestPanelCycleSkipsTheSessionUntilConnected(t *testing.T) {
+	h := newHarness(t)
+	for range int(numPanels) + 1 {
+		h.press("tab")
+		if h.m.focus == panelSession {
+			t.Fatal("tab reached the session panel with nothing connected")
+		}
+	}
+
+	h.openSession("alpha")
 	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
-	h.press("2")
-	if got := h.m.tabs[h.m.activeTab].label(); got != "alpha" {
-		t.Errorf("after prefix 2, tab = %q, want alpha", got)
+	h.press("w")
+
+	seen := false
+	for range int(numPanels) {
+		h.press("tab")
+		if h.m.focus == panelSession {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Error("tab never reached the session panel while connected")
 	}
 }
 

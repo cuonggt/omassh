@@ -15,7 +15,7 @@ rebindable keys and reachability probes.
 | key | |
 |---|---|
 | `j`/`k`, `tab`, `1`/`2` | move and switch panel |
-| `enter` | connect — the session opens in a new tab |
+| `enter` | connect — the session opens in the main pane |
 | `o` | hand the whole terminal to `ssh` instead |
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete |
@@ -25,7 +25,6 @@ rebindable keys and reachability probes.
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect, from whichever panel has focus |
-| `ctrl+\ n`/`p`, `ctrl+\ 1`-`9` | switch tabs; `ctrl+\ w` is always the host list |
 | `s` | sftp: browse and transfer files |
 | `r` | reload store and re-read `~/.ssh/config` |
 | `?` | help |
@@ -49,24 +48,21 @@ handed over through an `SSH_ASKPASS` helper on a single-use unix socket in a
 0700 directory — it never appears in an environment variable, a command line,
 or a file. Run with `-secrets=memory` to keep secrets in the process only.
 
-Sessions live in **tabs**, listed across the top. Tab 1 is the host browser and
-is always there; `enter` on a host opens its session in a tab of its own and
-switches to it, so connecting never costs you the list. Connecting to a host
-that is already open goes to its tab rather than opening a second session to
-the same machine, and the host list marks it — a green `●2` means *open in tab
-2*.
+`enter` opens a session in the **main pane**, with the host list still beside
+it. There is one session at a time, so connecting somewhere else replaces it
+rather than leaving a connection nothing in the interface can reach; a green
+`●` marks the host it is on.
 
-`ctrl+\ n` and `ctrl+\ p` walk the tabs, `ctrl+\ 1`-`9` jump straight to one,
-and `ctrl+\ w` returns to the browser from anywhere. `ctrl+\ x` closes a tab
-(detaching its session) and `ctrl+\ X` ends it for good.
+While that pane has focus every key goes to the remote, so `ctrl+\ w` hands
+the keyboard back to the list — the session stays connected and visible —
+`ctrl+\ d` detaches and `ctrl+\ X` ends it for good.
 
 Sessions are **persistent** where tmux is installed. A pty whose master belongs
 to Omassh dies with it, so each session is instead run as
 `tmux new-session -A -s omassh-<host> ssh …` on a private tmux server — closing
 Omassh detaches rather than disconnects, and reconnecting reattaches with the
-screen and shell state intact. A green `●` beside a host means a session is
-waiting for a tab to be opened for it. Without tmux, sessions are ephemeral as
-before. Those sessions live on their own server socket, so `tmux ls` in your
+screen and shell state intact. A yellow `●` beside a host means a session is
+waiting to be reattached. Without tmux, sessions are ephemeral as before. Those sessions live on their own server socket, so `tmux ls` in your
 shell is unaffected.
 
 Scrollback is `ctrl+\ k` and `ctrl+\ j` to page, `ctrl+\ G` to return live;
@@ -78,15 +74,13 @@ copy mode. Without tmux the emulator keeps 2000 lines itself.
 `o` hands the whole terminal to `ssh` instead. That path is emulation-free and
 remains the highest-fidelity way to work on a single host.
 
-A tab holds exactly one session, filling the frame. A pty runs `ssh`, its
-output feeds a VT emulator, and keys go back the other way, so the remote gets
-a real terminal the size of the tab, `SIGWINCH` and all. Tabs are how you work
-on several hosts at once, which is why a tab is never subdivided: four hosts
-means four tabs, not four panes fighting over eighty columns.
+A pty runs `ssh`, its output feeds a VT emulator, and keys go back the other
+way, so the remote gets a real terminal the size of the pane, `SIGWINCH` and
+all.
 
-Once a session tab is showing, every keystroke belongs to the remote, `ctrl+c`
-included — which is why the tab commands sit behind a `ctrl+\` prefix, the way
-tmux uses `ctrl+b`. Press the prefix twice to send a literal one through.
+Once a session has focus every keystroke belongs to the remote, `ctrl+c`
+included — which is why the session commands sit behind a `ctrl+\` prefix, the
+way tmux uses `ctrl+b`. Press the prefix twice to send a literal one through.
 
 SFTP needs no SSH client of its own. Omassh runs `ssh -s <host> sftp` and
 speaks the SFTP protocol over that child's stdio, so OpenSSH performs the
@@ -131,7 +125,7 @@ The demo above is recorded with [VHS](https://github.com/charmbracelet/vhs):
 ./hack/demo.sh
 ```
 
-That starts a throwaway SSH server on loopback so the session tabs show real
+That starts a throwaway SSH server on loopback so the session pane shows real
 shells, seeds a database with sample infrastructure, and drives the UI.
 
 ## Run

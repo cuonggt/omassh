@@ -30,27 +30,19 @@ func (m Model) render() string {
 		return "" // first frame, before the size message arrives
 	}
 
-	// Every view sits below the tab bar, so the geometry is the same whatever
-	// is being shown.
-	content := m.h - statusHeight - tabBarHeight
-	bar := m.tabBar()
+	content := m.h - statusHeight
 
 	switch m.mode {
 	case modeHelp:
-		return bar + "\n" + box("Help", true, m.w, content, m.helpBody()) + "\n" + m.statusBar()
+		return box("Help", true, m.w, content, m.helpBody()) + "\n" + m.statusBar()
 	case modeForm:
-		return bar + "\n" + box(m.form.title, true, m.w, content, m.form.render(m.w-4)) + "\n" + m.statusBar()
+		return box(m.form.title, true, m.w, content, m.form.render(m.w-4)) + "\n" + m.statusBar()
 	case modeConfirm:
-		return bar + "\n" + box("Confirm", true, m.w, content, m.confirmBody()) + "\n" + m.statusBar()
+		return box("Confirm", true, m.w, content, m.confirmBody()) + "\n" + m.statusBar()
 	case modeIdentities:
-		return bar + "\n" + box("Credentials", true, m.w, content, m.identitiesBody()) + "\n" + m.statusBar()
+		return box("Credentials", true, m.w, content, m.identitiesBody()) + "\n" + m.statusBar()
 	case modeSFTP:
-		return bar + "\n" + m.sftpView(content) + "\n" + m.statusBar()
-	}
-
-	// A session tab shows its session; the first tab is the host browser.
-	if m.activeIsSession() {
-		return bar + "\n" + m.sessionView(content) + "\n" + m.statusBar()
+		return m.sftpView(content) + "\n" + m.statusBar()
 	}
 
 	side := clamp(sidebarWidth, 20, m.w/2)
@@ -84,8 +76,14 @@ func (m Model) render() string {
 	if m.focus == panelForwards {
 		title, detail = m.forwardDetail()
 	}
-	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, false, main, content, detail))
-	return bar + "\n" + body + "\n" + m.statusBar()
+	// A live session takes the main pane; the sidebar stays usable beside it.
+	mainFocused := false
+	if m.attached != nil {
+		title, detail = m.sessionTitle(), m.attached.Render()
+		mainFocused = m.focus == panelSession
+	}
+	body := lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, mainFocused, main, content, detail))
+	return body + "\n" + m.statusBar()
 }
 
 func (m Model) groupsBody(w int) string {
@@ -136,11 +134,12 @@ func (m Model) hostsBody(w int) string {
 		// style paints the whole line, so a coloured badge would be half
 		// overridden; the selected row gets the same marks unstyled.
 		cfg := h.Source == store.SourceSSHConfig
-		// An open tab is the more useful fact, and unlike d.live it is always
-		// current, so it wins when a host is both open and has a session.
+		// The live session is the more useful fact, and unlike d.live it is
+		// always current, so it wins when a host is both connected and has a
+		// session waiting.
 		badge, badgeColour := "", theme.Yellow
-		if n := m.tabForHost(h); n > 0 {
-			badge, badgeColour = fmt.Sprintf("●%d", n), theme.Green
+		if m.attachedTo(h) {
+			badge, badgeColour = "●", theme.Green
 		} else if m.d.hasSession(h) {
 			badge = "●"
 		}
@@ -266,7 +265,7 @@ func (m Model) helpBody() string {
 			{"esc", "clear the search"},
 		}},
 		{"Act", [][2]string{
-			{m.keys.Key(keymap.Connect), "connect — the session opens in a new tab"},
+			{m.keys.Key(keymap.Connect), "connect — the session opens in the main pane"},
 			{m.keys.Key(keymap.Handoff), "hand the whole terminal to ssh instead (highest fidelity)"},
 			{m.keys.Key(keymap.NewItem), "new host, or new group when Groups is focused"},
 			{m.keys.Key(keymap.Edit), "edit the selection"},
@@ -278,22 +277,18 @@ func (m Model) helpBody() string {
 			{m.keys.Key(keymap.Credentials), "credentials: keys, stored secrets and the ssh-agent"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 		}},
-		{"Tabs (" + prefixKey + " prefix)", [][2]string{
-			{"prefix n / p", "next and previous tab"},
-			{"prefix 1-9", "jump straight to a tab"},
+		{"Attached session (" + prefixKey + " prefix)", [][2]string{
 			{"prefix w", "back to the host list; the session keeps running"},
-			{"prefix x", "close the tab — the session keeps running, reconnect to reattach"},
-			{"prefix X", "end the session for good"},
-			{"", "green ●2 beside a host means it is open in tab 2;"},
-			{"", "a yellow ● means a detached session is waiting"},
-		}},
-		{"Inside a session", [][2]string{
 			{"prefix k / j", "scroll back and forward a page through the output"},
 			{"prefix G", "return to the live view"},
+			{"prefix d", "detach — the session keeps running, reconnect to reattach"},
+			{"prefix X", "end the session for good"},
 			{"prefix r", "redraw the screen"},
 			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
-			{"", "every other key goes to the remote, ctrl+c included,"},
-			{"", "so the prefix is the way back out"},
+			{"", "a green ● beside a host means it is connected here;"},
+			{"", "a yellow ● means a detached session is waiting"},
+			{"", "while the session has focus every other key goes to"},
+			{"", "the remote, so the prefix is the way back out"},
 		}},
 		{"SFTP (" + m.keys.Key(keymap.SFTP) + ")", [][2]string{
 			{"tab", "switch between the local and remote pane"},
@@ -356,12 +351,12 @@ func (m Model) statusBar() string {
 		switch {
 		case m.prefixArmed:
 			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
-				hint("n/p", "tab") + sep() + hint("w", "hosts") + sep() +
-				hint("x/X", "close/end") + sep() + hint("k/j", "scroll") +
+				hint("w", "host list") + sep() + hint("d", "detach") + sep() +
+				hint("X", "end") + sep() + hint("k/j", "scroll") +
 				sep() + hint("G", "live")
-		case m.activeIsSession():
-			hints = hint(prefixKey+" n/p", "switch tab") + sep() +
-				hint(prefixKey+" w", "hosts") + sep() +
+		case m.focus == panelSession:
+			hints = hint(prefixKey+" w", "host list") + sep() +
+				hint(prefixKey+" d", "detach") + sep() +
 				theme.Dim.Render("every other key goes to the remote")
 		case m.focus == panelForwards:
 			hints = hint("↵", "start/stop") + sep() + hint("n/e/d", "new/edit/delete") +

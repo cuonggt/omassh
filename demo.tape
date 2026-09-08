@@ -1,5 +1,5 @@
 # Records demo.gif. Run via ./hack/demo.sh, which starts the SSH server the
-# session tabs connect to. https://github.com/charmbracelet/vhs
+# the session pane connects to. https://github.com/charmbracelet/vhs
 
 Output demo.gif
 
@@ -26,24 +26,21 @@ Type "1"     Sleep 600ms
 Type "j"     Sleep 1200ms
 Type "2"     Sleep 900ms
 
-# the headline: enter opens the session in a tab of its own
+# the headline: enter opens the session in the main pane
 Enter        Sleep 3500ms
 Type "uptime" Enter
 Sleep 1800ms
 
-# back to the list without losing the session
+# the prefix hands the keyboard back; the session stays connected beside it
 Ctrl+\
-Type "w"     Sleep 1200ms
+Type "w"     Sleep 1800ms
 
-# a second host, a second tab
-Type "j"     Sleep 500ms
+# another host takes the pane
+Type "j"     Sleep 600ms
 Enter        Sleep 3000ms
 Type "df -h /" Enter
-Sleep 1800ms
+Sleep 2000ms
 
-# tabs switch with the prefix; the first tab is always the host list
-Ctrl+\
-Type "p"     Sleep 1600ms
 Ctrl+\
 Type "w"     Sleep 1500ms
 

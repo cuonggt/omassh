@@ -28,6 +28,7 @@ const (
 	panelGroups panel = iota
 	panelHosts
 	panelForwards
+	panelSession
 	numPanels
 )
 
@@ -100,9 +101,8 @@ type Model struct {
 
 	runCancel context.CancelFunc
 
-	// tabs[0] is the host browser; the rest hold live sessions.
-	tabs        []tab
-	activeTab   int
+	// attached is the live session in the main pane, nil when there is none.
+	attached    *term.Pane
 	prefixArmed bool
 	sftpSess    *sftpx.Session
 	panes       [2]filePane
@@ -137,7 +137,6 @@ func New(st *store.Store, vault secrets.Vault, sup *forward.Supervisor, opts Opt
 
 	m := Model{opts: opts, keys: opts.Keys, st: st, vault: vault, sup: sup, index: index,
 		focus: panelHosts, filter: ti, agentKeys: map[string]bool{},
-		tabs:      []tab{{}}, // the host browser
 		transfers: make(chan transferMsg, 32),
 		probeCh:   make(chan probeEvent, 64), probes: map[string]probe.State{}}
 	m.reload()
@@ -237,23 +236,27 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.handleBrowseKey(msg)
 }
 
+// nextPanel cycles focus, skipping the session slot when nothing is connected
+// so tab never lands on an empty pane.
+func (m Model) nextPanel(d int) panel {
+	p := m.focus
+	for range int(numPanels) {
+		p = (p + panel(d) + numPanels) % numPanels
+		if p != panelSession || m.attached != nil {
+			return p
+		}
+	}
+	return m.focus
+}
+
 // handleBrowseKey dispatches on the configured action rather than the raw key,
 // so bindings can be changed without the handlers knowing.
 func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	// A session tab owns the keyboard; its prefix is the way back out.
-	if m.activeIsSession() {
-		return m.handleSessionTabKey(msg)
+	// A focused session owns the keyboard; its prefix is the way back out.
+	if m.focus == panelSession && m.attached != nil {
+		return m.handleSessionKey(msg)
 	}
 	key := msg.String()
-	// The prefix works from the browser too, so switching tabs is the same
-	// gesture wherever you are.
-	if m.prefixArmed {
-		return m.handlePrefix(key, msg)
-	}
-	if key == prefixKey {
-		m.prefixArmed = true
-		return m, nil
-	}
 	// esc is not an action: it always backs out of whatever is in effect.
 	if key == "esc" {
 		if m.filtering() {
@@ -268,9 +271,9 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.Help:
 		m.mode = modeHelp
 	case keymap.NextPanel:
-		m.focus = (m.focus + 1) % numPanels
+		m.focus = m.nextPanel(1)
 	case keymap.PrevPanel:
-		m.focus = (m.focus + numPanels - 1) % numPanels
+		m.focus = m.nextPanel(-1)
 	case keymap.PanelGroups:
 		m.focus = panelGroups
 	case keymap.PanelHosts:
@@ -291,7 +294,7 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.focus == panelForwards {
 			return m.toggleForward()
 		}
-		return m.openSessionTab()
+		return m.attachSession()
 	case keymap.Handoff:
 		return m.connect()
 	case keymap.NewItem:
@@ -319,7 +322,7 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.SFTP:
 		return m.openSFTP()
 	case keymap.Pane:
-		return m.openSessionTab()
+		return m.attachSession()
 	case keymap.Redraw:
 		// The terminal can clear the screen without telling us — iTerm2's
 		// cmd+K, for one. The renderer still believes its last frame is on
