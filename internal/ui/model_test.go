@@ -674,3 +674,55 @@ func TestPasteReplacesTheSuggestedGroup(t *testing.T) {
 		t.Errorf("Group = %q, want the pasted text alone", got)
 	}
 }
+
+// Jump host is pre-filled when editing and has a picker, so it carries the
+// same trap as Group: typing over "bastion" would otherwise append to it.
+func TestTypingReplacesTheExistingJumpHost(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("bastion", "10.0.0.1")
+	h.addHost("edge", "10.0.0.2")
+	h.addHost("web", "10.0.0.3")
+
+	// Give web a jump host, then reopen it for editing.
+	h.press("2")
+	for i := range h.m.d.hosts {
+		if h.m.d.hosts[i].Name == "web" {
+			h.m.hostIdx = i
+		}
+	}
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Jump host" {
+		h.press("tab")
+	}
+	h.type_("bastion")
+	h.press("enter")
+
+	h.press("e")
+	for h.m.form.fields[h.m.form.idx].label != "Jump host" {
+		h.press("tab")
+	}
+	if got := h.m.form.value("Jump host"); got != "bastion" {
+		t.Fatalf("Jump host = %q, want the saved value", got)
+	}
+
+	h.type_("edge")
+	if got := h.m.form.value("Jump host"); got != "edge" {
+		t.Errorf("Jump host = %q, want the existing value replaced", got)
+	}
+}
+
+// A new host has no jump host yet, so there is nothing to replace and the
+// field must simply accept what is typed.
+func TestNewHostJumpFieldHasNothingToReplace(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("bastion", "10.0.0.1")
+
+	h.press("n")
+	for h.m.form.fields[h.m.form.idx].label != "Jump host" {
+		h.press("tab")
+	}
+	h.type_("edge")
+	if got := h.m.form.value("Jump host"); got != "edge" {
+		t.Errorf("Jump host = %q, want the typed text", got)
+	}
+}
