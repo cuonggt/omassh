@@ -1773,3 +1773,16 @@ func TestAPrefilledFieldsHintIsNotItsValue(t *testing.T) {
 		h.press("esc")
 	}
 }
+
+// A sweep is bounded by its dials, never by a clock on the run as a whole. A
+// ceiling on the run reported every host past it as down without dialling it,
+// and nothing in the error afterwards could tell that apart from a host that
+// really was unreachable.
+func TestASweepRunsWithoutADeadline(t *testing.T) {
+	ctx, cancel := probeContext()
+	defer cancel()
+
+	if deadline, ok := ctx.Deadline(); ok {
+		t.Errorf("the sweep is bounded at %v — a group larger than that allows would be cut off", deadline)
+	}
+}

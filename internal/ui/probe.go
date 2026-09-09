@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"image/color"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -13,6 +12,20 @@ import (
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
+
+// probeContext is what a sweep runs under: cancellable, and with no deadline
+// of its own.
+//
+// Every dial is already bounded by the probe timeout, so a run bounds itself
+// at however many rounds it takes. A ceiling on the run as a whole — it was
+// the timeout plus five seconds, whatever the size of the group — cut off
+// anything past about thirty hosts. Worse, it could not be recovered from
+// afterwards: a context deadline and the dialer's own timeout come back as
+// the same error, so every host still queued was reported down without ever
+// having been dialled.
+func probeContext() (context.Context, context.CancelFunc) {
+	return context.WithCancel(context.Background())
+}
 
 // probeEvent carries one host's reachability, or the end of a sweep.
 type probeEvent struct {
@@ -41,9 +54,9 @@ func (m Model) startProbe() (tea.Model, tea.Cmd) {
 	ch := m.probeCh
 	timeout := m.opts.ProbeTimeout
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), timeout+5*time.Second)
+		ctx, cancel := probeContext()
 		defer cancel()
-		probe.CheckAll(ctx, targets, 8, timeout, func(key string, s probe.State) {
+		probe.CheckAll(ctx, targets, 0, timeout, func(key string, s probe.State) {
 			ch <- probeEvent{key: key, state: s}
 		})
 		ch <- probeEvent{done: true}
@@ -80,6 +93,9 @@ func (m Model) hostMarker(key string) (string, color.Color) {
 		return "✖", theme.Red
 	case probe.Skipped:
 		return "◌", theme.TextDim
+	case probe.NotChecked:
+		// The same mark as never-probed, because that is what it is.
+		return "○", theme.TextDim
 	default:
 		return "○", theme.TextDim
 	}
@@ -100,6 +116,7 @@ func probeSummary(counts map[probe.State]int) string {
 		{probe.Up, "up"},
 		{probe.Down, "down"},
 		{probe.Skipped, "skipped"},
+		{probe.NotChecked, "not checked"},
 		{probe.Unknown, "no address"},
 	} {
 		if n := counts[b.state]; n > 0 {

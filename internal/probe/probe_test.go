@@ -2,6 +2,7 @@ package probe_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"testing"
 	"time"
@@ -95,5 +96,70 @@ func TestCheckAllHonoursCancellation(t *testing.T) {
 
 	if elapsed := time.Since(start); elapsed > 5*time.Second {
 		t.Errorf("took %s — cancellation was ignored", elapsed)
+	}
+}
+
+// A cancelled context is not an answer about the host. DialContext reports it
+// as an ordinary failure, and reading that as "down" put a red cross against
+// machines nobody had dialled.
+func TestACancelledDialIsNotAVerdict(t *testing.T) {
+	addr, port := listening(t)
+	h := store.Host{ID: "real", Addr: addr, Port: port}
+
+	if got := probe.Check(context.Background(), h, 2*time.Second); got != probe.Up {
+		t.Fatalf("the listener is unreachable even uncancelled: %v", got)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := probe.Check(ctx, h, 2*time.Second); got != probe.NotChecked {
+		t.Errorf("a listening host dialled on a cancelled context reported %v, want not checked", got)
+	}
+}
+
+// The hosts an abandoned sweep never reached say so, rather than joining the
+// ones it genuinely found down.
+func TestACancelledSweepDoesNotCallHostsDown(t *testing.T) {
+	var hosts []store.Host
+	for i := range 20 {
+		hosts = append(hosts, store.Host{
+			ID: fmt.Sprint(i), Addr: fmt.Sprintf("203.0.113.%d", i+1), Port: 22,
+		})
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	out := probe.CheckAll(ctx, hosts, 4, 5*time.Second, nil)
+	for _, h := range hosts {
+		if got := out[h.StatKey()]; got != probe.NotChecked {
+			t.Fatalf("%s reported %v, want not checked", h.Addr, got)
+		}
+	}
+}
+
+func TestWorkersScaleWithTheSweep(t *testing.T) {
+	for _, c := range []struct{ hosts, want int }{
+		{1, 8}, {8, 8}, {40, 10}, {200, 32}, {1000, 32},
+	} {
+		if got := probe.Workers(c.hosts); got != c.want {
+			t.Errorf("Workers(%d) = %d, want %d", c.hosts, got, c.want)
+		}
+	}
+}
+
+// The default concurrency has to actually reach the sweep: eight workers took
+// twenty-five rounds over two hundred hosts where thirty-two take seven.
+func TestCheckAllDefaultsToScaledConcurrency(t *testing.T) {
+	var hosts []store.Host
+	for i := range 200 {
+		hosts = append(hosts, store.Host{
+			ID: fmt.Sprint(i), Addr: fmt.Sprintf("203.0.113.%d", i%250+1), Port: 22,
+		})
+	}
+	start := time.Now()
+	probe.CheckAll(context.Background(), hosts, 0, 100*time.Millisecond, nil)
+
+	if elapsed := time.Since(start); elapsed > 1500*time.Millisecond {
+		t.Errorf("200 hosts took %v — the sweep is not scaling its concurrency", elapsed)
 	}
 }

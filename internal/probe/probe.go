@@ -3,6 +3,7 @@ package probe
 
 import (
 	"context"
+	"errors"
 	"net"
 	"strconv"
 	"sync"
@@ -20,6 +21,11 @@ const (
 	Down
 	// Skipped marks a host that cannot meaningfully be dialled directly.
 	Skipped
+	// NotChecked marks a host the sweep never actually reached. It is the
+	// absence of a verdict rather than a bad one: calling an undialled host
+	// down is how a sweep that ran out of time used to report machines that
+	// were perfectly fine.
+	NotChecked
 )
 
 func (s State) String() string {
@@ -30,6 +36,8 @@ func (s State) String() string {
 		return "down"
 	case Skipped:
 		return "not probed"
+	case NotChecked:
+		return "not checked"
 	default:
 		return "unknown"
 	}
@@ -56,16 +64,40 @@ func Check(ctx context.Context, h store.Host, timeout time.Duration) State {
 	d := net.Dialer{Timeout: timeout}
 	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(h.Addr, strconv.Itoa(port)))
 	if err != nil {
+		// Being cancelled is not an answer about the host. Dialling reports it
+		// as an ordinary failure, and reading that as "down" would put a red
+		// cross against a machine nobody finished dialling.
+		//
+		// Cancellation is the only interruption that can be told apart: a
+		// context deadline and the dialer's own timeout both come back as
+		// "i/o timeout" and both satisfy errors.Is(err, DeadlineExceeded).
+		// That is why a sweep bounds each dial and never the run as a whole —
+		// a ceiling on the run cannot be distinguished afterwards from a host
+		// that is genuinely unreachable, so every host past it was called
+		// down.
+		if errors.Is(err, context.Canceled) {
+			return NotChecked
+		}
 		return Down
 	}
 	conn.Close()
 	return Up
 }
 
-// CheckAll probes hosts concurrently, reporting each as it finishes.
+// Workers is how many hosts CheckAll dials at once for a sweep of n.
+//
+// A fixed handful made a large group crawl: an unreachable host costs the full
+// timeout and they queue behind each other, so two hundred of them took the
+// better part of a minute. This scales with the sweep, while staying far
+// inside the file-descriptor budget and low enough not to resemble a port scan.
+func Workers(n int) int { return min(max(n/4, 8), 32) }
+
+// CheckAll probes hosts concurrently, reporting each as it finishes. A limit
+// below one means Workers picks one for the size of the sweep, which is what
+// callers want unless they have a reason of their own.
 func CheckAll(ctx context.Context, hosts []store.Host, limit int, timeout time.Duration, report func(key string, s State)) map[string]State {
 	if limit < 1 {
-		limit = 8
+		limit = Workers(len(hosts))
 	}
 	out := make(map[string]State, len(hosts))
 	var mu sync.Mutex
