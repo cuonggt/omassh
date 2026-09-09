@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,19 +32,29 @@ type dataMsg struct {
 }
 
 // load reads everything the interface renders from the store.
+// load reads the store into what the interface draws.
+//
+// A record the store could not decode is skipped rather than fatal, and what
+// it could read is kept: treating any error as a reason to show nothing meant
+// one damaged record emptied the whole list, over a message that named neither
+// the database nor the record. The complaint is carried out alongside the
+// data, so both are shown.
 func load(s *store.Store) (data, error) {
 	var d data
-	var err error
+	var problems []string
+	note := func(err error) {
+		if err != nil {
+			problems = append(problems, err.Error())
+		}
+	}
 
-	if d.groups, err = s.Groups(); err != nil {
-		return d, err
-	}
-	if d.hosts, err = s.Hosts(); err != nil {
-		return d, err
-	}
-	if d.stats, err = s.Stats(); err != nil {
-		return d, err
-	}
+	var err error
+	d.groups, err = s.Groups()
+	note(err)
+	d.hosts, err = s.Hosts()
+	note(err)
+	d.stats, err = s.Stats()
+	note(err)
 
 	// Which hosts already have a session waiting to be reattached.
 	d.live = map[string]bool{}
@@ -64,6 +75,9 @@ func load(s *store.Store) (data, error) {
 	}
 	if ungrouped > 0 {
 		d.tree = append(d.tree, store.GroupNode{Group: store.Group{ID: UngroupedID, Name: "Ungrouped"}})
+	}
+	if len(problems) > 0 {
+		return d, errors.New(strings.Join(problems, "; "))
 	}
 	return d, nil
 }

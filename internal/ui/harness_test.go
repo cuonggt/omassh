@@ -3,6 +3,7 @@ package ui
 import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/cuonggt/omassh/internal/sftpx"
+	bolt "go.etcd.io/bbolt"
 	"io"
 	"os"
 	"path"
@@ -29,12 +30,42 @@ type harness struct {
 	t     *testing.T
 	m     Model
 	store *store.Store
+	// dbPath is kept so a test can damage the file directly, which is the only
+	// way to see what the interface does with a record it cannot decode.
+	dbPath string
+}
+
+// corrupt writes a record that will not decode, then reopens the store on it.
+// bbolt holds the file exclusively, so the store has to be closed first.
+func (h *harness) corrupt(key string) {
+	h.t.Helper()
+	if err := h.store.Close(); err != nil {
+		h.t.Fatal(err)
+	}
+	db, err := bolt.Open(h.dbPath, 0o600, nil)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	err = db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("hosts")).Put([]byte(key), []byte("{not json"))
+	})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		h.t.Fatal(err)
+	}
+	if h.store, err = store.Open(h.dbPath); err != nil {
+		h.t.Fatal(err)
+	}
+	h.m.st = h.store
 }
 
 func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 	t.Helper()
 	dir := t.TempDir()
-	st, err := store.Open(filepath.Join(dir, "test.db"))
+	dbPath := filepath.Join(dir, "test.db")
+	st, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
@@ -48,7 +79,7 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 		fn(&o)
 	}
 
-	h := &harness{t: t, store: st, m: New(st, o)}
+	h := &harness{t: t, store: st, dbPath: dbPath, m: New(st, o)}
 	t.Cleanup(func() { h.m.Close() })
 	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
 	return h

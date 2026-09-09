@@ -1983,3 +1983,26 @@ func TestAnOrdinaryNonZeroExitIsReportedPlainly(t *testing.T) {
 		t.Errorf("summary = %q, want the exit code", got)
 	}
 }
+
+// One record the store cannot decode used to empty the whole list: load
+// treated any error as a reason to show nothing, so the browser offered to add
+// a host to a store that already held three.
+func TestARecordThatWillNotReadDoesNotEmptyTheList(t *testing.T) {
+	h := newHarness(t)
+	for _, n := range []string{"alpha", "bravo", "charlie"} {
+		h.addHost(n, "10.0.0.1")
+	}
+	h.corrupt("badrecord")
+
+	h.m.reload()
+	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
+
+	if got := len(h.m.d.hosts); got != 3 {
+		t.Fatalf("the list holds %d hosts, want the 3 that are readable", got)
+	}
+	for _, n := range []string{"alpha", "bravo", "charlie"} {
+		h.mustContain(n)
+	}
+	// And it says what it skipped, rather than a bare parser complaint.
+	h.mustContain("badrecord")
+}

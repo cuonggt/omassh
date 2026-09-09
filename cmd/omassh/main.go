@@ -189,14 +189,18 @@ func runExport(args []string) error {
 	}
 	defer st.Close()
 
-	groups, err := st.Groups()
-	if err != nil {
-		return err
+	// A record the store cannot decode is skipped, not fatal: refusing to
+	// export would mean the readable records could not be rescued either. The
+	// complaint goes to stderr, so it is seen even when the list is redirected
+	// into a file or piped into another machine.
+	groups, gerr := st.Groups()
+	hosts, herr := st.Hosts()
+	for _, e := range []error{gerr, herr} {
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
+		}
 	}
-	hosts, err := st.Hosts()
-	if err != nil {
-		return err
-	}
+
 	raw, err := portable.Export(groups, hosts).YAML()
 	if err != nil {
 		return err
@@ -303,14 +307,17 @@ func apply(db string, d portable.Document, dry bool) error {
 	}
 	defer st.Close()
 
-	groups, err := st.Groups()
-	if err != nil {
-		return err
+	// As with export: what cannot be decoded is named rather than fatal. A
+	// record that will not read is also one no incoming record can match by
+	// name, so it may end up duplicated — saying so is the honest part.
+	groups, gerr := st.Groups()
+	hosts, herr := st.Hosts()
+	for _, e := range []error{gerr, herr} {
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
+		}
 	}
-	hosts, err := st.Hosts()
-	if err != nil {
-		return err
-	}
+
 	plan, err := portable.Merge(d, groups, hosts)
 	if err != nil {
 		return err

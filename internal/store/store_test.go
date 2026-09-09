@@ -2,6 +2,8 @@ package store
 
 import (
 	"path/filepath"
+
+	bolt "go.etcd.io/bbolt"
 	"strings"
 	"testing"
 	"time"
@@ -179,4 +181,73 @@ func TestSecondInstanceExplainsTheLock(t *testing.T) {
 		t.Fatalf("Open after the lock was released: %v", err)
 	}
 	second.Close()
+}
+
+// corrupt puts a value into a bucket that will not decode, the way a damaged
+// file or an older format would.
+func corrupt(t *testing.T, s *Store, bucket []byte, key string) {
+	t.Helper()
+	err := s.db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucket).Put([]byte(key), []byte("{not json at all"))
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// One record that will not decode used to end the walk over its bucket, so it
+// took every other with it: the list came back empty and the interface offered
+// to add a host to a store that already held three.
+func TestOneUnreadableRecordDoesNotHideTheRest(t *testing.T) {
+	s := openTest(t)
+	for _, n := range []string{"alpha", "bravo", "charlie"} {
+		if _, err := s.PutHost(Host{Name: n, Addr: "10.0.0.1"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	corrupt(t, s, bucketHosts, "badrecord")
+
+	hosts, err := s.Hosts()
+	if len(hosts) != 3 {
+		t.Fatalf("got %d hosts, want the 3 that are readable", len(hosts))
+	}
+	if err == nil {
+		t.Fatal("nothing said a record had been skipped")
+	}
+	if !strings.Contains(err.Error(), "badrecord") {
+		t.Errorf("the error does not name the record: %v", err)
+	}
+}
+
+func TestAnUnreadableGroupDoesNotHideTheRest(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.PutGroup(Group{Name: "Production"}); err != nil {
+		t.Fatal(err)
+	}
+	corrupt(t, s, bucketGroups, "badgroup")
+
+	groups, err := s.Groups()
+	if len(groups) != 1 || groups[0].Name != "Production" {
+		t.Fatalf("got %v, want the one readable group", groups)
+	}
+	if err == nil || !strings.Contains(err.Error(), "badgroup") {
+		t.Errorf("err = %v, want it to name the skipped record", err)
+	}
+}
+
+// Session history for one host is not worth losing everyone else's.
+func TestAnUnreadableStatDoesNotHideTheRest(t *testing.T) {
+	s := openTest(t)
+	if err := s.RecordSession("keep", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	corrupt(t, s, bucketStats, "badstat")
+
+	stats, err := s.Stats()
+	if err != nil {
+		t.Fatalf("Stats() = %v", err)
+	}
+	if _, ok := stats["keep"]; !ok {
+		t.Errorf("got %v, want the readable history", stats)
+	}
 }

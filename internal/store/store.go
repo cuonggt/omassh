@@ -71,34 +71,71 @@ func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) Groups() ([]Group, error) {
 	var out []Group
+	var bad []string
 	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketGroups).ForEach(func(_, v []byte) error {
+		return tx.Bucket(bucketGroups).ForEach(func(k, v []byte) error {
 			var g Group
 			if err := json.Unmarshal(v, &g); err != nil {
-				return err
+				bad = append(bad, string(k))
+				return nil
 			}
 			out = append(out, g)
 			return nil
 		})
 	})
 	sortGroups(out)
+	if err == nil {
+		err = unreadable("group", bad)
+	}
 	return out, err
 }
 
 func (s *Store) Hosts() ([]Host, error) {
 	var out []Host
+	var bad []string
 	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketHosts).ForEach(func(_, v []byte) error {
+		return tx.Bucket(bucketHosts).ForEach(func(k, v []byte) error {
 			var h Host
 			if err := json.Unmarshal(v, &h); err != nil {
-				return err
+				bad = append(bad, string(k))
+				return nil
 			}
 			out = append(out, h)
 			return nil
 		})
 	})
 	SortHosts(out)
+	if err == nil {
+		err = unreadable("host", bad)
+	}
 	return out, err
+}
+
+// unreadable names records that could not be decoded, so they are neither
+// hidden nor allowed to hide anything else.
+//
+// A record that will not decode used to end the walk over its bucket, so one
+// of them took every other with it: the list came back empty and the interface
+// offered to add a host to a store that already held them, over an error from
+// the JSON parser that named neither the database nor the record.
+func unreadable(kind string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	noun := kind
+	if len(keys) > 1 {
+		noun += "s"
+	}
+	shown := keys
+	if len(shown) > 3 {
+		shown = shown[:3]
+	}
+	list := strings.Join(shown, ", ")
+	if len(keys) > len(shown) {
+		list += ", …"
+	}
+	return fmt.Errorf("skipped %d unreadable %s (%s) — everything else is here",
+		len(keys), noun, list)
 }
 
 // PutGroup inserts or updates a group, assigning an id when absent.
@@ -212,7 +249,7 @@ func (s *Store) Stats() (map[string]Stat, error) {
 		return tx.Bucket(bucketStats).ForEach(func(k, v []byte) error {
 			var st Stat
 			if err := json.Unmarshal(v, &st); err != nil {
-				return err
+				return nil // history for one host is not worth losing the rest
 			}
 			out[string(k)] = st
 			return nil
