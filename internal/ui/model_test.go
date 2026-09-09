@@ -1546,3 +1546,41 @@ func TestPrefixStillWorksOnAnEndedSession(t *testing.T) {
 		t.Error("prefix w did not return to the host list")
 	}
 }
+
+func TestTheEndOfHelpIsReachable(t *testing.T) {
+	h := newHarness(t)
+	h.press("?")
+	// The cheatsheet is taller than the terminal, so the last section is not
+	// on the first screen of it.
+	h.mustContain("Navigate")
+	h.mustNotContain("Inheritance")
+
+	h.press("G")
+	h.mustContain("Inheritance")
+	if h.m.mode != modeHelp {
+		t.Fatal("scrolling closed the help screen")
+	}
+
+	// Anything that is not a movement key still means done, so help stays a
+	// glance rather than a mode to escape from.
+	h.press("z")
+	if h.m.mode != modeBrowse {
+		t.Errorf("mode = %v, want browse after an unrelated key", h.m.mode)
+	}
+	h.press("?")
+	if h.m.helpScroll != 0 {
+		t.Errorf("help reopened scrolled to %d, want the top", h.m.helpScroll)
+	}
+}
+
+func TestHelpSaysWhenThereIsMore(t *testing.T) {
+	h := newHarness(t)
+	h.press("?")
+	// The word appears in the body too — the session section is about
+	// scrolling output — so this has to look at the status bar itself, which
+	// is the last line of the frame.
+	lines := strings.Split(strings.TrimRight(h.screen(), "\n"), "\n")
+	if status := lines[len(lines)-1]; !strings.Contains(status, "scroll") {
+		t.Errorf("status bar does not offer to scroll: %q", status)
+	}
+}

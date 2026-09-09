@@ -328,7 +328,21 @@ func (m Model) confirmBody() string {
 		"\n\n  " + hint("y", "yes") + theme.Dim.Render("  ·  ") + hint("n", "no")
 }
 
+// helpRows is how many lines of the cheatsheet fit inside its border.
+func (m Model) helpRows() int { return max(m.h-statusHeight-2, 1) }
+
+// helpOverflow is the furthest the cheatsheet can usefully scroll, and zero
+// when the whole of it already fits.
+func (m Model) helpOverflow() int { return max(len(m.helpLines())-m.helpRows(), 0) }
+
+// helpBody shows the part of the cheatsheet that has been scrolled to.
 func (m Model) helpBody() string {
+	lines := m.helpLines()
+	start := clamp(m.helpScroll, 0, max(len(lines)-m.helpRows(), 0))
+	return strings.Join(lines[start:min(start+m.helpRows(), len(lines))], "\n")
+}
+
+func (m Model) helpLines() []string {
 	sections := []struct {
 		title string
 		rows  [][2]string
@@ -391,20 +405,22 @@ func (m Model) helpBody() string {
 		}},
 	}
 
-	var b strings.Builder
 	name := "omassh"
 	if m.opts.Version != "" {
 		name += " " + m.opts.Version
 	}
-	b.WriteString(theme.Title.Render(name) + theme.Dim.Render("  keyboard-driven SSH client") + "\n")
+	// The status bar carries "any key back", so the body spends none of its
+	// rows repeating it.
+	lines := []string{theme.Title.Render(name) + theme.Dim.Render("  keyboard-driven SSH client")}
 	for _, s := range sections {
-		b.WriteString("\n" + theme.Fg(theme.Yellow).Render("  "+s.title) + "\n")
+		lines = append(lines, "", theme.Fg(theme.Yellow).Render("  "+s.title))
 		for _, r := range s.rows {
-			b.WriteString(theme.Key.Render(fmt.Sprintf("  %-14s", r[0])) + theme.Normal.Render(r[1]) + "\n")
+			// Wide enough for the longest key shown, "tab / shift+tab", which
+			// at 14 ran straight into its own description.
+			lines = append(lines, theme.Key.Render(fmt.Sprintf("  %-16s", r[0]))+theme.Normal.Render(r[1]))
 		}
 	}
-	b.WriteString("\n" + theme.Dim.Render("  press any key to return"))
-	return b.String()
+	return lines
 }
 
 func (m Model) statusBar() string {
@@ -418,6 +434,9 @@ func (m Model) statusBar() string {
 		hints = hint("↑↓", "select") + sep() + hint("↵", "keep") + sep() + hint("esc", "clear")
 	case modeHelp:
 		hints = hint("any key", "back")
+		if m.helpOverflow() > 0 {
+			hints = hint("↑↓", "scroll") + sep() + hints
+		}
 	case modeSFTP:
 		// The file browser keeps its keys on the transfer strip, which has a
 		// whole row for them; repeating a shorter version here said the same

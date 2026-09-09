@@ -83,6 +83,11 @@ type Model struct {
 	filter  textinput.Model
 	matches []store.Host
 
+	// helpScroll is how far the cheatsheet has been scrolled. It is longer
+	// than a short terminal, and there is nothing to select on it, so an
+	// offset is all the state it needs.
+	helpScroll int
+
 	form    *form
 	confirm *confirmation
 	// returnTo is the view a modal came from, so closing one does not always
@@ -242,8 +247,7 @@ func (m Model) handlePaste(text string) (tea.Model, tea.Cmd) {
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeHelp:
-		m.mode = modeBrowse
-		return m, nil
+		return m.handleHelpKey(msg)
 	case modeConfirm:
 		return m.handleConfirmKey(msg)
 	case modeForm:
@@ -332,6 +336,35 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case keymap.Reload:
 		m.reload()
 		m.setStatus(fmt.Sprintf("reloaded — %d host%s", len(m.d.hosts), plural(len(m.d.hosts))))
+	}
+	return m, nil
+}
+
+// handleHelpKey scrolls the cheatsheet, and closes it on anything else.
+//
+// Help is taller than a short terminal, and closing on literally any key put
+// the end of it out of reach: pressing ↓ to read the rest dismissed the screen
+// instead of moving down it. Only the keys that mean "move" are kept, so every
+// other key still means "done", which is what makes help feel like a glance
+// rather than a mode.
+func (m Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
+	rows, end := m.helpRows(), m.helpOverflow()
+	switch {
+	case m.keys.Lookup(key) == keymap.Down:
+		m.helpScroll = clamp(m.helpScroll+1, 0, end)
+	case m.keys.Lookup(key) == keymap.Up:
+		m.helpScroll = clamp(m.helpScroll-1, 0, end)
+	case key == "pgdown", key == "ctrl+f", key == " ":
+		m.helpScroll = clamp(m.helpScroll+rows, 0, end)
+	case key == "pgup", key == "ctrl+b":
+		m.helpScroll = clamp(m.helpScroll-rows, 0, end)
+	case key == "home":
+		m.helpScroll = 0
+	case key == "G", key == "end":
+		m.helpScroll = end
+	default:
+		m.mode, m.helpScroll = modeBrowse, 0
 	}
 	return m, nil
 }
