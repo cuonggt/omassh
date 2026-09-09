@@ -19,6 +19,7 @@ import (
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
+	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
 type panel int
@@ -39,6 +40,7 @@ const (
 	modeConfirm
 	modeHelp
 	modeSFTP
+	modeTheme
 )
 
 const (
@@ -65,6 +67,16 @@ type Options struct {
 	// Version is what -version reports, shown on the help screen so the
 	// running build can be identified without quitting to ask.
 	Version string
+
+	// Theme is the palette in effect at startup, and Themes are the ones the
+	// config file defines, so the picker can offer them alongside the
+	// built-ins and resolve a name the same way the config file does.
+	Theme  string
+	Themes map[string]theme.Palette
+	// SaveTheme records a theme chosen in the interface. main supplies it, so
+	// the interface needs to know nothing about where configuration lives —
+	// and leaving it nil makes the choice last only for the session.
+	SaveTheme func(name string) error
 }
 
 // Model is the root Bubble Tea model.
@@ -90,6 +102,8 @@ type Model struct {
 
 	form    *form
 	confirm *confirmation
+	// themes is the open theme picker, nil when there is none.
+	themes *themePicker
 	// returnTo is the view a modal came from, so closing one does not always
 	// dump the user back at the host list.
 	returnTo mode
@@ -256,6 +270,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleFilterKey(msg)
 	case modeSFTP:
 		return m.handleSFTPKey(msg)
+	case modeTheme:
+		return m.handleThemeKey(msg)
 	}
 	return m.handleBrowseKey(msg)
 }
@@ -294,6 +310,8 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case keymap.Help:
 		m.mode = modeHelp
+	case keymap.Theme:
+		return m.openThemePicker()
 	case keymap.NextPanel:
 		m.focus = m.nextPanel(1)
 	case keymap.PrevPanel:

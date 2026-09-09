@@ -28,6 +28,7 @@ moving the list between machines or starting from `~/.ssh/config`.
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect in the main pane instead, keeping the host list |
 | `s` | sftp: browse and transfer files |
+| `T` | pick a theme, previewing as you move |
 | `r` | reload the store from disk |
 | `?` | help, which names the running version |
 
@@ -209,6 +210,14 @@ bindings and ssh options all live there. A malformed config
 is reported at startup rather than ignored, because settings that silently do
 nothing are worse than an error that says why. Arrow keys and `ctrl+c` are
 reserved and always work, so no config can trap you in the program.
+
+`T` opens a theme picker that recolours the interface as you move through it,
+since a palette is something you judge by looking at it. Keeping one writes
+`theme:` into the config file above, creating it if there is none — the one
+line, leaving comments, custom palettes and every other setting exactly as
+they were. So there is one place a theme comes from: what you pick and what
+you write by hand are the same setting, and neither quietly outranks the
+other. A palette defined under `themes:` is offered alongside the built-ins.
 
 Colours degrade automatically: on a terminal without truecolor the palettes
 render in 256 colours, and `mono` exists for terminals with less than that.

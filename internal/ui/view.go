@@ -91,6 +91,13 @@ func (m Model) dialog(content int) (string, bool) {
 	case modeConfirm:
 		body := m.confirmBody()
 		return box("Confirm", true, w, dialogHeight(body, content), body), true
+	case modeTheme:
+		// Narrower than the rest: the entries are one word, and a dialog this
+		// size leaves more of the coloured interface showing behind it, which
+		// is the thing actually being previewed.
+		tw := clamp(34, 20, m.w-4)
+		body := m.themeBody(tw - 4)
+		return box("Theme", true, tw, dialogHeight(body, content), body), true
 	}
 	return "", false
 }
@@ -364,6 +371,7 @@ func (m Model) helpLines() []string {
 			{m.keys.Key(keymap.Reload), "reload the store from disk"},
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
+			{m.keys.Key(keymap.Theme), "choose a colour theme, previewing as you move"},
 		}},
 		{"Main-pane session (" + m.keys.Key(keymap.Pane) + ", then the " + prefixKey + " prefix)", [][2]string{
 			{"prefix w", "back to the host list; the session keeps running"},
@@ -438,6 +446,8 @@ func (m Model) statusBar() string {
 		hints = hint("tab", "field") + sep() + hint("↵", "save") + sep() + hint("esc", "cancel")
 	case modeConfirm:
 		hints = hint("y", "confirm") + sep() + hint("n", "cancel")
+	case modeTheme:
+		hints = hint("↑↓", "preview") + sep() + hint("↵", "keep") + sep() + hint("esc", "cancel")
 	case modeFilter:
 		hints = hint("↑↓", "select") + sep() + hint("↵", "keep") + sep() + hint("esc", "clear")
 	case modeHelp:

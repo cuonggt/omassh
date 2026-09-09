@@ -24,6 +24,9 @@ type Palette struct {
 	Selected string `yaml:"selected_bg"`
 }
 
+// DefaultName is the palette used when nothing else is chosen.
+const DefaultName = "tokyonight"
+
 // Builtin palettes, selectable by name from the config file.
 var Builtin = map[string]Palette{
 	"tokyonight": {
@@ -84,7 +87,7 @@ var (
 	Key      lipgloss.Style
 )
 
-func init() { Apply(Builtin["tokyonight"]) }
+func init() { Apply(Builtin[DefaultName]) }
 
 func Fg(c color.Color) lipgloss.Style { return lipgloss.NewStyle().Foreground(c) }
 
@@ -92,7 +95,7 @@ func Fg(c color.Color) lipgloss.Style { return lipgloss.NewStyle().Foreground(c)
 // built-in default, so a config file can override one colour without having to
 // restate the rest.
 func Apply(p Palette) {
-	base := Builtin["tokyonight"]
+	base := Builtin[DefaultName]
 	pick := func(v, fallback string) color.Color {
 		if strings.TrimSpace(v) == "" {
 			return lipgloss.Color(fallback)

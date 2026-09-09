@@ -383,10 +383,14 @@ func TestPanelCycleSkipsTheSessionUntilConnected(t *testing.T) {
 	}
 }
 
-// The group split is gone, so nothing should still be bound to it.
+// The group split is gone. T was its key in v0.2 and now opens the theme
+// picker, so what this guards is the action rather than the letter: a feature
+// removed on purpose should not reappear because a binding was left behind.
 func TestGroupSplitIsUnbound(t *testing.T) {
-	if a := keymap.Default().Lookup("T"); a != keymap.None {
-		t.Errorf("T is still bound to %q — the group split was meant to go", a)
+	for _, name := range keymap.Names() {
+		if strings.Contains(name, "split") || strings.Contains(name, "broadcast") {
+			t.Errorf("%q is bound again — the group split was meant to go", name)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -81,10 +82,7 @@ func (c Config) Validate() error {
 // Palette resolves the configured theme name, preferring a palette defined in
 // the config file over a built-in of the same name.
 func (c Config) Palette() (theme.Palette, error) {
-	name := c.Theme
-	if name == "" {
-		name = "tokyonight"
-	}
+	name := c.ThemeName()
 	if p, ok := c.Themes[name]; ok {
 		if err := p.Validate(); err != nil {
 			return p, fmt.Errorf("theme %q: %w", name, err)
@@ -95,6 +93,15 @@ func (c Config) Palette() (theme.Palette, error) {
 		return p, nil
 	}
 	return theme.Palette{}, fmt.Errorf("unknown theme %q (built in: %v)", name, theme.BuiltinNames())
+}
+
+// ThemeName is the theme in effect, with the default filled in — what the
+// picker opens on, and what it marks as current.
+func (c Config) ThemeName() string {
+	if strings.TrimSpace(c.Theme) == "" {
+		return theme.DefaultName
+	}
+	return c.Theme
 }
 
 func (c Config) Keymap() (keymap.Map, error) { return keymap.New(c.Keys) }

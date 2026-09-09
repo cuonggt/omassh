@@ -136,7 +136,13 @@ func browse(args []string) error {
 	}
 	defer st.Close()
 
-	opts := ui.Options{Keys: km, ProbeTimeout: probeTimeout, Version: version}
+	opts := ui.Options{
+		Keys: km, ProbeTimeout: probeTimeout, Version: version,
+		Theme: cfg.ThemeName(), Themes: cfg.Themes,
+		// The picker writes to the same file Load just read, so a theme
+		// chosen in the interface and one written by hand are one setting.
+		SaveTheme: func(name string) error { return config.SetTheme(*cfgPath, name) },
+	}
 	final, err := tea.NewProgram(ui.New(st, opts)).Run()
 	// An SFTP session or an embedded pane owns an ssh child of its own; close
 	// them explicitly rather than relying on process exit to reap them.
