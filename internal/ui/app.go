@@ -317,6 +317,18 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSessionKey(msg)
 	}
 	key := msg.String()
+
+	// The prefix reaches the session from here too, so detaching or ending it
+	// does not mean going back into the pane to do it.
+	if m.attached != nil && (m.prefixArmed || key == prefixKey) {
+		return m.sessionCommand(msg)
+	}
+	if key == prefixKey {
+		// Nothing to command. Saying so beats the silence that made the key
+		// look broken, and the d that usually follows open a delete.
+		m.setStatus("no session — " + m.keys.Key(keymap.Pane) + " opens one in the main pane")
+		return m, nil
+	}
 	// esc is not an action: it always backs out of whatever is in effect.
 	if key == "esc" {
 		if m.filtering() {

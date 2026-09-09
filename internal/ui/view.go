@@ -385,7 +385,9 @@ func (m Model) helpLines() []string {
 			{"", "a green ● beside a host means it is connected here;"},
 			{"", "a yellow ● means a detached session is waiting"},
 			{"", "while the session has focus every other key goes to"},
-			{"", "the remote, so the prefix is the way back out"},
+			{"", "the remote, so the prefix is the way back out — and"},
+			{"", "it works from the host list too, so detaching or"},
+			{"", "ending one does not mean going back in to do it"},
 		}},
 		{"SFTP (" + m.keys.Key(keymap.SFTP) + ")", [][2]string{
 			{"tab / shift+tab", "switch between the local and remote pane"},

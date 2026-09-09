@@ -82,38 +82,8 @@ func (m Model) attachedTo(h store.Host) bool {
 func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
-	if m.prefixArmed {
-		m.prefixArmed = false
-		switch key {
-		case prefixKey:
-			m.attached.SendKey(msg) // pressed twice: the remote wanted it
-		case "w", "esc":
-			m.attached.ScrollToBottom()
-			m.focus = panelHosts
-			m.setStatus("host list — " + m.attached.Host.Name + " still connected")
-		case "d":
-			return m.detachSession(m.detachMessage())
-		case "X":
-			return m.killSession()
-		case "k", "up", "pgup":
-			m.scrollAttached(-1)
-			m.prefixArmed = true // stay armed so repeated presses page through
-		case "j", "down", "pgdown":
-			m.scrollAttached(1)
-			m.prefixArmed = true
-		case "G", "end":
-			m.attached.ScrollToBottom()
-			m.setStatus("live view")
-		case "r":
-			// ctrl+l belongs to the remote shell while a session has focus, so
-			// the redraw lives behind the prefix instead.
-			return m, tea.ClearScreen
-		}
-		return m, nil
-	}
-	if key == prefixKey {
-		m.prefixArmed = true
-		return m, nil
+	if m.prefixArmed || key == prefixKey {
+		return m.sessionCommand(msg)
 	}
 	// A session that has ended is dismissed deliberately, not by whatever you
 	// were in the middle of typing. Detaching on any key sent the rest of a
@@ -130,6 +100,54 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.attached.SendKey(msg)
+	return m, nil
+}
+
+// sessionCommand arms the prefix, then runs the command that follows it.
+//
+// Both sides reach this. In the session pane the prefix is the only way to be
+// heard over the remote, which takes every other key. From the host list it is
+// how the session is reached at all: detaching and ending are facts about the
+// session rather than about whichever panel happens to hold the keyboard, and
+// getting to them used to mean going back into the pane first — where the
+// prefix was silently ignored on the way, so ctrl+\ d on the list opened the
+// delete confirmation for the highlighted host instead.
+func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if !m.prefixArmed {
+		m.prefixArmed = true
+		return m, nil
+	}
+	m.prefixArmed = false
+
+	switch msg.String() {
+	case prefixKey:
+		// Pressed twice: the remote wanted it. Only the pane can deliver it;
+		// from the list there is nothing typing into.
+		if m.focus == panelSession {
+			m.attached.SendKey(msg)
+		}
+	case "w", "esc":
+		m.attached.ScrollToBottom()
+		m.focus = panelHosts
+		m.setStatus("host list — " + m.attached.Host.Name + " still connected")
+	case "d":
+		return m.detachSession(m.detachMessage())
+	case "X":
+		return m.killSession()
+	case "k", "up", "pgup":
+		m.scrollAttached(-1)
+		m.prefixArmed = true // stay armed so repeated presses page through
+	case "j", "down", "pgdown":
+		m.scrollAttached(1)
+		m.prefixArmed = true
+	case "G", "end":
+		m.attached.ScrollToBottom()
+		m.setStatus("live view")
+	case "r":
+		// ctrl+l belongs to the remote shell while a session has focus, so
+		// the redraw lives behind the prefix instead.
+		return m, tea.ClearScreen
+	}
 	return m, nil
 }
 
@@ -229,7 +247,7 @@ func (m Model) sessionTitle() string {
 	switch {
 	case !m.attached.Alive():
 		return name + "  " + m.attached.Status()
-	case m.prefixArmed && m.focus == panelSession:
+	case m.prefixArmed:
 		return name + "  " + theme.Fg(theme.Yellow).Render("prefix…") + scrollIndicator(m.attached)
 	case m.focus == panelSession:
 		return name + "  " + theme.Dim.Render(prefixKey+" w for the host list") + scrollIndicator(m.attached)

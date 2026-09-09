@@ -1650,3 +1650,57 @@ func TestTheSidebarLeavesRoomForThePaneBesideIt(t *testing.T) {
 		}
 	}
 }
+
+// The prefix was routed only while the session pane had the keyboard, so on
+// the host list it was swallowed without a word — and the d that usually
+// follows it opened the delete confirmation for the highlighted host instead.
+func TestThePrefixReachesTheSessionFromTheHostList(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	h.press("prefix", "w") // hand the keyboard back, session still running
+	if h.m.focus == panelSession {
+		t.Fatal("prefix w did not leave the pane")
+	}
+
+	h.press("prefix", "d")
+	if h.m.mode == modeConfirm {
+		t.Fatal("prefix d opened the delete confirmation")
+	}
+	if h.m.attached != nil {
+		t.Error("prefix d on the host list did not detach")
+	}
+	if len(h.m.d.hosts) != 1 {
+		t.Errorf("the host list is now %+v", h.m.d.hosts)
+	}
+}
+
+func TestEndingTheSessionFromTheHostList(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	h.press("prefix", "w")
+
+	h.press("prefix", "X")
+	if h.m.attached != nil {
+		t.Error("prefix X on the host list did not end the session")
+	}
+	if len(h.m.d.hosts) != 1 {
+		t.Errorf("it removed the host too: %+v", h.m.d.hosts)
+	}
+}
+
+// With nothing to command the prefix says so, rather than doing nothing at
+// all and leaving the next key to land somewhere surprising.
+func TestThePrefixSaysWhenThereIsNoSession(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("alpha", "10.0.0.1")
+	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
+
+	h.press("prefix")
+	h.mustContain("no session")
+
+	// And it does not arm: the list's own keys still mean what they say.
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Error("d after a lone prefix did not reach the host list")
+	}
+}

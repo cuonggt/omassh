@@ -112,6 +112,8 @@ func (h *harness) press(keys ...string) {
 			h.send(tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 		case "backspace":
 			h.send(tea.KeyPressMsg{Code: tea.KeyBackspace})
+		case "prefix":
+			h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
 		case "up":
 			h.send(tea.KeyPressMsg{Code: tea.KeyUp})
 		case "down":

@@ -64,6 +64,12 @@ While that pane has focus every key goes to the remote, so `ctrl+\ w` hands
 the keyboard back to the list — the session stays connected and visible —
 `ctrl+\ d` detaches and `ctrl+\ X` ends it for good.
 
+The prefix works from the host list as well. Detaching and ending are facts
+about the session rather than about whichever panel holds the keyboard, and
+reaching them used to mean going back into the pane first — where the prefix
+was silently ignored on the way, so `ctrl+\ d` on the list opened the delete
+confirmation for the highlighted host.
+
 Sessions are **persistent** where tmux is installed. A pty whose master belongs
 to Omassh dies with it, so each session is instead run as
 `tmux new-session -A -s omassh-<host> ssh …` on a private tmux server — closing
