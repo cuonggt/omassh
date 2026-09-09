@@ -348,10 +348,26 @@ func forwardMarker(st term.ForwardState, known, stale bool) (string, color.Color
 func (m Model) forwardsBody(w int) string {
 	fs := m.d.forwardsFor(m.forwardHost.ID)
 	if len(fs) == 0 {
-		return "\n  " + theme.Dim.Render("no forwards on "+m.forwardHost.Name+" yet") +
-			"\n\n  " + theme.Dim.Render("a tunnel runs on omassh's tmux server, so it") +
-			"\n  " + theme.Dim.Render("outlives the window that started it") +
-			"\n\n  " + hint("n", "new") + sep() + hint("esc", "close")
+		// What is said here has to be true of this machine. Describing the
+		// tmux server a tunnel runs on, where there is no tmux to run one,
+		// promises the whole point of the feature to someone who will only
+		// find out otherwise after writing a rule and pressing start.
+		why := []string{
+			"a tunnel runs on omassh's tmux server, so it",
+			"outlives the window that started it",
+		}
+		if !term.TmuxAvailable() {
+			why = []string{
+				"port forwarding needs tmux, which is not installed —",
+				"without it a tunnel would die with omassh and still",
+				"look like one that is up",
+			}
+		}
+		out := "\n  " + theme.Dim.Render("no forwards on "+m.forwardHost.Name+" yet") + "\n"
+		for _, l := range why {
+			out += "\n  " + theme.Dim.Render(l)
+		}
+		return out + "\n\n  " + hint("n", "new") + sep() + hint("esc", "close")
 	}
 
 	lines := []string{""}
@@ -392,14 +408,23 @@ func (m Model) forwardDetail() []string {
 	st, known := m.d.forwardStatus(f)
 	switch {
 	case st.Running && forwardStale(m.forwardTarget(), f, st):
+		// Neither half names the rule as the thing that changed: editing the
+		// host moves the tunnel just as surely, and blaming the rule sends
+		// someone to look at the one thing they did not touch. Short enough,
+		// too — an earlier wording ran past the dialog and lost the half that
+		// says what to do.
 		return []string{
-			theme.Fg(theme.Yellow).Render("running an older version of this rule"),
-			// Short enough to survive the dialog's width: the previous wording
-			// ran past it and lost the half that says what to do.
-			theme.Dim.Render("↳ carries what it was started with — ↵ restarts it"),
+			theme.Fg(theme.Yellow).Render("running what it was started with"),
+			theme.Dim.Render("↳ the rule or its host has changed since — ↵ restarts it"),
 		}
 	case st.Running:
 		return []string{theme.Fg(theme.Green).Render("running") + theme.Dim.Render("  ↵ stops it")}
+	case !known && !term.TmuxAvailable():
+		// ↵ cannot start it, so it must not be offered as though it could.
+		return []string{
+			theme.Fg(theme.Yellow).Render("port forwarding needs tmux"),
+			theme.Dim.Render("↳ without it a dead tunnel would look like a live one"),
+		}
 	case !known:
 		// Nothing is running: either it never was, or stopping it cleared the
 		// session away. "Not started" was a small lie the moment after you

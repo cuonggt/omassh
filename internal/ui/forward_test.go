@@ -409,7 +409,7 @@ func TestATunnelRunningAnOlderRuleIsNotClaimedAsCurrent(t *testing.T) {
 		t.Fatal("a tunnel carrying its own rule was called stale")
 	}
 	h.mustContain("↵ stops it")
-	h.mustNotContain("older version")
+	h.mustNotContain("what it was started with")
 
 	// Now the rule points somewhere else. The tunnel has not moved, and the
 	// screen must not say it has.
@@ -425,7 +425,7 @@ func TestATunnelRunningAnOlderRuleIsNotClaimedAsCurrent(t *testing.T) {
 	if !forwardStale(target, moved, h.m.d.forwardState(f)) {
 		t.Fatal("a tunnel carrying the old route was reported as carrying the new one")
 	}
-	h.mustContain("older version")
+	h.mustContain("what it was started with")
 	h.mustNotContain("↵ stops it")
 
 	// A tunnel from before this was recorded says nothing about itself, and
@@ -475,4 +475,45 @@ func TestTheStaleNoticeFitsTheDialog(t *testing.T) {
 	}
 	// And the remedy actually reaches the screen.
 	h.mustContain("↵ restarts it")
+}
+
+// On a machine with no tmux there is no tunnel to be had, and the screen has
+// to say so where it can be read — not after a rule has been written and
+// started. It used to describe the tmux server a tunnel runs on, to someone
+// who had no tmux to run one.
+func TestWithoutTmuxTheScreenSaysSo(t *testing.T) {
+	// LookPath is how availability is decided, so an empty PATH is a machine
+	// without it.
+	t.Setenv("PATH", t.TempDir())
+
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	h.selectHost("db-01")
+
+	h.press("f")
+	h.mustContain("needs tmux")
+	h.mustNotContain("outlives the window")
+
+	// And a rule that exists is not offered as one ↵ could start.
+	h.press("esc")
+	h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+	h.mustContain("needs tmux")
+	h.mustNotContain("↵ starts it")
+}
+
+// With tmux there, none of that appears.
+func TestWithTmuxTheOfferStands(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed, so there is no contrast to draw")
+	}
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+
+	h.press("f")
+	h.mustContain("↵ starts it")
+	h.mustNotContain("needs tmux")
 }

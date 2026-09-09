@@ -165,9 +165,11 @@ Editing a rule reaches nothing already running — the tunnel is named by the
 rule's id, so it goes on carrying the route it was started with. It used to go
 on being reported as up against the new route as well, which is the shape of
 mistake where repointing a tunnel at staging leaves every connection landing on
-production and the screen agreeing with you. Each tunnel now records what it
-was started with, so a rule that changed underneath one shows `▷` rather than
-`▶`, and `↵` restarts it on what the rule says now.
+production and the screen agreeing with you. Each tunnel now records the whole
+invocation it was started with, so one whose rule *or host* has changed
+underneath it shows `▷` rather than `▶` — editing the host's address moves a
+tunnel just as surely as editing the rule — and `↵` restarts it on what they
+say now.
 
 A green `▶` beside a host in the list means one of its tunnels is up.
 
