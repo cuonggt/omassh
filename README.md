@@ -22,7 +22,7 @@ moving the list between machines or starting from `~/.ssh/config`.
 | `/` | fuzzy search every host by name, address or tag |
 | `n` / `e` / `d` | new / edit / delete, in a dialog over the list |
 | paste | fills the focused field; works in search and in a session too |
-| `↓` in a form | on Jump host, Group or Tags, pick what you already use |
+| `↓` in a form | pick what you already use — a host's jump host, group or tags, a group's parent or jump host |
 | `space` in the Tags picker | toggle a tag; the list stays open, `↵` finishes |
 | `p` | probe reachability of the hosts in this group |
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |

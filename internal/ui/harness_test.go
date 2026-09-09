@@ -194,6 +194,18 @@ func (h *harness) mustNotContain(bad string) {
 	}
 }
 
+// addGroup writes a group directly, for tests that need a tree without driving
+// the form for each level of it.
+func (h *harness) addGroup(name, parentID string) store.Group {
+	h.t.Helper()
+	g, err := h.store.PutGroup(store.Group{Name: name, ParentID: parentID})
+	if err != nil {
+		h.t.Fatalf("put group: %v", err)
+	}
+	h.reload()
+	return g
+}
+
 // addHost writes a host directly, for tests that need one without driving the
 // form.
 func (h *harness) addHost(name, addr string) store.Host {

@@ -2034,3 +2034,71 @@ func TestAttachingSaysWhenTheSessionIsOpenElsewhere(t *testing.T) {
 		t.Errorf("%q dropped the way back to the host list", alone)
 	}
 }
+
+// A group's parent and jump host are picked the same way a host's group and
+// jump host are, rather than typed from memory.
+func TestTheGroupFormOffersPickers(t *testing.T) {
+	h := newHarness(t)
+	h.addGroup("Production", "")
+	h.addHost("bastion", "10.0.0.1")
+	h.m.reload()
+	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
+
+	h.m.focus = panelGroups
+	h.press("n")
+	if h.m.form == nil {
+		t.Fatal("no form opened")
+	}
+	for _, label := range []string{"Parent", "Jump host"} {
+		f := h.m.form.fields[fieldIndex(t, h.m.form, label)]
+		if len(f.choices) == 0 {
+			t.Errorf("%s offers nothing to pick", label)
+		}
+		if !f.suggested && f.input.Value() != "" {
+			t.Errorf("%s is filled in but typing would append to it", label)
+		}
+	}
+	if got := h.m.form.fields[fieldIndex(t, h.m.form, "Parent")].choices; !slices.Contains(got, "Production") {
+		t.Errorf("the parent picker offers %v, want the existing group", got)
+	}
+	if got := h.m.form.fields[fieldIndex(t, h.m.form, "Jump host")].choices; !slices.Contains(got, "bastion") {
+		t.Errorf("the jump host picker offers %v, want the existing host", got)
+	}
+}
+
+// A group cannot be its own parent, nor sit under something already beneath
+// it — the store refuses such a tree, so the picker must not offer it.
+func TestTheParentPickerLeavesOutWhatWouldLoop(t *testing.T) {
+	h := newHarness(t)
+	top := h.addGroup("Top", "")
+	mid := h.addGroup("Middle", top.ID)
+	h.addGroup("Bottom", mid.ID)
+	// One root before Top in the tree and one after, so dropping the subtree
+	// cannot be confused with dropping everything that follows it.
+	h.addGroup("Elsewhere", "")
+	h.addGroup("Zulu", "")
+	h.m.reload()
+
+	got := h.m.groupChoices(top.ID).parents
+	for _, unwanted := range []string{"Top", "Middle", "Bottom"} {
+		if slices.Contains(got, unwanted) {
+			t.Errorf("the parent picker offers %q, which would put Top under itself: %v", unwanted, got)
+		}
+	}
+	for _, wanted := range []string{"Elsewhere", "Zulu"} {
+		if !slices.Contains(got, wanted) {
+			t.Errorf("the parent picker dropped %q, which is a fine parent: %v", wanted, got)
+		}
+	}
+}
+
+func fieldIndex(t *testing.T, f *form, label string) int {
+	t.Helper()
+	for i, x := range f.fields {
+		if x.label == label {
+			return i
+		}
+	}
+	t.Fatalf("no field %q", label)
+	return 0
+}

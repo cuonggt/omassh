@@ -419,7 +419,8 @@ func (m Model) helpLines() []string {
 		}},
 		{"Forms", [][2]string{
 			{"tab / shift+tab", "next and previous field"},
-			{"↓", "on Jump host, Group or Tags, pick what you already use"},
+			{"↓", "pick what you already use: a host's jump host, group"},
+			{"", "or tags, and a group's parent or jump host"},
 			{"", "Tags is a set: space toggles an entry, ✓ marks the"},
 			{"", "ones chosen, and ↵ finishes"},
 			{"↵ / esc", "save / cancel"},

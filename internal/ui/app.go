@@ -608,7 +608,7 @@ func (m Model) connect() (tea.Model, tea.Cmd) {
 
 func (m Model) openNewForm() (tea.Model, tea.Cmd) {
 	if m.focus == panelGroups {
-		m.form = newGroupForm(store.Group{}, "")
+		m.form = newGroupForm(store.Group{}, "", m.groupChoices(""))
 	} else {
 		g, _ := m.currentGroup()
 		name := ""
@@ -628,7 +628,7 @@ func (m Model) openEditForm() (tea.Model, tea.Cmd) {
 			m.setStatus("that group is generated, not stored")
 			return m, nil
 		}
-		m.form = newGroupForm(g.Group, m.d.groupName(g.ParentID))
+		m.form = newGroupForm(g.Group, m.d.groupName(g.ParentID), m.groupChoices(g.ID))
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
 	}
@@ -819,7 +819,7 @@ func newHostForm(h store.Host, groupName string, c hostChoices) *form {
 	}
 }
 
-func newGroupForm(g store.Group, parentName string) *form {
+func newGroupForm(g store.Group, parentName string, c groupChoices) *form {
 	title := "New group"
 	if g.ID != "" {
 		title = "Edit " + g.Name
@@ -828,12 +828,66 @@ func newGroupForm(g store.Group, parentName string) *form {
 		kind: formGroup, title: title, editID: g.ID,
 		fields: []field{
 			newField("Name", "Production", g.Name),
-			newField("Parent", "none", parentName),
+			asSuggestion(withChoices(newField("Parent", "none — ↓ to pick", parentName), c.parents)),
 			newField("User", "applies to hosts below", g.User),
 			newField("Identity", "path to a private key", g.Identity),
-			newField("Jump host", "applies to hosts below", g.ProxyJump),
+			asSuggestion(withChoices(newField("Jump host", "applies to hosts below — ↓ to pick", g.ProxyJump), c.jumpHosts)),
 		},
 	}
+}
+
+// groupChoices are the values a group form offers to fill itself in from.
+type groupChoices struct {
+	parents   []string
+	jumpHosts []string
+}
+
+// groupChoices lists what a group's parent and jump host can be set to.
+//
+// excludeID is the group being edited. A group cannot be its own parent, and
+// neither can anything already beneath it, so both are left out: the store
+// refuses such a tree anyway, and a picker that offers a choice it will not
+// accept is worse than one that does not offer it.
+func (m Model) groupChoices(excludeID string) groupChoices {
+	c := groupChoices{
+		parents:   []string{noChoice},
+		jumpHosts: []string{noChoice},
+	}
+	below := m.descendants(excludeID)
+	for _, g := range m.d.groups {
+		if g.ID == excludeID || below[g.ID] {
+			continue
+		}
+		c.parents = append(c.parents, g.Name)
+	}
+	for _, h := range m.d.hosts {
+		c.jumpHosts = append(c.jumpHosts, h.Name)
+	}
+	return c
+}
+
+// descendants is every group beneath id.
+//
+// The tree is already flattened depth first, so a group's descendants are the
+// run of deeper entries that follow it — no walking of parents needed.
+func (m Model) descendants(id string) map[string]bool {
+	out := map[string]bool{}
+	if id == "" {
+		return out
+	}
+	for i, n := range m.d.tree {
+		if n.ID != id {
+			continue
+		}
+		for _, d := range m.d.tree[i+1:] {
+			if d.Depth <= n.Depth {
+				break
+			}
+			out[d.ID] = true
+		}
+		break
+	}
+	return out
 }
 
 // backFor records which view a modal was opened from, so esc returns there.
