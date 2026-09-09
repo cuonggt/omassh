@@ -213,9 +213,12 @@ mkdir -p "$(dirname "$cfg")" && omassh -print-config > "$cfg"
 The database sits beside it, as `omassh.db`.
 
 Themes (`tokyonight`, `gruvbox`, `nord`, `mono`, or your own palette), key
-bindings and ssh options all live there. A malformed config
-is reported at startup rather than ignored, because settings that silently do
-nothing are worse than an error that says why. Arrow keys and `ctrl+c` are
+bindings and ssh options all live there. A malformed config is reported at
+startup rather than ignored, because settings that silently do nothing are
+worse than an error that says why — and so is a key that is not a setting.
+`ssh_option` without its `s`, or a palette with `selected` where it means
+`selected_bg`, is named with its line rather than skipped past, since skipping
+looks exactly like the file not being read at all. Arrow keys and `ctrl+c` are
 reserved and always work, so no config can trap you in the program.
 
 `T` opens a theme picker that recolours the interface as you move through it,

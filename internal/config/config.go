@@ -2,7 +2,10 @@
 package config
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,7 +60,18 @@ func Load(path string) (Config, error) {
 	}
 	// Decode over the defaults so an absent key keeps its default rather than
 	// becoming the zero value.
-	if err := yaml.Unmarshal(raw, &c); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	// A key that is not a setting is an error, not something to skip past.
+	// Silence is indistinguishable from the file not being read at all, and
+	// the settings most often mistyped are the ones where it shows least: a
+	// palette with selected rather than selected_bg simply keeps the default
+	// colour, and ssh_option without its s quietly passes nothing to ssh.
+	dec.KnownFields(true)
+
+	// A file with nothing in it — empty, or only comments — decodes to EOF.
+	// That is a config that sets nothing, which is allowed and is what a
+	// fresh one looks like.
+	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 		return Default(), fmt.Errorf("%s: %w", path, err)
 	}
 	if err := c.Validate(); err != nil {
