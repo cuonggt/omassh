@@ -700,7 +700,11 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 		extra = append(extra, "its running session is ended")
 	}
 	if n := len(m.d.forwardsFor(h.ID)); n > 0 {
-		extra = append(extra, fmt.Sprintf("%d forward%s and any tunnel of theirs go too", n, plural(n)))
+		what := "its forward goes too"
+		if n > 1 {
+			what = fmt.Sprintf("its %d forwards go too", n)
+		}
+		extra = append(extra, what+", stopped first if running")
 	}
 	detail := "session history is kept"
 	if len(extra) > 0 {

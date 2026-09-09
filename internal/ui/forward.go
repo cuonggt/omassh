@@ -330,14 +330,14 @@ func (m Model) forwardsBody(w int) string {
 	for i, f := range fs {
 		st, known := m.d.forwardStatus(f)
 		mark, col := forwardMarker(st, known)
-		text := fmt.Sprintf("%s %s %s", mark, pad(string(f.Kind), 7), f.Label())
+		text := fmt.Sprintf("%s %s %s", mark, pad(string(f.Kind), 7), f.Route())
 
 		if i == m.forwardIdx {
 			lines = append(lines, "  "+row(text, true, w-2))
 			continue
 		}
 		lines = append(lines, "  "+theme.Fg(col).Render(mark)+
-			theme.Dim.Render(" "+pad(string(f.Kind), 7))+theme.Normal.Render(" "+f.Label()))
+			theme.Dim.Render(" "+pad(string(f.Kind), 7))+theme.Normal.Render(" "+f.Route()))
 	}
 
 	// What the selected rule is doing, on lines of their own: a reason is often

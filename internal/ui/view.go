@@ -351,7 +351,11 @@ func (m Model) detailBody() (string, string) {
 				break
 			}
 			mark, col := forwardMarker(m.d.forwardStatus(f))
-			lines = append(lines, "    "+theme.Fg(col).Render(mark)+theme.Normal.Render(" "+f.Label()))
+			// The kind, in the same aligned column the forwards view uses: a
+			// local and a remote rule over the same two ports are opposite
+			// directions, and without it they draw as the same line twice.
+			lines = append(lines, "    "+theme.Fg(col).Render(mark)+
+				theme.Dim.Render(" "+pad(string(f.Kind), 7))+theme.Normal.Render(" "+f.Route()))
 		}
 	}
 

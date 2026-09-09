@@ -201,12 +201,28 @@ func TestDeletingAHostSaysItsForwardsGoToo(t *testing.T) {
 	if h.m.mode != modeConfirm {
 		t.Fatalf("d did not ask, mode is %v", h.m.mode)
 	}
-	h.mustContain("forward")
+	// One rule reads as one rule. Counting into a plural phrase produced
+	// "1 forward and any tunnel of theirs", which is the commonest way for a
+	// sentence assembled from parts to come out wrong.
+	h.mustContain("its forward goes too")
+	h.mustNotContain("theirs")
 
 	h.press("y")
 	if fs, _ := h.store.Forwards(); len(fs) != 0 {
 		t.Errorf("deleting the host left its rules: %+v", fs)
 	}
+}
+
+// And the plural says so as a plural.
+func TestDeletingAHostWithSeveralForwards(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	h.addForward(host.ID, 5432, "localhost", 5432)
+	h.addForward(host.ID, 8080, "localhost", 80)
+	h.selectHost("db-01")
+
+	h.press("d")
+	h.mustContain("its 2 forwards go too")
 }
 
 // Deleting a rule asks first, the way deleting anything else does.
@@ -327,6 +343,44 @@ func TestSpaceStartsATunnelAsEnterDoes(t *testing.T) {
 
 		if !strings.Contains(h.m.status, "starting") {
 			t.Errorf("%q did not start the tunnel; status is %q", key, h.m.status)
+		}
+	}
+}
+
+// Local and remote bind the same port number on opposite machines, so two
+// rules differing only in kind are two different tunnels. Named without it
+// they drew as one line twice — which is what a host with both actually
+// showed.
+func TestTwoRulesDifferingOnlyInDirectionAreToldApart(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	for _, kind := range []store.ForwardKind{store.ForwardLocal, store.ForwardRemote} {
+		if _, err := h.store.PutForward(store.Forward{
+			HostID: host.ID, Kind: kind,
+			ListenPort: 5432, Dest: "db.internal", DestPort: 5432,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.reload()
+	h.selectHost("db-01")
+
+	// The detail pane, where both are listed side by side.
+	for _, want := range []string{"local", "remote"} {
+		if !strings.Contains(h.screen(), want) {
+			t.Errorf("the detail pane does not say %q:\n%s", want, h.screen())
+		}
+	}
+	if n := strings.Count(h.screen(), "5432 → db.internal:5432"); n != 2 {
+		t.Fatalf("expected both rules listed, found %d", n)
+	}
+
+	// And naming one on its own — a status message, a confirmation — carries
+	// the kind, or it could mean either rule.
+	fs, _ := h.store.Forwards()
+	for _, f := range fs {
+		if !strings.Contains(f.Label(), string(f.Kind)) {
+			t.Errorf("Label() = %q, which does not say which direction it is", f.Label())
 		}
 	}
 }

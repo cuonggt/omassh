@@ -68,15 +68,25 @@ func (f Forward) Spec() string {
 	return listen + ":" + hostPort(f.Dest, f.DestPort)
 }
 
-// Label is the rule as the interface writes it. The arrow runs from the port
-// you connect to towards whatever answers, and the kind says which machine
-// each end is on.
-func (f Forward) Label() string {
+// Route is the two ends of a rule, with the arrow running from the port you
+// connect to towards whatever answers.
+//
+// It does not say which machine each end is on — that is the kind's job — so
+// anywhere a rule is named on its own, Label is the one to use.
+func (f Forward) Route() string {
 	if f.Kind == ForwardDynamic {
 		return hostPort(f.Listen, f.ListenPort) + " → socks"
 	}
 	return hostPort(f.Listen, f.ListenPort) + " → " + hostPort(f.Dest, f.DestPort)
 }
+
+// Label is the whole rule in words, kind included.
+//
+// The kind is not decoration: local and remote bind the same port number on
+// opposite machines, so two rules that differ only in it are two different
+// tunnels that read as one. Naming a rule without it produced a host showing
+// the same line twice, and a status message that could have meant either.
+func (f Forward) Label() string { return string(f.Kind) + " " + f.Route() }
 
 // ListenText and DestText are the two halves of a rule as the form writes
 // them, and reads them back: the same syntax ssh uses, so what is on screen is
@@ -163,11 +173,24 @@ func checkPort(n int, what string) error {
 
 // SortForwards orders rules by the port they bind, which is how they are
 // remembered — "the tunnel on 5432" — rather than by when they were added.
+//
+// The order is total, down to the id. sort.Slice is not stable, so rules alike
+// in every field it compared could swap places from one read to the next — and
+// a local and a remote rule over the same two ports are exactly that pair. The
+// highlighted rule is an index into this list, so a list that reorders itself
+// moves the selection with nobody having pressed anything.
 func SortForwards(fs []Forward) {
 	sort.Slice(fs, func(i, j int) bool {
-		if fs[i].ListenPort != fs[j].ListenPort {
-			return fs[i].ListenPort < fs[j].ListenPort
+		a, b := fs[i], fs[j]
+		if a.ListenPort != b.ListenPort {
+			return a.ListenPort < b.ListenPort
 		}
-		return fs[i].Listen < fs[j].Listen
+		if a.Listen != b.Listen {
+			return a.Listen < b.Listen
+		}
+		if a.Kind != b.Kind {
+			return a.Kind < b.Kind
+		}
+		return a.ID < b.ID
 	})
 }

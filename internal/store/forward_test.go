@@ -1,6 +1,7 @@
 package store
 
 import (
+	"math/rand/v2"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -266,4 +267,44 @@ func TestAStoreWithoutTheForwardsBucketOpens(t *testing.T) {
 	if got, err := s.Forwards(); err != nil || len(got) != 0 {
 		t.Fatalf("Forwards() = %+v, %v", got, err)
 	}
+}
+
+// The order has to be the same whatever order the rules arrive in. sort.Slice
+// is not stable, so rules alike in whatever it compares can come out either
+// way round — and a local and a remote rule over the same two ports are
+// exactly that pair. The interface indexes the highlighted rule into this
+// list, so an order that depends on the input moves the selection with nobody
+// having pressed anything.
+func TestForwardOrderIsTotal(t *testing.T) {
+	base := []Forward{
+		{ID: "a", Kind: ForwardRemote, ListenPort: 5432, Dest: "db", DestPort: 5432},
+		{ID: "b", Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432},
+		{ID: "c", Kind: ForwardDynamic, ListenPort: 5432},
+		{ID: "d", Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432},
+		{ID: "e", Kind: ForwardLocal, Listen: "127.0.0.1", ListenPort: 5432, Dest: "db", DestPort: 5432},
+		{ID: "f", Kind: ForwardLocal, ListenPort: 80, Dest: "web", DestPort: 80},
+	}
+	want := append([]Forward(nil), base...)
+	SortForwards(want)
+
+	// Every arrangement of the same rules has to sort to the same list.
+	perm := append([]Forward(nil), base...)
+	for i := range 50 {
+		rand.Shuffle(len(perm), func(a, b int) { perm[a], perm[b] = perm[b], perm[a] })
+		got := append([]Forward(nil), perm...)
+		SortForwards(got)
+		for j := range got {
+			if got[j].ID != want[j].ID {
+				t.Fatalf("shuffle %d sorted to %v, want %v", i, ids(got), ids(want))
+			}
+		}
+	}
+}
+
+func ids(fs []Forward) []string {
+	out := make([]string, len(fs))
+	for i, f := range fs {
+		out[i] = f.ID
+	}
+	return out
 }
