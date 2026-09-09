@@ -427,7 +427,10 @@ func (m Model) helpLines() []string {
 			{"", "both stay free text: any ssh destination works as a"},
 			{"", "jump host, and an unknown group name creates it"},
 		}},
-		{"Inheritance", [][2]string{
+		{"Groups", [][2]string{
+			{"", "a group holds the hosts beneath it as well as its own,"},
+			{"", "so selecting one shows everything in it and the count"},
+			{"", "beside it says the same"},
 			{"", "a host inherits user, identity and jump host from its"},
 			{"", "group chain; its own values always win, and the detail"},
 			{"", "pane marks inherited ones with ← group"},

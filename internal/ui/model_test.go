@@ -2102,3 +2102,80 @@ func fieldIndex(t *testing.T, f *form, label string) int {
 	t.Fatalf("no field %q", label)
 	return 0
 }
+
+// A group whose machines all live in its children used to read as empty — a
+// count of nought, and an offer to add the first host to a group that already
+// had three beneath it. That is the shape most people nest for.
+func TestAGroupCountsWhatIsBeneathIt(t *testing.T) {
+	h := newHarness(t)
+	prod := h.addGroup("Production", "")
+	eu := h.addGroup("EU", prod.ID)
+	us := h.addGroup("US", prod.ID)
+	h.addGroupedHost("eu-web-1", eu.ID)
+	h.addGroupedHost("eu-web-2", eu.ID)
+	h.addGroupedHost("us-web-1", us.ID)
+	h.m.reload()
+
+	for _, c := range []struct {
+		group string
+		id    string
+		want  int
+	}{
+		{"Production", prod.ID, 3},
+		{"EU", eu.ID, 2},
+		{"US", us.ID, 1},
+	} {
+		if got := len(h.m.d.hostsIn(c.id)); got != c.want {
+			t.Errorf("%s holds %d hosts, want %d", c.group, got, c.want)
+		}
+	}
+}
+
+// Selecting a parent lists what is in it, so the count and the list cannot
+// disagree about what "in" means.
+func TestSelectingAParentListsWhatIsBeneathIt(t *testing.T) {
+	h := newHarness(t)
+	prod := h.addGroup("Production", "")
+	eu := h.addGroup("EU", prod.ID)
+	h.addGroupedHost("eu-web-1", eu.ID)
+	h.addGroupedHost("eu-web-2", eu.ID)
+	h.m.reload()
+	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
+
+	h.m.focus = panelGroups
+	h.m.groupIdx = groupIndex(t, h.m, "Production")
+	h.m.hostIdx = 0
+
+	if got := len(h.m.visibleHosts()); got != 2 {
+		t.Fatalf("selecting Production shows %d hosts, want the 2 beneath it", got)
+	}
+	h.mustContain("eu-web-1")
+	h.mustContain("eu-web-2")
+	h.mustNotContain("no hosts here")
+}
+
+// A group with nothing anywhere beneath it is still empty, and still says so.
+func TestAnEmptyGroupIsStillEmpty(t *testing.T) {
+	h := newHarness(t)
+	h.addGroup("Nothing", "")
+	h.m.reload()
+	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
+
+	h.m.focus = panelGroups
+	h.m.groupIdx = groupIndex(t, h.m, "Nothing")
+	if got := len(h.m.visibleHosts()); got != 0 {
+		t.Fatalf("an empty group holds %d hosts", got)
+	}
+	h.mustContain("no hosts here")
+}
+
+func groupIndex(t *testing.T, m Model, name string) int {
+	t.Helper()
+	for i, n := range m.d.tree {
+		if n.Name == name {
+			return i
+		}
+	}
+	t.Fatalf("no group %q in the tree", name)
+	return 0
+}

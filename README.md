@@ -263,6 +263,11 @@ to the remote shell, use `ctrl+\ r`.
 
 ## Reachability
 
+A group holds the hosts beneath it as well as its own, so selecting one shows
+everything in it and the number beside it says the same. A group whose machines
+all live in its children used to read as empty, which is the shape most people
+nest for.
+
 `p` probes the hosts in the current group with a plain TCP connection —
 `●` up, `✖` down. Hosts behind a jump host or a `ProxyCommand` show `◌` and are
 skipped rather than guessed at: their address means something only from the far

@@ -86,16 +86,49 @@ func load(s *store.Store) (data, error) {
 func (d data) hasSession(h store.Host) bool { return d.live[term.SessionName(h)] }
 
 // hostsIn returns the hosts displayed under a group id.
+// hostsIn is every host in a group, including those in the groups beneath it.
+//
+// Counting only the hosts a group holds directly made a group whose machines
+// all live in its children read as empty — a count of nought and an offer to
+// add the first one — and that is the shape most people nest for: the
+// organisation at the top, the machines in the regions under it. Selecting a
+// group now answers "what is in here", which is what selecting a parent looks
+// like it should do.
+//
+// The count beside a group and the list it opens both come from here, so they
+// cannot disagree about what "in" means.
 func (d data) hostsIn(groupID string) []store.Host {
+	within := d.withDescendants(groupID)
 	var out []store.Host
 	for _, h := range d.hosts {
 		gid := h.GroupID
 		if gid == "" {
 			gid = UngroupedID
 		}
-		if gid == groupID {
+		if within[gid] {
 			out = append(out, h)
 		}
+	}
+	return out
+}
+
+// withDescendants is a group along with every group beneath it.
+//
+// The tree is flattened depth first, so what is beneath a group is the run of
+// deeper entries following it — no walking of parents needed.
+func (d data) withDescendants(id string) map[string]bool {
+	out := map[string]bool{id: true}
+	for i, n := range d.tree {
+		if n.ID != id {
+			continue
+		}
+		for _, c := range d.tree[i+1:] {
+			if c.Depth <= n.Depth {
+				break
+			}
+			out[c.ID] = true
+		}
+		break
 	}
 	return out
 }

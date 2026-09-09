@@ -853,9 +853,10 @@ func (m Model) groupChoices(excludeID string) groupChoices {
 		parents:   []string{noChoice},
 		jumpHosts: []string{noChoice},
 	}
-	below := m.descendants(excludeID)
+	// A group cannot go under itself, and withDescendants includes it.
+	below := m.d.withDescendants(excludeID)
 	for _, g := range m.d.groups {
-		if g.ID == excludeID || below[g.ID] {
+		if below[g.ID] {
 			continue
 		}
 		c.parents = append(c.parents, g.Name)
@@ -864,30 +865,6 @@ func (m Model) groupChoices(excludeID string) groupChoices {
 		c.jumpHosts = append(c.jumpHosts, h.Name)
 	}
 	return c
-}
-
-// descendants is every group beneath id.
-//
-// The tree is already flattened depth first, so a group's descendants are the
-// run of deeper entries that follow it — no walking of parents needed.
-func (m Model) descendants(id string) map[string]bool {
-	out := map[string]bool{}
-	if id == "" {
-		return out
-	}
-	for i, n := range m.d.tree {
-		if n.ID != id {
-			continue
-		}
-		for _, d := range m.d.tree[i+1:] {
-			if d.Depth <= n.Depth {
-				break
-			}
-			out[d.ID] = true
-		}
-		break
-	}
-	return out
 }
 
 // backFor records which view a modal was opened from, so esc returns there.

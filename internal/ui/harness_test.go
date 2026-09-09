@@ -206,6 +206,18 @@ func (h *harness) addGroup(name, parentID string) store.Group {
 	return g
 }
 
+// addGroupedHost writes a host into a group, for tests about where a host
+// counts as being.
+func (h *harness) addGroupedHost(name, groupID string) store.Host {
+	h.t.Helper()
+	host, err := h.store.PutHost(store.Host{Name: name, Addr: "10.0.0.1", GroupID: groupID})
+	if err != nil {
+		h.t.Fatalf("put host: %v", err)
+	}
+	h.reload()
+	return host
+}
+
 // addHost writes a host directly, for tests that need one without driving the
 // form.
 func (h *harness) addHost(name, addr string) store.Host {
