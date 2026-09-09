@@ -226,7 +226,12 @@ cfg=$(omassh -print-config | head -1 | cut -c3-)
 mkdir -p "$(dirname "$cfg")" && omassh -print-config > "$cfg"
 ```
 
-The database sits beside it, as `omassh.db`.
+The database sits beside it, as `omassh.db`. More than one Omassh can use it
+at once: the file is held for the length of an operation rather than the length
+of the program, which matters because `enter` hands the whole terminal to ssh
+and leaves no interface to look the next host up in. Each window reads the
+store when something happens to it, so a host added in one appears in another
+on its next reload — `r` at any time.
 
 Themes (`tokyonight`, `gruvbox`, `nord`, `mono`, or your own palette), key
 bindings and ssh options all live there. A malformed config is reported at

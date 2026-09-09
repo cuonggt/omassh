@@ -35,30 +35,22 @@ type harness struct {
 	dbPath string
 }
 
-// corrupt writes a record that will not decode, then reopens the store on it.
-// bbolt holds the file exclusively, so the store has to be closed first.
+// corrupt writes a record that will not decode, straight into the file. The
+// store holds it only for the length of an operation, so nothing has to be
+// closed to get at it.
 func (h *harness) corrupt(key string) {
 	h.t.Helper()
-	if err := h.store.Close(); err != nil {
-		h.t.Fatal(err)
-	}
-	db, err := bolt.Open(h.dbPath, 0o600, nil)
+	db, err := bolt.Open(h.dbPath, 0o600, &bolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
 		h.t.Fatal(err)
 	}
+	defer db.Close()
 	err = db.Update(func(tx *bolt.Tx) error {
 		return tx.Bucket([]byte("hosts")).Put([]byte(key), []byte("{not json"))
 	})
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	if err := db.Close(); err != nil {
-		h.t.Fatal(err)
-	}
-	if h.store, err = store.Open(h.dbPath); err != nil {
-		h.t.Fatal(err)
-	}
-	h.m.st = h.store
 }
 
 func newHarness(t *testing.T, opts ...func(*Options)) *harness {

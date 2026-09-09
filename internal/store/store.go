@@ -23,9 +23,21 @@ var (
 
 // Store is the on-disk database of locally-defined hosts and groups, plus
 // session history for every host Omassh has connected to.
+//
+// It holds a path rather than an open database. bbolt takes the file
+// exclusively, so holding it open for the life of the program meant a second
+// Omassh could not start at all — which the default way to connect makes
+// necessary, since handing the whole terminal to ssh leaves no interface to
+// look the next host up in. Each operation opens the file for as long as it
+// takes and no longer, which is how bbolt is meant to be shared.
 type Store struct {
-	db *bolt.DB
+	path string
 }
+
+// lockWait is how long an operation waits for another one to finish with the
+// file. Operations are short, so contention resolves in milliseconds; this is
+// long enough to cover an import of a few thousand records.
+const lockWait = 5 * time.Second
 
 // DefaultPath returns the database path: ~/Library/Application Support/omassh
 // /omassh.db on macOS, ~/.config/omassh/omassh.db on Linux. omassh -h prints
@@ -38,21 +50,15 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "omassh", "omassh.db"), nil
 }
 
+// Open prepares the store at path, creating the file and its buckets if they
+// are not already there, and checking that it can be read.
 func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	db, err := bolt.Open(path, 0o600, &bolt.Options{Timeout: 3 * time.Second})
-	if err != nil {
-		// bbolt takes an exclusive lock, so a second instance fails with a
-		// bare "timeout" that says nothing about the cause. Name it: the
-		// usual reason is another Omassh already running.
-		if errors.Is(err, bolt.ErrTimeout) {
-			return nil, fmt.Errorf("%s is already in use by another omassh — close it, or pass -db to use a different database", path)
-		}
-		return nil, fmt.Errorf("open %s: %w", path, err)
-	}
-	err = db.Update(func(tx *bolt.Tx) error {
+	s := &Store{path: path}
+	// Made once, so every operation after this can take the buckets as given.
+	err := s.write(func(tx *bolt.Tx) error {
 		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
@@ -61,27 +67,74 @@ func Open(path string) (*Store, error) {
 		return nil
 	})
 	if err != nil {
-		db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	return s, nil
 }
 
-func (s *Store) Close() error { return s.db.Close() }
+// Close is here for callers that pair it with Open. Nothing is held open
+// between operations, so there is nothing to release.
+func (s *Store) Close() error { return nil }
+
+// with opens the database for one operation and closes it again.
+func (s *Store) with(fn func(*bolt.DB) error) error {
+	db, err := bolt.Open(s.path, 0o600, &bolt.Options{Timeout: lockWait})
+	if err != nil {
+		// A timeout now means real contention rather than a second Omassh
+		// merely being open, since the file is only held for the length of an
+		// operation.
+		if errors.Is(err, bolt.ErrTimeout) {
+			return fmt.Errorf("%s is busy — another omassh has been writing to it for over %s", s.path, lockWait)
+		}
+		return fmt.Errorf("open %s: %w", s.path, err)
+	}
+	defer db.Close()
+	return fn(db)
+}
+
+func (s *Store) read(fn func(*bolt.Tx) error) error {
+	return s.with(func(db *bolt.DB) error { return db.View(fn) })
+}
+
+func (s *Store) write(fn func(*bolt.Tx) error) error {
+	return s.with(func(db *bolt.DB) error { return db.Update(fn) })
+}
+
+// decodeGroups and decodeHosts read a bucket, keeping what decodes and naming
+// what does not. Reading inside a caller's transaction is what lets a write
+// see the current state without opening the file a second time.
+func decodeGroups(b *bolt.Bucket) (out []Group, bad []string) {
+	b.ForEach(func(k, v []byte) error {
+		var g Group
+		if err := json.Unmarshal(v, &g); err != nil {
+			bad = append(bad, string(k))
+			return nil
+		}
+		out = append(out, g)
+		return nil
+	})
+	return out, bad
+}
+
+func decodeHosts(b *bolt.Bucket) (out []Host, bad []string) {
+	b.ForEach(func(k, v []byte) error {
+		var h Host
+		if err := json.Unmarshal(v, &h); err != nil {
+			bad = append(bad, string(k))
+			return nil
+		}
+		out = append(out, h)
+		return nil
+	})
+	return out, bad
+}
 
 func (s *Store) Groups() ([]Group, error) {
 	var out []Group
 	var bad []string
-	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketGroups).ForEach(func(k, v []byte) error {
-			var g Group
-			if err := json.Unmarshal(v, &g); err != nil {
-				bad = append(bad, string(k))
-				return nil
-			}
-			out = append(out, g)
-			return nil
-		})
+	err := s.read(func(tx *bolt.Tx) error {
+		out, bad = decodeGroups(tx.Bucket(bucketGroups))
+		return nil
 	})
 	sortGroups(out)
 	if err == nil {
@@ -93,16 +146,9 @@ func (s *Store) Groups() ([]Group, error) {
 func (s *Store) Hosts() ([]Host, error) {
 	var out []Host
 	var bad []string
-	err := s.db.View(func(tx *bolt.Tx) error {
-		return tx.Bucket(bucketHosts).ForEach(func(k, v []byte) error {
-			var h Host
-			if err := json.Unmarshal(v, &h); err != nil {
-				bad = append(bad, string(k))
-				return nil
-			}
-			out = append(out, h)
-			return nil
-		})
+	err := s.read(func(tx *bolt.Tx) error {
+		out, bad = decodeHosts(tx.Bucket(bucketHosts))
+		return nil
 	})
 	SortHosts(out)
 	if err == nil {
@@ -143,12 +189,22 @@ func (s *Store) PutGroup(g Group) (Group, error) {
 	if g.ID == "" {
 		g.ID = NewID()
 	}
-	// A group may not be its own ancestor, or the resolver and the tree walk
-	// would both need to defend against it at every read.
-	if err := s.checkAcyclic(g); err != nil {
-		return g, err
-	}
-	return g, s.put(bucketGroups, g.ID, g)
+	// Checked and written in one transaction: a group may not be its own
+	// ancestor, or the resolver and the tree walk would both need to defend
+	// against it at every read, and checking in a transaction of its own would
+	// leave a gap for another Omassh to change the tree in between.
+	err := s.write(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketGroups)
+		if err := acyclicIn(b, []Group{g}); err != nil {
+			return err
+		}
+		enc, err := json.Marshal(g)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(g.ID), enc)
+	})
+	return g, err
 }
 
 func (s *Store) PutHost(h Host) (Host, error) {
@@ -177,7 +233,7 @@ func (s *Store) PutAll(gs []Group, hs []Host) error {
 		}
 	}
 
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.write(func(tx *bolt.Tx) error {
 		gb, hb := tx.Bucket(bucketGroups), tx.Bucket(bucketHosts)
 		// Checked once over the whole tree, rather than each group re-reading
 		// every other one from a transaction of its own.
@@ -210,15 +266,10 @@ func (s *Store) PutAll(gs []Group, hs []Host) error {
 // ancestor, given what the bucket already holds.
 func acyclicIn(b *bolt.Bucket, incoming []Group) error {
 	byID := map[string]Group{}
-	err := b.ForEach(func(_, v []byte) error {
-		var g Group
-		if err := json.Unmarshal(v, &g); err == nil {
-			byID[g.ID] = g
-		}
-		return nil // a record that will not decode is no chain to follow
-	})
-	if err != nil {
-		return err
+	// A record that will not decode is no chain to follow.
+	stored, _ := decodeGroups(b)
+	for _, g := range stored {
+		byID[g.ID] = g
 	}
 	for _, g := range incoming {
 		byID[g.ID] = g
@@ -242,13 +293,13 @@ func (s *Store) put(bucket []byte, id string, v any) error {
 	if err != nil {
 		return err
 	}
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.write(func(tx *bolt.Tx) error {
 		return tx.Bucket(bucket).Put([]byte(id), b)
 	})
 }
 
 func (s *Store) DeleteHost(id string) error {
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.write(func(tx *bolt.Tx) error {
 		return tx.Bucket(bucketHosts).Delete([]byte(id))
 	})
 }
@@ -257,23 +308,20 @@ func (s *Store) DeleteHost(id string) error {
 // the deleted group's parent. Hosts are never deleted as a side effect of
 // deleting a group.
 func (s *Store) DeleteGroup(id string) error {
-	groups, err := s.Groups()
-	if err != nil {
-		return err
-	}
-	var parent string
-	for _, g := range groups {
-		if g.ID == id {
-			parent = g.ParentID
-		}
-	}
-
-	hosts, err := s.Hosts()
-	if err != nil {
-		return err
-	}
-	return s.db.Update(func(tx *bolt.Tx) error {
+	// One transaction for the whole thing: what is re-parented is decided from
+	// the same state it is written into, which reading first and writing after
+	// could not promise once another Omassh may be writing too.
+	return s.write(func(tx *bolt.Tx) error {
 		gb, hb := tx.Bucket(bucketGroups), tx.Bucket(bucketHosts)
+		groups, _ := decodeGroups(gb)
+		hosts, _ := decodeHosts(hb)
+
+		var parent string
+		for _, g := range groups {
+			if g.ID == id {
+				parent = g.ParentID
+			}
+		}
 		for _, g := range groups {
 			if g.ParentID != id {
 				continue
@@ -307,24 +355,27 @@ func (s *Store) DeleteGroup(id string) error {
 // Counts reports how many groups and hosts would be re-parented by deleting
 // the given group, so the confirmation prompt can say so.
 func (s *Store) Counts(groupID string) (groups, hosts int) {
-	gs, _ := s.Groups()
-	hs, _ := s.Hosts()
-	for _, g := range gs {
-		if g.ParentID == groupID {
-			groups++
+	s.read(func(tx *bolt.Tx) error {
+		gs, _ := decodeGroups(tx.Bucket(bucketGroups))
+		hs, _ := decodeHosts(tx.Bucket(bucketHosts))
+		for _, g := range gs {
+			if g.ParentID == groupID {
+				groups++
+			}
 		}
-	}
-	for _, h := range hs {
-		if h.GroupID == groupID {
-			hosts++
+		for _, h := range hs {
+			if h.GroupID == groupID {
+				hosts++
+			}
 		}
-	}
+		return nil
+	})
 	return groups, hosts
 }
 
 func (s *Store) Stats() (map[string]Stat, error) {
 	out := map[string]Stat{}
-	err := s.db.View(func(tx *bolt.Tx) error {
+	err := s.read(func(tx *bolt.Tx) error {
 		return tx.Bucket(bucketStats).ForEach(func(k, v []byte) error {
 			var st Stat
 			if err := json.Unmarshal(v, &st); err != nil {
@@ -342,7 +393,7 @@ func (s *Store) RecordSession(key string, at time.Time) error {
 	if key == "" {
 		return nil
 	}
-	return s.db.Update(func(tx *bolt.Tx) error {
+	return s.write(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketStats)
 		var st Stat
 		if raw := b.Get([]byte(key)); raw != nil {
@@ -358,33 +409,6 @@ func (s *Store) RecordSession(key string, at time.Time) error {
 		}
 		return b.Put([]byte(key), enc)
 	})
-}
-
-// checkAcyclic rejects a group whose parent chain would loop back to itself.
-func (s *Store) checkAcyclic(g Group) error {
-	if g.ParentID == "" {
-		return nil
-	}
-	if g.ParentID == g.ID {
-		return fmt.Errorf("a group cannot be its own parent")
-	}
-	groups, err := s.Groups()
-	if err != nil {
-		return err
-	}
-	byID := make(map[string]Group, len(groups))
-	for _, x := range groups {
-		byID[x.ID] = x
-	}
-	seen := map[string]bool{g.ID: true}
-	for id := g.ParentID; id != ""; {
-		if seen[id] {
-			return fmt.Errorf("that parent would create a cycle")
-		}
-		seen[id] = true
-		id = byID[id].ParentID
-	}
-	return nil
 }
 
 // NewID mints a record id. Import needs one before it writes, so that a
