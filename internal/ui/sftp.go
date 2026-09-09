@@ -422,11 +422,14 @@ func humanSize(n int64) string {
 	return fmt.Sprintf("%.1f%cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
+// lpad right-aligns s in n columns, counted in cells for the same reason pad
+// counts them that way.
 func lpad(s string, n int) string {
-	if len(s) >= n {
+	w := ansi.StringWidth(s)
+	if w >= n {
 		return s
 	}
-	return strings.Repeat(" ", n-len(s)) + s
+	return strings.Repeat(" ", n-w) + s
 }
 
 // listWindow is the slice of a list to draw so that idx stays visible.

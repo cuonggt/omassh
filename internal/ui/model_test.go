@@ -1805,3 +1805,42 @@ func TestASweepRunsWithoutADeadline(t *testing.T) {
 		t.Errorf("the sweep is bounded at %v — a group larger than that allows would be cut off", deadline)
 	}
 }
+
+// Padding is counted in cells, not bytes, so a row is the same width whatever
+// the name is written in.
+func TestARowIsTheSameWidthWhateverTheNameContains(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+	h.m.panes[1].entries = []sftpx.Entry{
+		{Name: "plain.txt", Size: 16},
+		{Name: "café-北京-🌍.txt", Size: 16},
+		{Name: "another.txt", Size: 16},
+	}
+
+	var widths []int
+	for _, line := range strings.Split(h.screen(), "\n") {
+		if strings.Contains(line, "16B") {
+			widths = append(widths, ansiWidth(line))
+		}
+	}
+	if len(widths) < 3 {
+		t.Fatalf("only %d rows rendered", len(widths))
+	}
+	for i, w := range widths {
+		if w != widths[0] {
+			t.Errorf("row %d is %d cells, row 0 is %d — padding counted bytes", i, w, widths[0])
+		}
+	}
+}
+
+// Both padding helpers measure the same way, so a column lines up whatever is
+// to the left of it.
+func TestPaddingCountsCellsNotBytes(t *testing.T) {
+	for _, s := range []string{"abc", "café", "北京", "🌍", ""} {
+		if got := ansiWidth(pad(s, 10)); got != 10 {
+			t.Errorf("pad(%q, 10) is %d cells wide", s, got)
+		}
+		if got := ansiWidth(lpad(s, 10)); got != 10 {
+			t.Errorf("lpad(%q, 10) is %d cells wide", s, got)
+		}
+	}
+}

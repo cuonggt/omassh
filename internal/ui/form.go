@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
@@ -172,11 +173,15 @@ func (f *form) render(w int) string {
 	return b.String()
 }
 
+// pad widens s to n columns. Width is counted in cells, not bytes: a filename
+// with anything outside ASCII in it was padded by its byte length, so the
+// column beside it sat a place or two left of where every other row put it.
 func pad(s string, n int) string {
-	if len(s) >= n {
+	w := ansi.StringWidth(s)
+	if w >= n {
 		return s
 	}
-	return s + strings.Repeat(" ", n-len(s))
+	return s + strings.Repeat(" ", n-w)
 }
 
 func equalFold(a, b string) bool {
