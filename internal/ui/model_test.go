@@ -1589,3 +1589,27 @@ func TestHelpSaysWhenThereIsMore(t *testing.T) {
 		t.Errorf("status bar does not offer to scroll: %q", status)
 	}
 }
+
+func TestTheStatusBarNeverRunsIntoTheStatus(t *testing.T) {
+	// The hint line is a fixed width, so at one particular terminal width it
+	// ends exactly where the status begins and the two read as one word —
+	// "q quit27 hosts". Padding to fill the row is not the same as leaving a
+	// gap, so the gap has to be reserved before the hints are measured.
+	h := newHarness(t)
+	h.addHost("srv-a", "10.0.0.1")
+	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
+
+	for w := minWidth; w <= 200; w++ {
+		h.send(tea.WindowSizeMsg{Width: w, Height: testH})
+		lines := strings.Split(strings.TrimRight(h.screen(), "\n"), "\n")
+		bar := lines[len(lines)-1]
+
+		i := strings.Index(bar, h.m.status)
+		if i <= 0 {
+			continue // the status itself was truncated, or fills the row
+		}
+		if bar[i-1] != ' ' {
+			t.Fatalf("width %d: hints run into the status: %q", w, strings.TrimSpace(bar))
+		}
+	}
+}

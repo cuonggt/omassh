@@ -488,13 +488,19 @@ func (m Model) statusBar() string {
 	}
 	right := theme.Fg(col).Render(m.status) + " "
 
+	// The space between the two is reserved before the hints are measured,
+	// not left over after them. Padding the row to full width is not the same
+	// as separating its ends: at the width where the hints fitted exactly,
+	// "q quit" ran into "27 hosts" and read as one word.
+	const minGap = 2
+
 	// When the terminal is too narrow for both, the hints give way: they are
 	// a fixed reminder, while the status is the one thing that just changed.
 	if ansi.StringWidth(right) >= m.w {
 		return ansi.Truncate(right, m.w, "…")
 	}
-	if keep := m.w - ansi.StringWidth(right); ansi.StringWidth(left) > keep {
-		left = ansi.Truncate(left, max(keep-1, 0), "…")
+	if keep := m.w - ansi.StringWidth(right) - minGap; ansi.StringWidth(left) > keep {
+		left = ansi.Truncate(left, max(keep, 0), "…")
 	}
 	gap := max(m.w-ansi.StringWidth(left)-ansi.StringWidth(right), 0)
 	return left + strings.Repeat(" ", gap) + right
