@@ -95,6 +95,10 @@ func Workers(n int) int { return min(max(n/4, 8), 32) }
 // CheckAll probes hosts concurrently, reporting each as it finishes. A limit
 // below one means Workers picks one for the size of the sweep, which is what
 // callers want unless they have a reason of their own.
+//
+// report is called from each worker, so it has to be safe to call from several
+// goroutines at once. The interface sends the result down a channel; anything
+// that writes to a map of its own needs a lock.
 func CheckAll(ctx context.Context, hosts []store.Host, limit int, timeout time.Duration, report func(key string, s State)) map[string]State {
 	if limit < 1 {
 		limit = Workers(len(hosts))

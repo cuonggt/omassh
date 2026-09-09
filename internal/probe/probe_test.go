@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -69,9 +70,19 @@ func TestCheckAll(t *testing.T) {
 		{ID: "jump", Name: "jump", Addr: addr, Port: open, ProxyJump: "b"},
 	}
 
+	// report is called from each worker, so collecting it needs a lock. This
+	// test wrote to the map bare, which -race calls what it is.
+	var mu sync.Mutex
 	seen := map[string]probe.State{}
 	got := probe.CheckAll(context.Background(), hosts, 2, time.Second,
-		func(key string, s probe.State) { seen[key] = s })
+		func(key string, s probe.State) {
+			mu.Lock()
+			defer mu.Unlock()
+			seen[key] = s
+		})
+
+	mu.Lock()
+	defer mu.Unlock()
 
 	if len(got) != 3 {
 		t.Fatalf("got %d results, want 3", len(got))
