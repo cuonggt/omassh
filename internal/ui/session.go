@@ -231,8 +231,14 @@ func (m Model) recordPaneSession(p *term.Pane) {
 }
 
 // closePanesForExit releases the session, for teardown from main.
+//
+// The session is recorded on the way out, as detaching and ending one already
+// do. Quitting with a session open is the ordinary way to leave the main pane,
+// and without this the host went on reading "never connected" while the very
+// session it was describing sat waiting to be reattached to.
 func (m Model) closePanesForExit() {
 	if m.attached != nil {
+		m.recordPaneSession(m.attached)
 		m.attached.Close()
 	}
 }

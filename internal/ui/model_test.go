@@ -1886,3 +1886,28 @@ func TestPaddingCountsCellsNotBytes(t *testing.T) {
 		}
 	}
 }
+
+// Detaching and ending a session both record it. Quitting with one open did
+// not, so the most ordinary way to leave the main pane — connect, work, quit —
+// left the host reading "never connected" while its session sat waiting.
+func TestQuittingRecordsTheSessionItLeaves(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	key := h.m.d.hosts[0].StatKey()
+
+	if stats, err := h.store.Stats(); err != nil {
+		t.Fatal(err)
+	} else if _, ok := stats[key]; ok {
+		t.Fatal("recorded before the session was closed")
+	}
+
+	h.m.Close() // what main does on the way out
+
+	stats, err := h.store.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := stats[key]; !ok {
+		t.Error("quitting did not record the session, so the host still reads never connected")
+	}
+}
