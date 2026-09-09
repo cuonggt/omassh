@@ -332,16 +332,11 @@ func apply(db string, d portable.Document, dry bool) error {
 		fmt.Println(summary + " — nothing written, drop -n to apply")
 		return nil
 	}
-	// Groups first: a host being written refers to one by id.
-	for _, g := range plan.Groups {
-		if _, err := st.PutGroup(g); err != nil {
-			return fmt.Errorf("group %s: %w", g.Name, err)
-		}
-	}
-	for _, h := range plan.Hosts {
-		if _, err := st.PutHost(h); err != nil {
-			return fmt.Errorf("host %s: %w", h.Name, err)
-		}
+	// One transaction for the lot: a record at a time meant a trip to the disk
+	// each, which took the better part of a minute for a few thousand of them
+	// and left part of a list behind if the disk filled up on the way.
+	if err := st.PutAll(plan.Groups, plan.Hosts); err != nil {
+		return err
 	}
 	fmt.Println(summary)
 	return nil

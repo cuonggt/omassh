@@ -251,3 +251,56 @@ func TestAnUnreadableStatDoesNotHideTheRest(t *testing.T) {
 		t.Errorf("got %v, want the readable history", stats)
 	}
 }
+
+// Everything at once, in one transaction.
+func TestPutAllWritesTheLot(t *testing.T) {
+	s := openTest(t)
+	gs := []Group{{ID: "g1", Name: "Production"}, {ID: "g2", Name: "EU", ParentID: "g1"}}
+	hs := []Host{{ID: "h1", Name: "web", Addr: "10.0.0.1", GroupID: "g2"}}
+
+	if err := s.PutAll(gs, hs); err != nil {
+		t.Fatal(err)
+	}
+	groups, _ := s.Groups()
+	hosts, _ := s.Hosts()
+	if len(groups) != 2 || len(hosts) != 1 {
+		t.Fatalf("got %d groups and %d hosts, want 2 and 1", len(groups), len(hosts))
+	}
+	if hosts[0].GroupID != "g2" {
+		t.Errorf("the host lost its group: %+v", hosts[0])
+	}
+}
+
+// A set that would leave a group as its own ancestor is refused, and refused
+// whole: one transaction means nothing of it lands.
+func TestPutAllRefusesACycleAndWritesNothing(t *testing.T) {
+	s := openTest(t)
+	err := s.PutAll([]Group{
+		{ID: "a", Name: "A", ParentID: "b"},
+		{ID: "b", Name: "B", ParentID: "a"},
+	}, []Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}})
+
+	if err == nil {
+		t.Fatal("a cycle was accepted")
+	}
+	groups, _ := s.Groups()
+	hosts, _ := s.Hosts()
+	if len(groups) != 0 || len(hosts) != 0 {
+		t.Errorf("part of a refused write landed: %d groups, %d hosts", len(groups), len(hosts))
+	}
+}
+
+// A cycle formed with what is already stored is caught too.
+func TestPutAllSeesTheGroupsAlreadyThere(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.PutGroup(Group{ID: "a", Name: "A"}); err != nil {
+		t.Fatal(err)
+	}
+	// b under a, then a moved under b.
+	if err := s.PutAll([]Group{
+		{ID: "b", Name: "B", ParentID: "a"},
+		{ID: "a", Name: "A", ParentID: "b"},
+	}, nil); err == nil {
+		t.Error("a cycle formed against the stored groups was accepted")
+	}
+}

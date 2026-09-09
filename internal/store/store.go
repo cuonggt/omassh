@@ -158,6 +158,85 @@ func (s *Store) PutHost(h Host) (Host, error) {
 	return h, s.put(bucketHosts, h.ID, h)
 }
 
+// PutAll writes groups and hosts together, in one transaction.
+//
+// Each record written on its own is a transaction of its own, and every
+// transaction is a trip to the disk: importing five thousand hosts that way
+// took the better part of a minute, saying nothing while it went. One
+// transaction is also all-or-nothing, so a disk that fills up halfway leaves
+// the store as it was rather than holding part of a list.
+func (s *Store) PutAll(gs []Group, hs []Host) error {
+	for i := range gs {
+		if gs[i].ID == "" {
+			gs[i].ID = NewID()
+		}
+	}
+	for i := range hs {
+		if hs[i].ID == "" {
+			hs[i].ID = NewID()
+		}
+	}
+
+	return s.db.Update(func(tx *bolt.Tx) error {
+		gb, hb := tx.Bucket(bucketGroups), tx.Bucket(bucketHosts)
+		// Checked once over the whole tree, rather than each group re-reading
+		// every other one from a transaction of its own.
+		if err := acyclicIn(gb, gs); err != nil {
+			return err
+		}
+		for _, g := range gs {
+			b, err := json.Marshal(g)
+			if err != nil {
+				return err
+			}
+			if err := gb.Put([]byte(g.ID), b); err != nil {
+				return fmt.Errorf("group %s: %w", g.Name, err)
+			}
+		}
+		for _, h := range hs {
+			b, err := json.Marshal(h)
+			if err != nil {
+				return err
+			}
+			if err := hb.Put([]byte(h.ID), b); err != nil {
+				return fmt.Errorf("host %s: %w", h.Name, err)
+			}
+		}
+		return nil
+	})
+}
+
+// acyclicIn rejects an incoming set that would leave a group as its own
+// ancestor, given what the bucket already holds.
+func acyclicIn(b *bolt.Bucket, incoming []Group) error {
+	byID := map[string]Group{}
+	err := b.ForEach(func(_, v []byte) error {
+		var g Group
+		if err := json.Unmarshal(v, &g); err == nil {
+			byID[g.ID] = g
+		}
+		return nil // a record that will not decode is no chain to follow
+	})
+	if err != nil {
+		return err
+	}
+	for _, g := range incoming {
+		byID[g.ID] = g
+	}
+
+	for _, g := range byID {
+		seen := map[string]bool{g.ID: true}
+		for id := g.ParentID; id != ""; {
+			if seen[id] {
+				return fmt.Errorf("group %q would be its own ancestor", g.Name)
+			}
+			seen[id] = true
+			id = byID[id].ParentID
+		}
+	}
+	return nil
+}
+
 func (s *Store) put(bucket []byte, id string, v any) error {
 	b, err := json.Marshal(v)
 	if err != nil {
