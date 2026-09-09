@@ -426,7 +426,7 @@ func (m Model) handleHelpKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.helpScroll = clamp(m.helpScroll+1, 0, end)
 	case m.keys.Lookup(key) == keymap.Up:
 		m.helpScroll = clamp(m.helpScroll-1, 0, end)
-	case key == "pgdown", key == "ctrl+f", key == " ":
+	case key == "pgdown", key == "ctrl+f", key == " ", key == "space":
 		m.helpScroll = clamp(m.helpScroll+rows, 0, end)
 	case key == "pgup", key == "ctrl+b":
 		m.helpScroll = clamp(m.helpScroll-rows, 0, end)

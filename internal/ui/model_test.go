@@ -1582,6 +1582,22 @@ func TestTheEndOfHelpIsReachable(t *testing.T) {
 	}
 }
 
+// Space is the other way to page the cheatsheet down, and a key press for it
+// stringifies to "space" rather than to a literal space — so matching only the
+// literal left space falling through to the catch-all, which closed the screen
+// instead of moving down it.
+func TestSpacePagesHelpDown(t *testing.T) {
+	h := newHarness(t)
+	h.press("?", "space")
+
+	if h.m.mode != modeHelp {
+		t.Fatalf("space closed the help screen; mode = %v, want help", h.m.mode)
+	}
+	if h.m.helpScroll == 0 {
+		t.Error("space did not page the cheatsheet down")
+	}
+}
+
 func TestHelpSaysWhenThereIsMore(t *testing.T) {
 	h := newHarness(t)
 	h.press("?")
