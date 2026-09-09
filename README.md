@@ -8,7 +8,8 @@ interaction model, running on top of real OpenSSH.
 ## Status
 
 Hosts and groups with attribute inheritance, embedded sessions and SFTP, plus
-theming, rebindable keys and reachability probes.
+theming, rebindable keys, reachability probes, and a text import/export for
+moving the list between machines or starting from `~/.ssh/config`.
 
 ## Keys
 
@@ -100,6 +101,53 @@ chains, `ProxyCommand`, certificates, `Match` blocks, `IdentityAgent` and
 `known_hosts` all apply, with no second implementation to keep in step.
 `BatchMode` is forced on, because the child's stdin carries the protocol and
 there is nowhere to prompt; `ssh-add` the key first if it has a passphrase.
+
+## Moving between machines
+
+The store is bbolt — one binary file, with ids minted locally. Copying it over
+another machine's replaces that machine's list rather than joining it, and two
+machines that each gained a host cannot be reconciled by copying in either
+direction. The text form is the way across:
+
+```sh
+omassh export > hosts.yaml                # or -o hosts.yaml, written 0600
+omassh import hosts.yaml                  # stdin when given no file
+omassh export | ssh other-machine omassh import
+```
+
+Records match **by name**, never by id. That is what makes the same list
+mergeable at both ends, and it means a host keeps the session history hanging
+off it across an import — the host you have connected to forty times is still
+that host afterwards. A field the document leaves out keeps the value already
+stored, so importing fills in and corrects but never blanks; clearing a field
+is the interface's job. `-n` reports what an import would do and writes
+nothing.
+
+Session history itself stays behind. "Last connected two hours ago" is a fact
+about the machine that connected, and carrying it across would let a laptop's
+history overwrite a desktop's on every import.
+
+The file holds no secrets — an identity is a path to a key, never the key — so
+it belongs in a dotfiles repo as comfortably as anything else there.
+`config.yaml` is already text and travels the same way, on its own.
+
+## Starting from ~/.ssh/config
+
+```sh
+omassh import-ssh-config                  # ~/.ssh/config, or name a file
+omassh import-ssh-config -group Work      # ... all into one group
+```
+
+Only what Omassh needs to list, probe and reach a machine is taken: the alias,
+the address behind it, and the user, port, key and jump host. Everything else
+in that file keeps working without being copied, because Omassh runs the real
+ssh, which reads the file itself. Values resolve the way ssh resolves them —
+settings under `Host *` reach every alias, first match wins — so an imported
+host carries what `ssh -G` reports for it.
+
+Wildcard and `Match` blocks are settings rather than machines, and are not
+imported as hosts. `Include`d files are followed, which is the whole story for
+a config that is one line pointing somewhere else.
 
 ## Install
 

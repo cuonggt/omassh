@@ -28,6 +28,7 @@ require (
 	github.com/charmbracelet/x/xpty v0.1.4
 	github.com/creack/pty v1.1.24
 	github.com/gliderlabs/ssh v0.3.8
+	github.com/kevinburke/ssh_config v1.6.0
 	github.com/pkg/sftp v1.13.11
 	github.com/sahilm/fuzzy v0.1.3
 	go.etcd.io/bbolt v1.5.0

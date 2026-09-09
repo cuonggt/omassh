@@ -403,6 +403,14 @@ func (m Model) helpLines() []string {
 			{"", "group chain; its own values always win, and the detail"},
 			{"", "pane marks inherited ones with ← group"},
 		}},
+		{"Moving to another machine", [][2]string{
+			{"", "omassh export > hosts.yaml   the list, as text"},
+			{"", "omassh import hosts.yaml     fold one in"},
+			{"", "omassh import-ssh-config     take ~/.ssh/config"},
+			{"", "records match by name, so the ids each machine mints"},
+			{"", "for itself need not agree, and importing a list twice"},
+			{"", "changes nothing the second time"},
+		}},
 	}
 
 	name := "omassh"

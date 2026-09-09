@@ -104,7 +104,7 @@ func (s *Store) Hosts() ([]Host, error) {
 // PutGroup inserts or updates a group, assigning an id when absent.
 func (s *Store) PutGroup(g Group) (Group, error) {
 	if g.ID == "" {
-		g.ID = newID()
+		g.ID = NewID()
 	}
 	// A group may not be its own ancestor, or the resolver and the tree walk
 	// would both need to defend against it at every read.
@@ -116,7 +116,7 @@ func (s *Store) PutGroup(g Group) (Group, error) {
 
 func (s *Store) PutHost(h Host) (Host, error) {
 	if h.ID == "" {
-		h.ID = newID()
+		h.ID = NewID()
 	}
 	return h, s.put(bucketHosts, h.ID, h)
 }
@@ -271,7 +271,9 @@ func (s *Store) checkAcyclic(g Group) error {
 	return nil
 }
 
-func newID() string {
+// NewID mints a record id. Import needs one before it writes, so that a
+// host can name the group it is joining while both are still only planned.
+func NewID() string {
 	b := make([]byte, 8)
 	if _, err := rand.Read(b); err != nil {
 		// crypto/rand does not fail in practice; a time-based fallback keeps

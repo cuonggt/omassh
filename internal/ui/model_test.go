@@ -1553,10 +1553,11 @@ func TestTheEndOfHelpIsReachable(t *testing.T) {
 	// The cheatsheet is taller than the terminal, so the last section is not
 	// on the first screen of it.
 	h.mustContain("Navigate")
-	h.mustNotContain("Inheritance")
+	h.mustNotContain("Moving to another machine")
 
 	h.press("G")
-	h.mustContain("Inheritance")
+	h.mustContain("Moving to another machine")
+	h.mustContain("omassh import-ssh-config")
 	if h.m.mode != modeHelp {
 		t.Fatal("scrolling closed the help screen")
 	}
