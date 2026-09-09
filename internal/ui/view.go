@@ -92,6 +92,9 @@ func (m Model) dialog(content int) (string, bool) {
 	case modeConfirm:
 		body := m.confirmBody()
 		return box("Confirm", true, w, dialogHeight(body, content), body), true
+	case modeForwards:
+		body := m.forwardsBody(w - 4)
+		return box("Forwards on "+m.forwardHost.Name, true, w, dialogHeight(body, content), body), true
 	case modeTheme:
 		// Narrower than the rest: the entries are one word, and a dialog this
 		// size leaves more of the coloured interface showing behind it, which
@@ -273,12 +276,22 @@ func (m Model) hostsBody(w, rows int) string {
 		} else if m.d.hasSession(h) {
 			badge = "●"
 		}
+		// A tunnel is the one thing here with nothing to look at, so the list
+		// is where it has to be visible: it is running whether or not anyone
+		// is connected, and long after the window that started it has gone.
+		tunnel := ""
+		if m.d.forwardsUp(h.ID) > 0 {
+			tunnel = "▶"
+		}
 		selected := i == m.hostIdx && (m.focus == panelHosts || m.mode == modeFilter)
 
 		if selected {
 			text := mark + " " + label
 			if badge != "" {
 				text += " " + badge
+			}
+			if tunnel != "" {
+				text += " " + tunnel
 			}
 			lines = append(lines, row(text, true, w))
 			continue
@@ -292,6 +305,9 @@ func (m Model) hostsBody(w, rows int) string {
 		}
 		if badge != "" {
 			line += theme.Fg(badgeColour).Render(" " + badge)
+		}
+		if tunnel != "" {
+			line += theme.Fg(theme.Green).Render(" " + tunnel)
 		}
 		lines = append(lines, ansi.Truncate(line, w, "…"))
 	}
@@ -322,6 +338,23 @@ func (m Model) detailBody() (string, string) {
 	if r.UserFrom != "" {
 		lines = append(lines, detailField("user", r.User, r.UserFrom))
 	}
+	// Forwards belong to the host and run without it being connected, so the
+	// pane that describes a host has to describe them too — otherwise the only
+	// way to learn a tunnel is up is to go looking for it.
+	if fs := m.d.forwardsFor(h.ID); len(fs) > 0 {
+		lines = append(lines, "", theme.Dim.Render("  forwards"))
+		const shown = 4
+		for i, f := range fs {
+			if i == shown && len(fs) > shown+1 {
+				lines = append(lines, theme.Dim.Render(
+					fmt.Sprintf("    +%d more — %s", len(fs)-shown, m.keys.Key(keymap.Forward))))
+				break
+			}
+			mark, col := forwardMarker(m.d.forwardStatus(f))
+			lines = append(lines, "    "+theme.Fg(col).Render(mark)+theme.Normal.Render(" "+f.Label()))
+		}
+	}
+
 	st := m.d.stats[h.StatKey()]
 	history := "never connected"
 	if st.Count > 0 {
@@ -388,6 +421,7 @@ func (m Model) helpLines() []string {
 			{m.keys.Key(keymap.Reload), "reload the store from disk"},
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
+			{m.keys.Key(keymap.Forward), "port forwarding for the selected host"},
 			{m.keys.Key(keymap.Theme), "choose a colour theme, previewing as you move"},
 		}},
 		{"Main-pane session (" + m.keys.Key(keymap.Pane) + ", then the " + prefixKey + " prefix)", [][2]string{
@@ -406,6 +440,19 @@ func (m Model) helpLines() []string {
 			{"", "the remote, so the prefix is the way back out — and"},
 			{"", "it works from the host list too, so detaching or"},
 			{"", "ending one does not mean going back in to do it"},
+		}},
+		{"Port forwarding (" + m.keys.Key(keymap.Forward) + ")", [][2]string{
+			{"↵", "start or stop the highlighted tunnel"},
+			{"n / e / d", "new / edit / delete a rule"},
+			{m.keys.Key(keymap.Reload), "re-ask tmux what is still up"},
+			{"", "local  binds a port here and carries it out of the host"},
+			{"", "remote binds a port on the host and carries it back"},
+			{"", "dynamic binds a SOCKS proxy here"},
+			{"", "▶ running · ■ stopped · ✖ stopped because it failed,"},
+			{"", "and the line beneath says what ssh said"},
+			{"", "a tunnel runs on omassh's own tmux server, so it"},
+			{"", "outlives the window that started it — and a green ▶"},
+			{"", "beside a host in the list means one is up"},
 		}},
 		{"SFTP (" + m.keys.Key(keymap.SFTP) + ")", [][2]string{
 			{"tab / shift+tab", "switch between the local and remote pane"},
@@ -483,6 +530,9 @@ func (m Model) statusBar() string {
 		// The file browser keeps its keys on the transfer strip, which has a
 		// whole row for them; repeating a shorter version here said the same
 		// thing twice and named different keys each time.
+	case modeForwards:
+		// Likewise: the forwards dialog carries its own keys, and the status
+		// is where what just happened to a tunnel is reported.
 	default:
 		switch {
 		case m.prefixArmed:

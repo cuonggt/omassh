@@ -41,6 +41,7 @@ const (
 	modeHelp
 	modeSFTP
 	modeTheme
+	modeForwards
 )
 
 const (
@@ -111,6 +112,13 @@ type Model struct {
 	// returnTo is the view a modal came from, so closing one does not always
 	// dump the user back at the host list.
 	returnTo mode
+
+	// forwardHost is the host whose forwarding rules are open, and forwardIdx
+	// the highlighted one. The host is remembered rather than re-read from the
+	// selection, so the rules a form saves belong to the host the form was
+	// opened on.
+	forwardHost store.Host
+	forwardIdx  int
 
 	probes map[string]probe.State
 	// probeCounts is this sweep's tally, reset when a sweep starts.
@@ -196,6 +204,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case paneTickMsg:
 		return m.handlePaneTick()
 
+	case forwardTickMsg:
+		return m.handleForwardTick()
+
+	case forwardDoneMsg:
+		return m.handleForwardDone(msg)
+
 	case sftpConnectedMsg:
 		return m.sftpConnected(msg)
 
@@ -279,6 +293,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSFTPKey(msg)
 	case modeTheme:
 		return m.handleThemeKey(msg)
+	case modeForwards:
+		return m.handleForwardsKey(msg)
 	}
 	return m.handleBrowseKey(msg)
 }
@@ -378,6 +394,8 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.startProbe()
 	case keymap.SFTP:
 		return m.openSFTP()
+	case keymap.Forward:
+		return m.openForwards()
 	case keymap.Pane:
 		return m.attachSession()
 	case keymap.Redraw:
@@ -674,11 +692,19 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	detail := "session history is kept"
+	// A forwarding rule names a host and means nothing without it, so the
+	// rules go with it — and their tunnels, which would otherwise keep their
+	// ports with nothing left in the interface that could reach them.
+	var extra []string
 	if m.d.hasSession(h) {
-		// Otherwise the session keeps running with nothing left in the UI that
-		// can reach it.
-		detail = "its running session is ended too; session history is kept"
+		extra = append(extra, "its running session is ended")
+	}
+	if n := len(m.d.forwardsFor(h.ID)); n > 0 {
+		extra = append(extra, fmt.Sprintf("%d forward%s and any tunnel of theirs go too", n, plural(n)))
+	}
+	detail := "session history is kept"
+	if len(extra) > 0 {
+		detail = strings.Join(extra, "; ") + "; session history is kept"
 	}
 	m.confirm = &confirmation{
 		prompt: "Delete host " + h.Name + "?",
@@ -688,6 +714,9 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 				if err := term.KillSession(term.SessionName(h)); err != nil {
 					return "", err
 				}
+			}
+			if err := m.stopForwardsFor(h.ID); err != nil {
+				return "", err
 			}
 			return "deleted " + h.Name, m.st.DeleteHost(h.ID)
 		},
@@ -701,6 +730,8 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 	switch f.kind {
 	case formMkdir, formRename, formChmod:
 		return m.saveFileForm()
+	case formForward:
+		return m.saveForwardForm()
 	}
 	if f.kind == formGroup {
 		name := f.value("Name")
@@ -871,7 +902,7 @@ func (m Model) groupChoices(excludeID string) groupChoices {
 // A modal opened from another modal still returns to the underlying view.
 func backFor(current mode) mode {
 	switch current {
-	case modeSFTP:
+	case modeSFTP, modeForwards:
 		return current
 	default:
 		return modeBrowse

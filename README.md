@@ -7,9 +7,10 @@ interaction model, running on top of real OpenSSH.
 
 ## Status
 
-Hosts and groups with attribute inheritance, embedded sessions and SFTP, plus
-theming, rebindable keys, reachability probes, and a text import/export for
-moving the list between machines or starting from `~/.ssh/config`.
+Hosts and groups with attribute inheritance, embedded sessions, SFTP and port
+forwarding, plus theming, rebindable keys, reachability probes, and a text
+import/export for moving the list between machines or starting from
+`~/.ssh/config`.
 
 ## Keys
 
@@ -28,6 +29,7 @@ moving the list between machines or starting from `~/.ssh/config`.
 | `ctrl+l` | redraw, if the terminal cleared the screen underneath |
 | `t` | connect in the main pane instead, keeping the host list |
 | `s` | sftp: browse and transfer files |
+| `f` | port forwarding: tunnels that outlive the window |
 | `T` | pick a theme, previewing as you move |
 | `r` | reload the store from disk |
 | `?` | help, which names the running version |
@@ -125,6 +127,41 @@ chains, `ProxyCommand`, certificates, `Match` blocks, `IdentityAgent` and
 `known_hosts` all apply, with no second implementation to keep in step.
 `BatchMode` is forced on, because the child's stdin carries the protocol and
 there is nowhere to prompt; `ssh-add` the key first if it has a passphrase.
+
+## Port forwarding
+
+`f` lists the tunnels belonging to a host, and `↵` starts or stops the
+highlighted one. Local (`-L`), remote (`-R`) and dynamic (`-D`) are all here,
+written the way ssh writes them — `5432` and `db.internal:5432` are the two
+halves of `-L 5432:db.internal:5432`.
+
+A tunnel runs as a detached session on the same private tmux server the
+interactive sessions use, so it **outlives the window that started it**. That
+is the whole point: a forward has nothing to look at, and the value of it is
+that it keeps running. Quitting Omassh leaves your database tunnel up; opening
+Omassh again shows it as up, because it is.
+
+Everything about reaching the host is `sshx.Build`'s answer, the same as for a
+session, so a tunnel to a host behind a bastion goes through the bastion and
+one whose group supplies a user connects as that user. On top of that a forward
+adds only what makes a connection a tunnel: `-N`, `ExitOnForwardFailure` so a
+port that cannot be bound is a failure rather than a connection carrying
+nothing, and `ServerAliveInterval` so a tunnel whose network went away is
+reported as stopped instead of holding its port and reading as up.
+
+`BatchMode` is forced on, because nobody is watching: a passphrase or host-key
+prompt in a detached session would wait for an answer that is never coming, and
+"up" would mean a question rather than a tunnel. `ssh-add` the key first, and
+connect once interactively to accept an unknown host key.
+
+The local port is bound here before ssh is asked to bind it, so a port already
+in use is a sentence naming the port rather than a tunnel that vanishes a
+moment after starting. A tunnel that stops for any other reason keeps its
+session, dead, so it can still say what ssh said — `✖` in the list, with the
+reason beneath it. Without that the failure would be indistinguishable from a
+tunnel nobody had started.
+
+A green `▶` beside a host in the list means one of its tunnels is up.
 
 ## Moving between machines
 

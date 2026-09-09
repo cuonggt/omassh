@@ -24,6 +24,11 @@ type data struct {
 	// live maps a tmux session name to whether it is running, so the host
 	// list can show which hosts have a session waiting to be reattached.
 	live map[string]bool
+
+	// forwards are the port-forwarding rules, and fwd what tmux says has
+	// become of each one's tunnel, keyed by its session name.
+	forwards []store.Forward
+	fwd      map[string]term.ForwardState
 }
 
 type dataMsg struct {
@@ -55,6 +60,8 @@ func load(s *store.Store) (data, error) {
 	note(err)
 	d.stats, err = s.Stats()
 	note(err)
+	d.forwards, err = s.Forwards()
+	note(err)
 
 	// Which hosts already have a session waiting to be reattached.
 	d.live = map[string]bool{}
@@ -62,6 +69,13 @@ func load(s *store.Store) (data, error) {
 		for _, s := range sessions {
 			d.live[s.Name] = true
 		}
+	}
+
+	// Only worth asking when there is something to ask about: this shells out
+	// to tmux, and a store with no forwarding rules in it should not pay for a
+	// feature it is not using on every reload.
+	if len(d.forwards) > 0 {
+		d.fwd, _ = term.ForwardStates()
 	}
 
 	d.resolver = store.NewResolver(d.groups, d.hosts)
@@ -84,6 +98,41 @@ func load(s *store.Store) (data, error) {
 
 // hasSession reports whether a host has a persistent session running.
 func (d data) hasSession(h store.Host) bool { return d.live[term.SessionName(h)] }
+
+// forwardsFor is the rules belonging to one host, in the order they are shown.
+func (d data) forwardsFor(hostID string) []store.Forward {
+	var out []store.Forward
+	for _, f := range d.forwards {
+		if f.HostID == hostID {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// forwardStatus is what tmux says about a rule's tunnel, and whether it said
+// anything at all. A rule nobody has started has no session, which is not the
+// same as one whose tunnel stopped — and the interface says so differently.
+func (d data) forwardStatus(f store.Forward) (term.ForwardState, bool) {
+	st, ok := d.fwd[term.ForwardSessionName(f)]
+	return st, ok
+}
+
+func (d data) forwardState(f store.Forward) term.ForwardState {
+	st, _ := d.forwardStatus(f)
+	return st
+}
+
+// forwardsUp counts a host's running tunnels, which is what the list marks.
+func (d data) forwardsUp(hostID string) int {
+	n := 0
+	for _, f := range d.forwardsFor(hostID) {
+		if d.forwardState(f).Running {
+			n++
+		}
+	}
+	return n
+}
 
 // hostsIn returns the hosts displayed under a group id.
 // hostsIn is every host in a group, including those in the groups beneath it.

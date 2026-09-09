@@ -19,6 +19,10 @@ var (
 	bucketGroups = []byte("groups")
 	bucketHosts  = []byte("hosts")
 	bucketStats  = []byte("stats")
+	// Forwards arrived after the first release, so a database made before
+	// them has no such bucket. Open creates whatever is missing, which is why
+	// nothing here has to ask which version of Omassh wrote the file.
+	bucketForwards = []byte("forwards")
 )
 
 // Store is the on-disk database of locally-defined hosts and groups, plus
@@ -59,7 +63,7 @@ func Open(path string) (*Store, error) {
 	s := &Store{path: path}
 	// Made once, so every operation after this can take the buckets as given.
 	err := s.write(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats} {
+		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketForwards} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -129,6 +133,19 @@ func decodeHosts(b *bolt.Bucket) (out []Host, bad []string) {
 	return out, bad
 }
 
+func decodeForwards(b *bolt.Bucket) (out []Forward, bad []string) {
+	b.ForEach(func(k, v []byte) error {
+		var f Forward
+		if err := json.Unmarshal(v, &f); err != nil {
+			bad = append(bad, string(k))
+			return nil
+		}
+		out = append(out, f)
+		return nil
+	})
+	return out, bad
+}
+
 func (s *Store) Groups() ([]Group, error) {
 	var out []Group
 	var bad []string
@@ -153,6 +170,21 @@ func (s *Store) Hosts() ([]Host, error) {
 	SortHosts(out)
 	if err == nil {
 		err = unreadable("host", bad)
+	}
+	return out, err
+}
+
+// Forwards lists every port-forwarding rule, ordered by the port it binds.
+func (s *Store) Forwards() ([]Forward, error) {
+	var out []Forward
+	var bad []string
+	err := s.read(func(tx *bolt.Tx) error {
+		out, bad = decodeForwards(tx.Bucket(bucketForwards))
+		return nil
+	})
+	SortForwards(out)
+	if err == nil {
+		err = unreadable("forward", bad)
 	}
 	return out, err
 }
@@ -212,6 +244,25 @@ func (s *Store) PutHost(h Host) (Host, error) {
 		h.ID = NewID()
 	}
 	return h, s.put(bucketHosts, h.ID, h)
+}
+
+// PutForward inserts or updates a forwarding rule, assigning an id when
+// absent. The id is what the running tunnel is named after, so it is minted
+// here and never changes again.
+func (s *Store) PutForward(f Forward) (Forward, error) {
+	if err := f.Validate(); err != nil {
+		return f, err
+	}
+	if f.ID == "" {
+		f.ID = NewID()
+	}
+	return f, s.put(bucketForwards, f.ID, f)
+}
+
+func (s *Store) DeleteForward(id string) error {
+	return s.write(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketForwards).Delete([]byte(id))
+	})
 }
 
 // PutAll writes groups and hosts together, in one transaction.
@@ -298,8 +349,24 @@ func (s *Store) put(bucket []byte, id string, v any) error {
 	})
 }
 
+// DeleteHost removes a host and the forwarding rules that belong to it.
+//
+// A rule names a host by id and means nothing without it, so leaving them
+// behind would keep a tunnel in the store that nothing could start, edit or
+// see. Stopping one that is running is the interface's job, since the store
+// knows nothing about tmux.
 func (s *Store) DeleteHost(id string) error {
 	return s.write(func(tx *bolt.Tx) error {
+		fb := tx.Bucket(bucketForwards)
+		forwards, _ := decodeForwards(fb)
+		for _, f := range forwards {
+			if f.HostID != id {
+				continue
+			}
+			if err := fb.Delete([]byte(f.ID)); err != nil {
+				return err
+			}
+		}
 		return tx.Bucket(bucketHosts).Delete([]byte(id))
 	})
 }

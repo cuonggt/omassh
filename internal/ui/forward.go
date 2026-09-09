@@ -1,0 +1,404 @@
+package ui
+
+import (
+	"fmt"
+	"image/color"
+	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/cuonggt/omassh/internal/keymap"
+	"github.com/cuonggt/omassh/internal/sshx"
+	"github.com/cuonggt/omassh/internal/store"
+	"github.com/cuonggt/omassh/internal/term"
+	"github.com/cuonggt/omassh/internal/ui/theme"
+)
+
+// A forward is the one thing in Omassh with nothing to look at: it connects,
+// binds a port, and then succeeds by doing nothing visible. So the interface
+// has to say what the tunnel would otherwise say for itself — whether it is
+// up, and what it was doing when it stopped.
+
+// forwardRefresh is how often the open list re-asks tmux what is still up. A
+// tunnel can drop while you are looking at it, and a screen that only told the
+// truth at the moment it opened would be worse than no screen.
+const forwardRefresh = 2 * time.Second
+
+type forwardTickMsg struct{}
+
+func forwardTick() tea.Cmd {
+	return tea.Tick(forwardRefresh, func(time.Time) tea.Msg { return forwardTickMsg{} })
+}
+
+// forwardDoneMsg reports what became of a start or a stop, which for a start
+// means waiting to see whether ssh stayed up.
+type forwardDoneMsg struct {
+	label   string
+	stopped bool
+	err     error
+}
+
+// --- opening -----------------------------------------------------------
+
+func (m Model) openForwards() (tea.Model, tea.Cmd) {
+	h, ok := m.selectedHost()
+	if !ok {
+		return m, nil
+	}
+	m.forwardHost = h
+	m.forwardIdx = 0
+	m.mode = modeForwards
+	m.refreshForwards()
+
+	n := len(m.d.forwardsFor(h.ID))
+	if n == 0 {
+		m.setStatus("no forwards on " + h.Name + " yet — n to add one")
+	} else {
+		m.setStatus(fmt.Sprintf("%d forward%s on %s", n, plural(n), h.Name))
+	}
+	return m, forwardTick()
+}
+
+func (m Model) closeForwards() (tea.Model, tea.Cmd) {
+	m.mode = modeBrowse
+	m.setStatus("")
+	return m, nil
+}
+
+// refreshForwards re-asks tmux which tunnels are up, without re-reading the
+// store. Nothing about the rules has changed; only what has become of them.
+func (m *Model) refreshForwards() {
+	if len(m.d.forwards) == 0 {
+		return
+	}
+	if states, err := term.ForwardStates(); err == nil {
+		m.d.fwd = states
+	}
+}
+
+func (m Model) handleForwardTick() (tea.Model, tea.Cmd) {
+	if m.mode != modeForwards {
+		return m, nil
+	}
+	m.refreshForwards()
+	return m, forwardTick()
+}
+
+// --- keys --------------------------------------------------------------
+
+func (m Model) handleForwardsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	fs := m.d.forwardsFor(m.forwardHost.ID)
+
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc", "q":
+		return m.closeForwards()
+	case "j", "down":
+		m.forwardIdx = clamp(m.forwardIdx+1, 0, len(fs)-1)
+	case "k", "up":
+		m.forwardIdx = clamp(m.forwardIdx-1, 0, len(fs)-1)
+	case "g", "r":
+		m.refreshForwards()
+		m.setStatus("refreshed")
+	case "enter", " ", "space":
+		return m.toggleForward()
+	case "n":
+		m.form = newForwardForm(store.Forward{}, m.forwardHost.Name)
+		m.returnTo, m.mode = backFor(m.mode), modeForm
+		return m, m.form.focusCurrent()
+	case "e":
+		f, ok := m.selectedForward()
+		if !ok {
+			return m, nil
+		}
+		m.form = newForwardForm(f, m.forwardHost.Name)
+		m.returnTo, m.mode = backFor(m.mode), modeForm
+		return m, m.form.focusCurrent()
+	case "d":
+		return m.askDeleteForward()
+	}
+	return m, nil
+}
+
+func (m Model) selectedForward() (store.Forward, bool) {
+	fs := m.d.forwardsFor(m.forwardHost.ID)
+	if len(fs) == 0 {
+		return store.Forward{}, false
+	}
+	return fs[clamp(m.forwardIdx, 0, len(fs)-1)], true
+}
+
+// --- starting and stopping ---------------------------------------------
+
+func (m Model) toggleForward() (tea.Model, tea.Cmd) {
+	f, ok := m.selectedForward()
+	if !ok {
+		return m, nil
+	}
+	if m.d.forwardState(f).Running {
+		if err := term.StopForward(f); err != nil {
+			m.setErr(err)
+			return m, nil
+		}
+		m.refreshForwards()
+		m.setStatus("stopped " + f.Label())
+		return m, nil
+	}
+
+	m.setStatus("starting " + f.Label() + "…")
+	return m, startForward(m.forwardTarget(), f)
+}
+
+// forwardTarget is the host a tunnel connects to: the selected host with its
+// group inheritance applied, exactly as an interactive session would reach it.
+//
+// Resolving is not a formality. Unresolved, a host that takes its user or its
+// key from a group would connect as neither, and one behind a bastion would be
+// dialled directly — reaching whatever answers at that address from here, if
+// anything does.
+func (m Model) forwardTarget() store.Host {
+	return m.d.resolver.Resolve(m.forwardHost).Host
+}
+
+// startForward binds the near end first, then hands the rule to ssh and waits
+// to see whether it stayed up. Both take long enough to be worth doing off the
+// interface's own goroutine.
+func startForward(h store.Host, f store.Forward) tea.Cmd {
+	return func() tea.Msg {
+		if err := sshx.ListenAvailable(f); err != nil {
+			return forwardDoneMsg{label: f.Label(), err: err}
+		}
+		return forwardDoneMsg{label: f.Label(), err: term.StartForward(f, sshx.ForwardArgs(h, f))}
+	}
+}
+
+func (m Model) handleForwardDone(msg forwardDoneMsg) (tea.Model, tea.Cmd) {
+	m.refreshForwards()
+	switch {
+	case msg.err != nil:
+		m.setErr(fmt.Errorf("%s: %s", msg.label, m.forwardAdvice(msg.err.Error())))
+	case msg.stopped:
+		m.setStatus("stopped " + msg.label)
+	default:
+		m.setStatus(msg.label + " is up")
+	}
+	return m, nil
+}
+
+func (m Model) askDeleteForward() (tea.Model, tea.Cmd) {
+	f, ok := m.selectedForward()
+	if !ok {
+		return m, nil
+	}
+	detail := "nothing is running for it"
+	if m.d.forwardState(f).Running {
+		// Otherwise the tunnel keeps its port with nothing left in the
+		// interface that can reach it.
+		detail = "its tunnel is stopped first"
+	}
+	m.confirm = &confirmation{
+		prompt: "Delete the forward " + f.Label() + "?",
+		detail: detail,
+		run: func() (string, error) {
+			if err := term.StopForward(f); err != nil {
+				return "", err
+			}
+			return "deleted the forward " + f.Label(), m.st.DeleteForward(f.ID)
+		},
+	}
+	m.returnTo, m.mode = backFor(m.mode), modeConfirm
+	return m, nil
+}
+
+// stopForwardsFor ends every tunnel belonging to a host, for when the host
+// itself is going away. The store takes the rules with the host; the tunnels
+// are ours to stop, since the store knows nothing about tmux.
+func (m Model) stopForwardsFor(hostID string) error {
+	for _, f := range m.d.forwardsFor(hostID) {
+		if err := term.StopForward(f); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// --- the form ----------------------------------------------------------
+
+func newForwardForm(f store.Forward, hostName string) *form {
+	title := "New forward on " + hostName
+	if f.ID != "" {
+		title = "Edit forward on " + hostName
+	}
+
+	kind := string(f.Kind)
+	if kind == "" {
+		kind = string(store.ForwardLocal)
+	}
+	kinds := make([]string, 0, len(store.ForwardKinds))
+	for _, k := range store.ForwardKinds {
+		kinds = append(kinds, string(k))
+	}
+
+	listen, dest := "", ""
+	if f.ListenPort != 0 {
+		listen = f.ListenText()
+	}
+	if f.DestPort != 0 {
+		dest = f.DestText()
+	}
+
+	return &form{
+		kind: formForward, title: title, editID: f.ID,
+		fields: []field{
+			asSuggestion(withChoices(newField("Kind", "local, remote or dynamic — ↓ to pick", kind), kinds)),
+			newField("Listen", "5432, or 127.0.0.1:5432", listen),
+			newField("Destination", "db.internal:5432 — dynamic needs none", dest),
+		},
+	}
+}
+
+func (m Model) saveForwardForm() (tea.Model, tea.Cmd) {
+	f := m.form
+
+	fwd := store.Forward{
+		ID:     f.editID,
+		HostID: m.forwardHost.ID,
+		Kind:   store.ForwardKind(strings.ToLower(f.value("Kind"))),
+	}
+
+	var err error
+	if fwd.Listen, fwd.ListenPort, err = store.ParseListen(f.value("Listen")); err != nil {
+		f.problem = err.Error()
+		return m, nil
+	}
+	if fwd.Kind != store.ForwardDynamic {
+		if fwd.Dest, fwd.DestPort, err = store.ParseDest(f.value("Destination")); err != nil {
+			f.problem = err.Error()
+			return m, nil
+		}
+	}
+	if _, err := m.st.PutForward(fwd); err != nil {
+		f.problem = err.Error()
+		return m, nil
+	}
+
+	m.form, m.mode = nil, modeForwards
+	m.reload()
+	m.selectForward(fwd)
+	m.setStatus("saved " + fwd.Label() + " — ↵ starts it")
+	return m, nil
+}
+
+// selectForward puts the cursor on a rule, so one just saved is the one the
+// next key acts on rather than whichever happens to sort first.
+func (m *Model) selectForward(f store.Forward) {
+	for i, x := range m.d.forwardsFor(m.forwardHost.ID) {
+		if x.Spec() == f.Spec() && x.Kind == f.Kind {
+			m.forwardIdx = i
+			return
+		}
+	}
+}
+
+// --- rendering ---------------------------------------------------------
+
+// forwardMarker is the mark beside a rule, and says three different things: up,
+// stopped because it was asked to be, and stopped because it failed.
+func forwardMarker(st term.ForwardState, known bool) (string, color.Color) {
+	switch {
+	case st.Running:
+		return "▶", theme.Green
+	case known && st.Exit != 0:
+		return "✖", theme.Red
+	default:
+		return "■", theme.TextDim
+	}
+}
+
+func (m Model) forwardsBody(w int) string {
+	fs := m.d.forwardsFor(m.forwardHost.ID)
+	if len(fs) == 0 {
+		return "\n  " + theme.Dim.Render("no forwards on "+m.forwardHost.Name+" yet") +
+			"\n\n  " + theme.Dim.Render("a tunnel runs on omassh's tmux server, so it") +
+			"\n  " + theme.Dim.Render("outlives the window that started it") +
+			"\n\n  " + hint("n", "new") + sep() + hint("esc", "close")
+	}
+
+	lines := []string{""}
+	for i, f := range fs {
+		st, known := m.d.forwardStatus(f)
+		mark, col := forwardMarker(st, known)
+		text := fmt.Sprintf("%s %s %s", mark, pad(string(f.Kind), 7), f.Label())
+
+		if i == m.forwardIdx {
+			lines = append(lines, "  "+row(text, true, w-2))
+			continue
+		}
+		lines = append(lines, "  "+theme.Fg(col).Render(mark)+
+			theme.Dim.Render(" "+pad(string(f.Kind), 7))+theme.Normal.Render(" "+f.Label()))
+	}
+
+	// What the selected rule is doing, on lines of their own: a reason is often
+	// a whole sentence from ssh, and putting it beside the rule would push the
+	// rule itself off the edge.
+	lines = append(lines, "")
+	for _, l := range m.forwardDetail() {
+		lines = append(lines, "  "+l)
+	}
+
+	lines = append(lines, "", "  "+hint("↵", "start/stop")+sep()+
+		hint("n/e/d", "new/edit/delete")+sep()+hint("esc", "close"))
+	return strings.Join(lines, "\n")
+}
+
+// forwardDetail says what has become of the selected rule, in words. It is a
+// slice because a failure often needs a second line: what ssh said, and then
+// what to do about it.
+func (m Model) forwardDetail() []string {
+	f, ok := m.selectedForward()
+	if !ok {
+		return nil
+	}
+	st, known := m.d.forwardStatus(f)
+	switch {
+	case st.Running:
+		return []string{theme.Fg(theme.Green).Render("running") + theme.Dim.Render("  ↵ stops it")}
+	case !known:
+		// Nothing is running: either it never was, or stopping it cleared the
+		// session away. "Not started" was a small lie the moment after you
+		// pressed stop, and this is true of both.
+		return []string{theme.Dim.Render("not running  ·  ↵ starts it")}
+	case st.Exit == 0:
+		return []string{theme.Dim.Render("stopped  ·  ↵ starts it again")}
+	}
+
+	reason := term.ForwardReason(term.ForwardSessionName(f))
+	if reason == "" {
+		reason = fmt.Sprintf("ssh exited %d", st.Exit)
+	}
+	out := []string{theme.Fg(theme.Red).Render("stopped: ") + theme.Normal.Render(reason)}
+	// On its own line rather than after the reason: the box truncates, and a
+	// hint cut off at the edge is exactly the part worth reading.
+	if advice := m.forwardAdvice(reason); advice != reason {
+		out = append(out, theme.Dim.Render("↳ "+strings.TrimPrefix(advice, reason+" — ")))
+	}
+	return out
+}
+
+// forwardAdvice adds what to do about the two failures BatchMode produces.
+//
+// A tunnel runs where nobody can answer a prompt, so ssh is told not to ask —
+// and the two questions it would have asked come back as statements instead.
+// Both are accurate and both are dead ends: neither is fixed on this screen,
+// and neither says so.
+func (m Model) forwardAdvice(reason string) string {
+	switch {
+	case strings.Contains(reason, "Host key verification failed"):
+		return reason + " — " + m.keys.Key(keymap.Connect) + " on the host once to accept its key"
+	case strings.Contains(reason, "Permission denied"), strings.Contains(reason, "publickey"):
+		return reason + " — add the key to your ssh-agent first (ssh-add)"
+	}
+	return reason
+}

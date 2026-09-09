@@ -104,6 +104,19 @@ func tmuxCommand(h store.Host, sshArgs []string) (*exec.Cmd, string, error) {
 	return exec.Command("tmux", args...), name, nil
 }
 
+// noServer reports whether tmux's complaint means nothing is running.
+//
+// It says so two ways: "no server running on <socket>" when the socket file is
+// there with nobody behind it, and a connection error when the file has never
+// been made at all. Both mean there are no sessions. Reading only the first
+// made a fresh machine — one where nothing had started tmux yet — report
+// listing and stopping as failures, which for a forward meant the first one
+// ever started could not be.
+func noServer(msg string) bool {
+	return strings.Contains(msg, "no server running") ||
+		strings.Contains(msg, "error connecting to")
+}
+
 // LiveSession is a persistent session as tmux reports it.
 type LiveSession struct {
 	Name     string
@@ -156,7 +169,7 @@ func LiveSessions() ([]LiveSession, error) {
 	if err != nil {
 		// No server means no sessions, which is ordinary. Anything else is a
 		// real failure and must not be reported as "nothing running".
-		if strings.Contains(stderr.String(), "no server running") {
+		if noServer(stderr.String()) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("list sessions: %s", strings.TrimSpace(stderr.String()))
@@ -198,7 +211,7 @@ func KillSession(name string) error {
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
 		// Already gone is the outcome asked for, not a failure.
-		if strings.Contains(msg, "find session") || strings.Contains(msg, "no server running") {
+		if strings.Contains(msg, "find session") || noServer(msg) {
 			return nil
 		}
 		return fmt.Errorf("kill session: %s", msg)
