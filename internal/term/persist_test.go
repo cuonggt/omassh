@@ -1,6 +1,7 @@
 package term_test
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"strings"
@@ -32,7 +33,31 @@ func testSocket(t *testing.T) string {
 	if s == "" || s == "omassh" {
 		t.Fatalf("%s = %q — TestMain must point the tests at their own socket", term.SocketEnv, s)
 	}
+	// And into a directory of this run's own. tmux leaves the socket file
+	// behind when a server is killed, so without this the suite piled dead
+	// sockets into the directory real sessions live in — hundreds of them
+	// over a day of runs.
+	dir := os.Getenv("TMUX_TMPDIR")
+	if dir == "" {
+		t.Fatal("TMUX_TMPDIR is unset — TestMain must give the run a directory to leave its sockets in")
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		t.Fatalf("TMUX_TMPDIR = %q, which is not a directory: %v", dir, err)
+	}
 	return s
+}
+
+// The suite has to clear up after itself, which means both halves: its own
+// socket name, and its own directory to put the file in.
+func TestTheSuiteLeavesNothingBehind(t *testing.T) {
+	dir := os.Getenv("TMUX_TMPDIR")
+	_ = testSocket(t) // fails if either half is missing
+
+	// Whatever tmux puts there goes when TestMain removes the directory, so
+	// nothing of this run reaches the one real sessions use.
+	if real := "/tmp/tmux-" + fmt.Sprint(os.Getuid()); strings.HasPrefix(dir, real) {
+		t.Errorf("TMUX_TMPDIR = %q is where real sockets live", dir)
+	}
 }
 
 // The whole point: a session must outlive the pane that opened it, and
