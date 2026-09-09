@@ -16,7 +16,9 @@ package portable
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
@@ -124,8 +126,19 @@ func (d Document) YAML() ([]byte, error) {
 // Parse reads a document, rejecting one this version cannot honour.
 func Parse(raw []byte) (Document, error) {
 	var d Document
-	if err := yaml.Unmarshal(raw, &d); err != nil {
-		return d, err
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	// A key that is not a field is an error, for the reason config.Load
+	// gives: skipping it looks exactly like the file not being read at all.
+	// Here it is worse, because the import reports the same tidy "2 added"
+	// either way — jump_host where the field is jump leaves the host with no
+	// proxy and nothing on screen to say a line was ignored.
+	dec.KnownFields(true)
+
+	// A document with nothing in it — empty, or only comments — decodes to
+	// EOF. The caller has a better complaint about that than anything this
+	// could say about YAML, so leave it to say it.
+	if err := dec.Decode(&d); err != nil && !errors.Is(err, io.EOF) {
+		return Document{}, err
 	}
 	if d.Version > Version {
 		return d, fmt.Errorf("document is version %d, this omassh understands %d — upgrade omassh", d.Version, Version)
