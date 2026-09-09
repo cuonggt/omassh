@@ -382,6 +382,7 @@ func (m Model) helpLines() []string {
 			{"esc", "when a session has ended, return to the list"},
 			{"prefix r", "redraw the screen"},
 			{"prefix " + prefixKey, "send a literal " + prefixKey + " to the remote"},
+			{m.keys.Key(keymap.Pane), "back to the session, once it is the one connected"},
 			{"", "a green ● beside a host means it is connected here;"},
 			{"", "a yellow ● means a detached session is waiting"},
 			{"", "while the session has focus every other key goes to"},

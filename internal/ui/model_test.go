@@ -1704,3 +1704,23 @@ func TestThePrefixSaysWhenThereIsNoSession(t *testing.T) {
 		t.Error("d after a lone prefix did not reach the host list")
 	}
 }
+
+// t on the host already attached is someone coming back to it. Reconnecting
+// closes the pane first, and for a plain ssh child that ends the shell.
+func TestReturningToTheAttachedSessionDoesNotRestartIt(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	first := h.m.attached
+	h.press("prefix", "w")
+	if !h.m.attached.Alive() {
+		t.Skip("the session ended before it could be returned to")
+	}
+
+	h.press("t")
+	if h.m.attached != first {
+		t.Error("t built a new session instead of going back to the one running")
+	}
+	if h.m.focus != panelSession {
+		t.Error("t did not give the pane the keyboard")
+	}
+}

@@ -68,7 +68,8 @@ The prefix works from the host list as well. Detaching and ending are facts
 about the session rather than about whichever panel holds the keyboard, and
 reaching them used to mean going back into the pane first — where the prefix
 was silently ignored on the way, so `ctrl+\ d` on the list opened the delete
-confirmation for the highlighted host.
+confirmation for the highlighted host. `t` on the host already connected
+returns to its pane rather than building a second session over the top.
 
 Sessions are **persistent** where tmux is installed. A pty whose master belongs
 to Omassh dies with it, so each session is instead run as

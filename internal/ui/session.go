@@ -37,6 +37,15 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	// Already connected here: this is someone coming back to the session, not
+	// asking for another one. Reconnecting would close the pane first, and for
+	// a plain ssh child that ends the shell they were in the middle of.
+	if m.attachedTo(h) {
+		m.focus = panelSession
+		m.prefixArmed = false
+		m.setStatus("back to " + h.Name + " — " + prefixKey + " w for the host list")
+		return m, nil
+	}
 	// Connecting somewhere else replaces the session rather than silently
 	// accumulating connections the user cannot see.
 	if m.attached != nil {
