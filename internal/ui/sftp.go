@@ -172,7 +172,7 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		m.form = singleFieldForm(formRename, "Rename "+e.Name, "Name", e.Name, e.Name)
+		m.form = singleFieldForm(formRename, "Rename "+e.Name, "Name", "the new name", e.Name)
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
 	case "M":
@@ -180,7 +180,7 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		m.form = singleFieldForm(formChmod, "Permissions for "+e.Name, "Mode", "644",
+		m.form = singleFieldForm(formChmod, "Permissions for "+e.Name, "Mode", "octal, like 644",
 			fmt.Sprintf("%o", e.Mode.Perm()))
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
@@ -299,8 +299,20 @@ func (m Model) saveFileForm() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// singleFieldForm builds the one-field dialogs the file browser asks with.
+//
+// A value filled in from what is already there is a suggestion, so typing
+// replaces it. Renaming means typing the name you want, and appending to what
+// was there turned "notes.txt" into "notes.txtreport.txt" — the same way an
+// unreplaced group suggestion once made a group called "FleetFleet".
+//
+// The hint must never be able to read as the value, which is why neither of
+// them is the current name. A placeholder shows through as soon as the field
+// is emptied, and one repeating the value made a cleared field look full: the
+// text was still there, backspace looked dead, and saving asked for a name
+// that was apparently already given.
 func singleFieldForm(kind formKind, title, label, hint, value string) *form {
-	return &form{kind: kind, title: title, fields: []field{newField(label, hint, value)}}
+	return &form{kind: kind, title: title, fields: []field{asSuggestion(newField(label, hint, value))}}
 }
 
 // --- rendering ---------------------------------------------------------

@@ -1724,3 +1724,52 @@ func TestReturningToTheAttachedSessionDoesNotRestartIt(t *testing.T) {
 		t.Error("t did not give the pane the keyboard")
 	}
 }
+
+// Renaming means typing the name you want. The field is filled in with the
+// current one, and appending to it produced "notes.txtreport.txt" — the same
+// failure the Group and Jump host fields were fixed for.
+func TestRenamingReplacesTheNameItStartsWith(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+	h.m.panes[1].entries = []sftpx.Entry{{Name: "notes.txt", Mode: 0o644}}
+	h.m.panes[1].idx = 0
+
+	h.press("r")
+	if got := h.m.form.value("Name"); got != "notes.txt" {
+		t.Fatalf("the form opened with %q, want the current name", got)
+	}
+	h.type_("report.txt")
+	if got := h.m.form.value("Name"); got != "report.txt" {
+		t.Errorf("name = %q, want report.txt", got)
+	}
+}
+
+func TestChmodReplacesTheModeItStartsWith(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+	h.m.panes[1].entries = []sftpx.Entry{{Name: "notes.txt", Mode: 0o644}}
+	h.m.panes[1].idx = 0
+
+	h.press("M")
+	h.type_("640")
+	// "644640" parses as octal too, so appending here does not fail loudly —
+	// it quietly asks for a mode nobody meant.
+	if got := h.m.form.value("Mode"); got != "640" {
+		t.Errorf("mode = %q, want 640", got)
+	}
+}
+
+// A placeholder shows through the moment a field is emptied, so one repeating
+// the value makes a cleared field look like a full one.
+func TestAPrefilledFieldsHintIsNotItsValue(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+	h.m.panes[1].entries = []sftpx.Entry{{Name: "notes.txt", Mode: 0o644}}
+	h.m.panes[1].idx = 0
+
+	for _, key := range []string{"r", "M"} {
+		h.press(key)
+		f := h.m.form.fields[0]
+		if f.hint == f.input.Value() {
+			t.Errorf("%s: the hint %q is the value, so an emptied field reads as a full one", key, f.hint)
+		}
+		h.press("esc")
+	}
+}
