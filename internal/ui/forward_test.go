@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
 )
@@ -382,5 +383,73 @@ func TestTwoRulesDifferingOnlyInDirectionAreToldApart(t *testing.T) {
 		if !strings.Contains(f.Label(), string(f.Kind)) {
 			t.Errorf("Label() = %q, which does not say which direction it is", f.Label())
 		}
+	}
+}
+
+// A tunnel carries what it was started with. Editing the rule under it left
+// the interface reporting the new route as running while every connection went
+// to the old one — the shape of mistake where repointing at staging keeps
+// reaching production, and the screen agrees with you.
+func TestATunnelRunningAnOlderRuleIsNotClaimedAsCurrent(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	f := h.addForward(host.ID, 5432, "old.internal", 5432)
+	h.selectHost("db-01")
+	target := h.m.d.resolver.Resolve(host).Host
+
+	// Opening the view re-asks tmux, so the state under test goes in after.
+	h.press("f")
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(f): {
+			Running: true,
+			Args:    term.ForwardFingerprint(sshx.ForwardArgs(target, f)),
+		},
+	}
+	if forwardStale(target, f, h.m.d.forwardState(f)) {
+		t.Fatal("a tunnel carrying its own rule was called stale")
+	}
+	h.mustContain("↵ stops it")
+	h.mustNotContain("older version")
+
+	// Now the rule points somewhere else. The tunnel has not moved, and the
+	// screen must not say it has.
+	moved := f
+	moved.Dest = "new.internal"
+	if _, err := h.store.PutForward(moved); err != nil {
+		t.Fatal(err)
+	}
+	was := h.m.d.fwd
+	h.reload()
+	h.m.d.fwd = was // the tunnel is still the one that was started
+
+	if !forwardStale(target, moved, h.m.d.forwardState(f)) {
+		t.Fatal("a tunnel carrying the old route was reported as carrying the new one")
+	}
+	h.mustContain("older version")
+	h.mustNotContain("↵ stops it")
+
+	// A tunnel from before this was recorded says nothing about itself, and
+	// must not be accused on the strength of that.
+	if forwardStale(target, moved, term.ForwardState{Running: true}) {
+		t.Error("a tunnel with no fingerprint was called stale")
+	}
+}
+
+// And ↵ on such a tunnel restarts it rather than merely stopping it: what is
+// running is not this rule, so starting is what makes the two agree.
+func TestRestartingATunnelRunningAnOlderRule(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	f := h.addForward(host.ID, 5432, "old.internal", 5432)
+	h.selectHost("db-01")
+
+	h.press("f")
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(f): {Running: true, Args: "not-what-this-rule-says"},
+	}
+	h.press("enter")
+
+	if !strings.Contains(h.m.status, "restarting") {
+		t.Errorf("status is %q, want it to say the tunnel is being restarted", h.m.status)
 	}
 }

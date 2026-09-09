@@ -137,7 +137,16 @@ func (m Model) toggleForward() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	if m.d.forwardState(f).Running {
+	host := m.forwardTarget()
+	st := m.d.forwardState(f)
+
+	switch {
+	case st.Running && forwardStale(host, f, st):
+		// Stopping would answer the wrong question. What is running is not
+		// this rule, and starting is what makes the two agree.
+		m.setStatus("restarting " + f.Label() + " on the route it now says…")
+		return m, startForward(host, f)
+	case st.Running:
 		if err := term.StopForward(f); err != nil {
 			m.setErr(err)
 			return m, nil
@@ -148,7 +157,25 @@ func (m Model) toggleForward() (tea.Model, tea.Cmd) {
 	}
 
 	m.setStatus("starting " + f.Label() + "…")
-	return m, startForward(m.forwardTarget(), f)
+	return m, startForward(host, f)
+}
+
+// forwardStale reports whether a running tunnel is carrying something other
+// than what its rule now says.
+//
+// Editing a rule — or the host it belongs to — reaches nothing already
+// running. The tunnel is named by the rule's id, so it goes on being found and
+// reported as up, against a route it is not carrying: repointing a tunnel at
+// staging and watching the interface agree, while every connection through it
+// still lands on production.
+//
+// A tunnel started before this was recorded has no fingerprint, and must not
+// be accused on the strength of that.
+func forwardStale(target store.Host, f store.Forward, st term.ForwardState) bool {
+	if !st.Running || st.Args == "" {
+		return false
+	}
+	return st.Args != term.ForwardFingerprint(sshx.ForwardArgs(target, f))
 }
 
 // forwardTarget is the host a tunnel connects to: the selected host with its
@@ -162,14 +189,10 @@ func (m Model) forwardTarget() store.Host {
 	return m.d.resolver.Resolve(m.forwardHost).Host
 }
 
-// startForward binds the near end first, then hands the rule to ssh and waits
-// to see whether it stayed up. Both take long enough to be worth doing off the
-// interface's own goroutine.
+// startForward hands the rule to ssh and waits to see whether it stayed up,
+// which takes long enough to be worth doing off the interface's own goroutine.
 func startForward(h store.Host, f store.Forward) tea.Cmd {
 	return func() tea.Msg {
-		if err := sshx.ListenAvailable(f); err != nil {
-			return forwardDoneMsg{label: f.Label(), err: err}
-		}
 		return forwardDoneMsg{label: f.Label(), err: term.StartForward(f, sshx.ForwardArgs(h, f))}
 	}
 }
@@ -304,10 +327,15 @@ func (m *Model) selectForward(f store.Forward) {
 
 // --- rendering ---------------------------------------------------------
 
-// forwardMarker is the mark beside a rule, and says three different things: up,
-// stopped because it was asked to be, and stopped because it failed.
-func forwardMarker(st term.ForwardState, known bool) (string, color.Color) {
+// forwardMarker is the mark beside a rule: up, up but carrying something other
+// than what the rule says, stopped deliberately, and stopped because it
+// failed.
+func forwardMarker(st term.ForwardState, known, stale bool) (string, color.Color) {
 	switch {
+	case st.Running && stale:
+		// Hollow, the way ○ marks a host nothing is known about: something is
+		// running, but not what this line describes.
+		return "▷", theme.Yellow
 	case st.Running:
 		return "▶", theme.Green
 	case known && st.Exit != 0:
@@ -329,7 +357,7 @@ func (m Model) forwardsBody(w int) string {
 	lines := []string{""}
 	for i, f := range fs {
 		st, known := m.d.forwardStatus(f)
-		mark, col := forwardMarker(st, known)
+		mark, col := forwardMarker(st, known, forwardStale(m.forwardTarget(), f, st))
 		text := fmt.Sprintf("%s %s %s", mark, pad(string(f.Kind), 7), f.Route())
 
 		if i == m.forwardIdx {
@@ -363,6 +391,11 @@ func (m Model) forwardDetail() []string {
 	}
 	st, known := m.d.forwardStatus(f)
 	switch {
+	case st.Running && forwardStale(m.forwardTarget(), f, st):
+		return []string{
+			theme.Fg(theme.Yellow).Render("running an older version of this rule"),
+			theme.Dim.Render("↳ it carries what it was started with, not what this says — ↵ restarts it"),
+		}
 	case st.Running:
 		return []string{theme.Fg(theme.Green).Render("running") + theme.Dim.Render("  ↵ stops it")}
 	case !known:

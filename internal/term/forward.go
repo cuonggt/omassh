@@ -1,6 +1,8 @@
 package term
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -8,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 )
 
@@ -44,6 +47,27 @@ type ForwardState struct {
 	Running bool
 	// Exit is ssh's exit code, once it has stopped.
 	Exit int
+	// Args identifies the invocation actually running, which is not always
+	// the one the rule now describes. Empty for a tunnel started before this
+	// was recorded, which must not be read as a mismatch.
+	Args string
+}
+
+// argsOption is where a tunnel keeps the fingerprint of what it was started
+// with. A tmux pane option: it belongs to the running thing rather than to the
+// store, and it goes when the tunnel does.
+const argsOption = "@omassh-args"
+
+// ForwardFingerprint identifies one ssh invocation.
+//
+// A tunnel carries whatever it was started with, and nothing about editing the
+// rule afterwards reaches the process already running. The session is named by
+// the rule's id, so it goes on being found and reported as up — against a rule
+// that now says something else entirely. Recording what is actually running is
+// what lets the two be compared.
+func ForwardFingerprint(sshArgs []string) string {
+	sum := sha256.Sum256([]byte(strings.Join(sshArgs, "\x00")))
+	return hex.EncodeToString(sum[:8])
 }
 
 // ForwardSessionName is the tmux session a rule's tunnel runs in.
@@ -69,9 +93,15 @@ func StartForward(f store.Forward, sshArgs []string) error {
 		return ErrNoTmux
 	}
 	name := ForwardSessionName(f)
-	// Whatever was there is gone. A rule has one tunnel, and the stopped
-	// session left by a previous attempt would refuse the name.
+	// Whatever was there goes first. A rule has one tunnel, the stopped
+	// session left by a previous attempt would refuse the name, and a running
+	// one is holding the very port the check below asks for — so restarting a
+	// tunnel to move it failed on the port its own predecessor had not yet
+	// let go of, which is the one case restarting exists for.
 	if err := KillSession(name); err != nil {
+		return err
+	}
+	if err := waitToListen(f); err != nil {
 		return err
 	}
 	conf, err := confPath()
@@ -85,6 +115,8 @@ func StartForward(f store.Forward, sshArgs []string) error {
 	// option is in force before the server can act on the child exiting —
 	// which for a port already taken is a matter of milliseconds.
 	args = append(args, ";", "set-option", "-t", name, "remain-on-exit", "on")
+	// What is running, so the interface can tell it from what the rule says.
+	args = append(args, ";", "set-option", "-p", "-t", name, argsOption, ForwardFingerprint(sshArgs))
 
 	if out, err := exec.Command("tmux", args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("start forward: %s", strings.TrimSpace(string(out)))
@@ -101,6 +133,27 @@ func StartForward(f store.Forward, sshArgs []string) error {
 	return nil
 }
 
+// portRelease is how long the near end is given to come free.
+//
+// The port belongs to the ssh that was just killed, and the kernel releases it
+// when that process goes rather than when tmux is done asking. A tenth of a
+// second is the usual answer; the rest of this is for a machine under load.
+const portRelease = time.Second
+
+// waitToListen is the pre-flight: ssh binds the port inside a session nobody
+// watches, so a port that cannot be taken is worth finding out about here,
+// where it can be said in words.
+func waitToListen(f store.Forward) error {
+	deadline := time.Now().Add(portRelease)
+	for {
+		err := sshx.ListenAvailable(f)
+		if err == nil || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // StopForward ends a tunnel, and clears away a stopped one.
 func StopForward(f store.Forward) error { return KillSession(ForwardSessionName(f)) }
 
@@ -115,7 +168,7 @@ func ForwardStates() (map[string]ForwardState, error) {
 		return nil, nil
 	}
 	format := strings.Join([]string{
-		"#{session_name}", "#{pane_dead}", "#{pane_dead_status}",
+		"#{session_name}", "#{pane_dead}", "#{pane_dead_status}", "#{" + argsOption + "}",
 	}, fieldSep)
 
 	cmd := exec.Command("tmux", "-L", tmuxSocket(), "list-panes", "-a", "-F", format)
@@ -134,10 +187,10 @@ func ForwardStates() (map[string]ForwardState, error) {
 	states := map[string]ForwardState{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		parts := strings.Split(line, fieldSep)
-		if len(parts) != 3 || !strings.HasPrefix(parts[0], forwardPfx) {
+		if len(parts) != 4 || !strings.HasPrefix(parts[0], forwardPfx) {
 			continue
 		}
-		st := ForwardState{Running: parts[1] == "0"}
+		st := ForwardState{Running: parts[1] == "0", Args: parts[3]}
 		if !st.Running {
 			st.Exit, _ = strconv.Atoi(parts[2])
 		}

@@ -350,7 +350,8 @@ func (m Model) detailBody() (string, string) {
 					fmt.Sprintf("    +%d more — %s", len(fs)-shown, m.keys.Key(keymap.Forward))))
 				break
 			}
-			mark, col := forwardMarker(m.d.forwardStatus(f))
+			st, known := m.d.forwardStatus(f)
+			mark, col := forwardMarker(st, known, forwardStale(r.Host, f, st))
 			// The kind, in the same aligned column the forwards view uses: a
 			// local and a remote rule over the same two ports are opposite
 			// directions, and without it they draw as the same line twice.
@@ -454,6 +455,8 @@ func (m Model) helpLines() []string {
 			{"", "dynamic binds a SOCKS proxy here"},
 			{"", "▶ running · ■ stopped · ✖ stopped because it failed,"},
 			{"", "and the line beneath says what ssh said"},
+			{"", "▷ running, but carrying what it was started with —"},
+			{"", "the rule changed underneath it, and ↵ restarts it"},
 			{"", "a tunnel runs on omassh's own tmux server, so it"},
 			{"", "outlives the window that started it — and a green ▶"},
 			{"", "beside a host in the list means one is up"},

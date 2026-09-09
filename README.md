@@ -161,6 +161,14 @@ session, dead, so it can still say what ssh said — `✖` in the list, with the
 reason beneath it. Without that the failure would be indistinguishable from a
 tunnel nobody had started.
 
+Editing a rule reaches nothing already running — the tunnel is named by the
+rule's id, so it goes on carrying the route it was started with. It used to go
+on being reported as up against the new route as well, which is the shape of
+mistake where repointing a tunnel at staging leaves every connection landing on
+production and the screen agreeing with you. Each tunnel now records what it
+was started with, so a rule that changed underneath one shows `▷` rather than
+`▶`, and `↵` restarts it on what the rule says now.
+
 A green `▶` beside a host in the list means one of its tunnels is up.
 
 ## Moving between machines

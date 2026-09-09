@@ -299,3 +299,139 @@ func TestNothingRunningIsNotAFailure(t *testing.T) {
 		t.Errorf("stopping a tunnel that was never started: %v", err)
 	}
 }
+
+// Editing a rule reaches nothing already running: the tunnel is named by the
+// rule's id, so it goes on being found and reported as up while carrying the
+// route it was started with. The fingerprint is what tells the two apart.
+func TestARunningTunnelSaysWhatItIsCarrying(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed")
+	}
+	killServer(t)
+	forwardOptions(t)
+
+	const greeting = "the original destination"
+	target := startGreeter(t, greeting)
+	h := forwardingHost(t, true)
+
+	f := store.Forward{
+		ID: "fwd-stale", HostID: h.ID, Kind: store.ForwardLocal,
+		ListenPort: freePort(t), Dest: "127.0.0.1", DestPort: target,
+	}
+	args := sshx.ForwardArgs(h, f)
+	if err := term.StartForward(f, args); err != nil {
+		t.Fatalf("StartForward: %v", err)
+	}
+	t.Cleanup(func() { term.StopForward(f) })
+
+	states, err := term.ForwardStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, ok := states[term.ForwardSessionName(f)]
+	if !ok || !st.Running {
+		t.Fatalf("the tunnel is not running: %+v", st)
+	}
+	if st.Args != term.ForwardFingerprint(args) {
+		t.Errorf("the tunnel reports %q, want the fingerprint of what it was started with (%q)",
+			st.Args, term.ForwardFingerprint(args))
+	}
+
+	// Now the rule says something else. The tunnel has not changed, and must
+	// not claim to have.
+	edited := f
+	edited.DestPort = target + 1
+	if st.Args == term.ForwardFingerprint(sshx.ForwardArgs(h, edited)) {
+		t.Error("a rule pointed somewhere else fingerprints the same as the tunnel carrying the old one")
+	}
+}
+
+// Restarting a running tunnel is how a rule that changed under it is made to
+// agree again, so it has to work while the old one is still up. Checking the
+// port before stopping that one failed every time on the port its own
+// predecessor was holding — the one case restarting exists for.
+func TestRestartingARunningTunnelMovesIt(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed")
+	}
+	killServer(t)
+	forwardOptions(t)
+
+	first := startGreeter(t, "the first destination")
+	second := startGreeter(t, "the second destination")
+	h := forwardingHost(t, true)
+	local := freePort(t)
+
+	f := store.Forward{
+		ID: "fwd-moves", HostID: h.ID, Kind: store.ForwardLocal,
+		ListenPort: local, Dest: "127.0.0.1", DestPort: first,
+	}
+	if err := term.StartForward(f, sshx.ForwardArgs(h, f)); err != nil {
+		t.Fatalf("StartForward: %v", err)
+	}
+	t.Cleanup(func() { term.StopForward(f) })
+	if got := readThrough(t, local, 15*time.Second); !strings.Contains(got, "first") {
+		t.Fatalf("through the tunnel: %q, want the first destination", got)
+	}
+
+	// The rule now points elsewhere, and the tunnel is still up on the old one.
+	moved := f
+	moved.DestPort = second
+	if err := term.StartForward(moved, sshx.ForwardArgs(h, moved)); err != nil {
+		t.Fatalf("restarting a running tunnel: %v", err)
+	}
+	if got := readThrough(t, local, 15*time.Second); !strings.Contains(got, "second") {
+		t.Errorf("through the tunnel after moving it: %q, want the second destination", got)
+	}
+
+	// And it now says it is carrying the rule it was restarted on.
+	states, err := term.ForwardStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st := states[term.ForwardSessionName(moved)]; st.Args != term.ForwardFingerprint(sshx.ForwardArgs(h, moved)) {
+		t.Errorf("the restarted tunnel reports %q, want the fingerprint of the rule it now carries", st.Args)
+	}
+}
+
+// A port something else is holding is worth finding out about before a session
+// is made for it: the message names the port rather than being ssh's, and
+// nothing is left behind to be explained away afterwards.
+func TestAPortAlreadyTakenIsRefusedBeforeAnythingIsStarted(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed")
+	}
+	killServer(t)
+	forwardOptions(t)
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	taken := l.Addr().(*net.TCPAddr).Port
+
+	h := forwardingHost(t, true)
+	f := store.Forward{
+		ID: "fwd-taken", HostID: h.ID, Kind: store.ForwardLocal,
+		ListenPort: taken, Dest: "127.0.0.1", DestPort: 80,
+	}
+	t.Cleanup(func() { term.StopForward(f) })
+
+	err = term.StartForward(f, sshx.ForwardArgs(h, f))
+	if err == nil {
+		t.Fatal("a port already listening was accepted")
+	}
+	if !strings.Contains(err.Error(), strconv.Itoa(taken)) {
+		t.Errorf("the complaint does not name the port: %v", err)
+	}
+
+	// And no session was made, so there is no stopped tunnel to explain.
+	states, err := term.ForwardStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, ok := states[term.ForwardSessionName(f)]; ok {
+		t.Errorf("a session was left behind for a forward that never started: %+v", st)
+	}
+}
