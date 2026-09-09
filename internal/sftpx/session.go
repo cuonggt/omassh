@@ -2,6 +2,7 @@ package sftpx
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -118,12 +119,30 @@ func (s *Session) Close() error {
 
 // --- FS ----------------------------------------------------------------
 
-func (s *Session) Label() string                       { return s.label }
-func (s *Session) Home() string                        { return s.home }
-func (s *Session) Join(dir, name string) string        { return remoteJoin(dir, name) }
-func (s *Session) Parent(dir string) string            { return remoteParent(dir) }
-func (s *Session) Mkdir(p string) error                { return s.client.Mkdir(p) }
-func (s *Session) Rename(old, neu string) error        { return s.client.Rename(old, neu) }
+func (s *Session) Label() string                { return s.label }
+func (s *Session) Home() string                 { return s.home }
+func (s *Session) Join(dir, name string) string { return remoteJoin(dir, name) }
+func (s *Session) Parent(dir string) string     { return remoteParent(dir) }
+func (s *Session) Mkdir(p string) error         { return s.client.Mkdir(p) }
+func (s *Session) Rename(old, neu string) error { return s.client.Rename(old, neu) }
+
+// Replace moves src over dst.
+//
+// SFTP's own RENAME refuses when the destination exists, so this asks for
+// posix-rename@openssh.com, which OpenSSH's server has. Where a server does
+// not, there is no atomic way to do it: removing first leaves a moment with
+// nothing there, which is still better than the alternative this replaced —
+// truncating the destination before the transfer had produced anything to put
+// in it.
+func (s *Session) Replace(src, dst string) error {
+	if err := s.client.PosixRename(src, dst); err == nil {
+		return nil
+	}
+	if err := s.client.Remove(dst); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return s.client.Rename(src, dst)
+}
 func (s *Session) Chmod(p string, m os.FileMode) error { return s.client.Chmod(p, m) }
 
 func (s *Session) List(dir string) ([]Entry, error) {

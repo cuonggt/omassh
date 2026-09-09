@@ -60,6 +60,10 @@ type transferMsg struct {
 	done, total int64
 	err         error
 	finished    bool
+	// dst is the pane the file was going to, remembered from when the copy
+	// started. Working it out from the focus when the message arrives got it
+	// wrong for anyone who switched panes while a transfer was running.
+	dst int
 }
 
 func connectSFTP(h store.Host) tea.Cmd {
@@ -211,6 +215,7 @@ func (m Model) copySelected() (tea.Model, tea.Cmd) {
 	srcPath := src.fs.Join(src.path, e.Name)
 	dstPath := dst.fs.Join(dst.path, e.Name)
 	srcFS, dstFS := src.fs, dst.fs
+	dstPane := 1 - m.paneFocus
 	ch := m.transfers
 
 	go func() {
@@ -223,11 +228,11 @@ func (m Model) copySelected() (tea.Model, tea.Cmd) {
 			}
 			last = time.Now()
 			select {
-			case ch <- transferMsg{name: e.Name, done: done, total: total}:
+			case ch <- transferMsg{name: e.Name, done: done, total: total, dst: dstPane}:
 			default:
 			}
 		})
-		ch <- transferMsg{name: e.Name, err: err, finished: true, total: e.Size, done: e.Size}
+		ch <- transferMsg{name: e.Name, err: err, finished: true, total: e.Size, done: e.Size, dst: dstPane}
 	}()
 
 	m.setStatus("copying " + e.Name + " → " + dstFS.Label())

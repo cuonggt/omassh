@@ -30,6 +30,10 @@ type FS interface {
 	Mkdir(p string) error
 	Remove(p string) error
 	Rename(old, neu string) error
+	// Replace moves src over dst, whether or not dst is already there. It is
+	// how a transfer lands: the file written beside the destination becomes
+	// the destination in one step, so a reader never sees half of it.
+	Replace(src, dst string) error
 	Chmod(p string, mode os.FileMode) error
 	Open(p string) (io.ReadCloser, error)
 	Create(p string) (io.WriteCloser, error)
@@ -85,9 +89,14 @@ func (Local) List(dir string) ([]Entry, error) {
 	return out, nil
 }
 
-func (Local) Mkdir(p string) error                 { return os.Mkdir(p, 0o755) }
-func (Local) Remove(p string) error                { return os.RemoveAll(p) }
-func (Local) Rename(old, neu string) error         { return os.Rename(old, neu) }
+func (Local) Mkdir(p string) error         { return os.Mkdir(p, 0o755) }
+func (Local) Remove(p string) error        { return os.RemoveAll(p) }
+func (Local) Rename(old, neu string) error { return os.Rename(old, neu) }
+
+// os.Rename already replaces an existing destination on every platform Omassh
+// runs on.
+func (Local) Replace(src, dst string) error { return os.Rename(src, dst) }
+
 func (Local) Chmod(p string, m os.FileMode) error  { return os.Chmod(p, m) }
 func (Local) Open(p string) (io.ReadCloser, error) { return os.Open(p) }
 

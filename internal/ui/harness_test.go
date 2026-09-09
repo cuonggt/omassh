@@ -210,6 +210,7 @@ func (f fakeFS) List(dir string) ([]sftpx.Entry, error) { return f.entries[dir],
 func (f fakeFS) Mkdir(string) error                     { return nil }
 func (f fakeFS) Remove(string) error                    { return nil }
 func (f fakeFS) Rename(string, string) error            { return nil }
+func (f fakeFS) Replace(string, string) error           { return nil }
 func (f fakeFS) Chmod(string, os.FileMode) error        { return nil }
 func (f fakeFS) Open(string) (io.ReadCloser, error)     { return nil, nil }
 func (f fakeFS) Create(string) (io.WriteCloser, error)  { return nil, nil }

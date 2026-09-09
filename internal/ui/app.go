@@ -201,9 +201,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case transferMsg:
 		m.transfer = msg
-		if msg.finished && msg.err == nil {
-			// The destination pane has a new file in it.
-			m.panes[1-m.paneFocus].reload()
+		if msg.finished {
+			// However it ended. Reloading only after a transfer that worked
+			// left the listing describing a file that was no longer there,
+			// and a listing that disagrees with the disk is worse than one
+			// that is merely a moment out of date.
+			m.panes[msg.dst].reload()
 		}
 		return m, waitTransfer(m.transfers)
 

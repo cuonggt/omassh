@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -1909,5 +1910,34 @@ func TestQuittingRecordsTheSessionItLeaves(t *testing.T) {
 	}
 	if _, ok := stats[key]; !ok {
 		t.Error("quitting did not record the session, so the host still reads never connected")
+	}
+}
+
+// The destination pane is reloaded however a transfer ended, and it is the
+// pane the file was going to — not whichever one happens to have the focus by
+// the time the message arrives.
+func TestAFinishedTransferReloadsThePaneItWasGoingTo(t *testing.T) {
+	for name, failed := range map[string]bool{"it worked": false, "it failed": true} {
+		t.Run(name, func(t *testing.T) {
+			h := sftpHarness(t, 2, 2)
+			// What a reload would find, against what the pane is showing.
+			h.m.panes[0].fs = fakeFS{entries: map[string][]sftpx.Entry{
+				"/": {{Name: "what-is-really-there.txt"}},
+			}}
+			h.m.panes[0].entries = []sftpx.Entry{{Name: "the-stale-listing.txt"}}
+
+			var err error
+			if failed {
+				err = errors.New("connection lost")
+			}
+			// The copy was going to pane 0; the focus has since moved.
+			h.m.paneFocus = 0
+			h.send(transferMsg{name: "payload.bin", finished: true, err: err, dst: 0})
+
+			got := h.m.panes[0].entries
+			if len(got) != 1 || got[0].Name != "what-is-really-there.txt" {
+				t.Errorf("the destination pane still shows %v", got)
+			}
+		})
 	}
 }
