@@ -3,6 +3,7 @@
 package keymap
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -24,6 +25,7 @@ const (
 	Redraw      Action = "redraw"
 	Probe       Action = "probe"
 	SFTP        Action = "sftp"
+	Forward     Action = "forward"
 	Theme       Action = "theme"
 	Pane        Action = "pane"
 	NextPanel   Action = "next-panel"
@@ -39,7 +41,7 @@ var defaults = map[Action]string{
 	Quit: "q", Help: "?", Connect: "enter", Search: "/",
 	NewItem: "n", Edit: "e", Delete: "d", Reload: "r", Probe: "p",
 	Redraw: "ctrl+l",
-	SFTP:   "s", Pane: "t", Theme: "T",
+	SFTP:   "s", Pane: "t", Theme: "T", Forward: "f",
 	NextPanel: "tab", PrevPanel: "shift+tab",
 	PanelGroups: "1", PanelHosts: "2",
 	Up: "k", Down: "j",
@@ -85,6 +87,10 @@ func New(overrides map[string]string) (Map, error) {
 	}
 	sort.Strings(names)
 
+	// Which actions the file spoke for, so a clash can say whether the key it
+	// names was chosen or merely inherited.
+	explicit := map[Action]bool{}
+
 	for _, name := range names {
 		key := overrides[name]
 		action := Action(strings.TrimSpace(name))
@@ -99,16 +105,16 @@ func New(overrides map[string]string) (Map, error) {
 			return Map{}, fmt.Errorf("%q is reserved and cannot be rebound", key)
 		}
 		byAction[action] = key
+		explicit[action] = true
 	}
 
 	byKey := make(map[string]Action, len(byAction)+len(fixed))
-	for action, key := range byAction {
+	// Sorted, so a file with two clashes is reported the same way every run
+	// rather than by whichever the map happened to yield first.
+	for _, action := range sortedActions(byAction) {
+		key := byAction[action]
 		if other, clash := byKey[key]; clash {
-			first, second := string(action), string(other)
-			if first > second {
-				first, second = second, first
-			}
-			return Map{}, fmt.Errorf("key %q is bound to both %q and %q", key, first, second)
+			return Map{}, clashError(key, action, other, explicit)
 		}
 		byKey[key] = action
 	}
@@ -117,6 +123,38 @@ func New(overrides map[string]string) (Map, error) {
 		byKey[key] = action
 	}
 	return Map{byKey: byKey, byAction: byAction}, nil
+}
+
+// clashError explains two actions wanting one key.
+//
+// Which of them the file actually asked for is the useful part. A new default
+// binding lands on whatever key it was given, and a file that had already
+// claimed that key for something else then stops the program at startup — as
+// it should, since silently dropping one of the two would leave a key doing
+// something other than what the file says. Naming the one that came from
+// Omassh rather than from the file is what turns that into a line to change.
+func clashError(key string, a, b Action, explicit map[Action]bool) error {
+	first, second := string(a), string(b)
+	if first > second {
+		first, second = second, first
+	}
+	msg := fmt.Sprintf("key %q is bound to both %q and %q", key, first, second)
+	switch {
+	case explicit[a] && !explicit[b]:
+		return fmt.Errorf("%s; %q is a built-in default, so give it a key of its own to free this one", msg, b)
+	case explicit[b] && !explicit[a]:
+		return fmt.Errorf("%s; %q is a built-in default, so give it a key of its own to free this one", msg, a)
+	}
+	return errors.New(msg)
+}
+
+func sortedActions(m map[Action]string) []Action {
+	out := make([]Action, 0, len(m))
+	for a := range m {
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
+	return out
 }
 
 // Lookup returns the action bound to a key press, or None.

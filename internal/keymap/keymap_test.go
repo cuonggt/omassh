@@ -1,6 +1,9 @@
 package keymap
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDefaults(t *testing.T) {
 	m := Default()
@@ -20,15 +23,15 @@ func TestDefaults(t *testing.T) {
 }
 
 func TestOverrideRebinds(t *testing.T) {
-	m, err := New(map[string]string{"connect": "c", "search": "f"})
+	m, err := New(map[string]string{"connect": "c", "search": "z"})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	if got := m.Lookup("c"); got != Connect {
 		t.Errorf("c = %q, want connect", got)
 	}
-	if got := m.Lookup("f"); got != Search {
-		t.Errorf("f = %q, want search", got)
+	if got := m.Lookup("z"); got != Search {
+		t.Errorf("z = %q, want search", got)
 	}
 	// The displaced default must stop working, or two keys would silently do
 	// the same thing and the help would be wrong.
@@ -91,5 +94,37 @@ func TestEmptyKeyIsReported(t *testing.T) {
 func TestNamesCoversEveryDefault(t *testing.T) {
 	if len(Names()) != len(defaults) {
 		t.Errorf("Names() has %d entries, defaults has %d", len(Names()), len(defaults))
+	}
+}
+
+// A new built-in binding lands on some key, and a file that had already
+// claimed that key for something else stops the program at startup — rightly,
+// since dropping one of the two would leave a key doing something the file
+// does not say. What turns that into a line to change is knowing which of the
+// two came from Omassh rather than from the file.
+func TestAClashNamesTheDefault(t *testing.T) {
+	_, err := New(map[string]string{"search": "q"}) // q is quit's default
+	if err == nil {
+		t.Fatal("a key claimed twice was accepted")
+	}
+	msg := err.Error()
+	for _, want := range []string{`"q"`, "quit", "search", "built-in default"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("the message does not mention %s: %s", want, msg)
+		}
+	}
+	// And the one to move is the default, not the one the file asked for.
+	if strings.Contains(msg, `"search" is a built-in default`) {
+		t.Errorf("the message blames the file's own choice: %s", msg)
+	}
+
+	// Two keys the file itself claimed twice is an ordinary mistake, with no
+	// default to point at.
+	_, err = New(map[string]string{"search": "m", "sftp": "m"})
+	if err == nil {
+		t.Fatal("a file claiming one key twice was accepted")
+	}
+	if strings.Contains(err.Error(), "built-in default") {
+		t.Errorf("a clash between two overrides blamed a default: %v", err)
 	}
 }

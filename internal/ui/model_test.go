@@ -157,7 +157,7 @@ func TestDeleteAsksBeforeRemoving(t *testing.T) {
 // The help is generated from the live keymap; a hardcoded list silently lies
 // after a rebind.
 func TestHelpShowsConfiguredKeys(t *testing.T) {
-	km, err := keymap.New(map[string]string{"connect": "c", "search": "f"})
+	km, err := keymap.New(map[string]string{"connect": "c", "search": "z"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestHelpShowsConfiguredKeys(t *testing.T) {
 	screen := h.screen()
 	for _, want := range []string{
 		"c             connect",
-		"f             fuzzy search",
+		"z             fuzzy search",
 	} {
 		if !strings.Contains(strings.Join(strings.Fields(screen), " "), strings.Join(strings.Fields(want), " ")) {
 			t.Errorf("help does not show the rebound key %q:\n%s", want, screen)
