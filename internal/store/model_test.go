@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func names(ns []GroupNode) []string {
 	out := make([]string, len(ns))
@@ -53,5 +56,28 @@ func TestStatKey(t *testing.T) {
 	local := Host{ID: "abc", Name: "web"}
 	if got := local.StatKey(); got != "abc" {
 		t.Errorf("local StatKey = %q, want abc", got)
+	}
+}
+
+// A depth limit alongside the once-only guard dropped anything nested past it,
+// silently: the groups vanished from the list, and their hosts with them —
+// reachable only by searching.
+func TestFlattenGroupsKeepsDeepNesting(t *testing.T) {
+	var gs []Group
+	for i := range 25 {
+		g := Group{ID: fmt.Sprintf("g%02d", i), Name: fmt.Sprintf("L%02d", i)}
+		if i > 0 {
+			g.ParentID = fmt.Sprintf("g%02d", i-1)
+		}
+		gs = append(gs, g)
+	}
+
+	got := FlattenGroups(gs)
+	if len(got) != len(gs) {
+		t.Fatalf("flattened %d of %d groups", len(got), len(gs))
+	}
+	last := got[len(got)-1]
+	if last.Name != "L24" || last.Depth != 24 {
+		t.Errorf("deepest is %s at depth %d, want L24 at depth 24", last.Name, last.Depth)
 	}
 }

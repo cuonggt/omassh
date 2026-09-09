@@ -1806,6 +1806,48 @@ func TestASweepRunsWithoutADeadline(t *testing.T) {
 	}
 }
 
+// Nesting is shown by indenting, but two spaces a level filled a narrow
+// sidebar by about the twelfth, and every group past that drew as an ellipsis.
+func TestADeeplyNestedGroupIsStillLegible(t *testing.T) {
+	h := newHarness(t)
+	parent := ""
+	for i := range 20 {
+		g, err := h.store.PutGroup(store.Group{Name: fmt.Sprintf("level-%02d", i), ParentID: parent})
+		if err != nil {
+			t.Fatal(err)
+		}
+		parent = g.ID
+	}
+	h.m.reload()
+	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
+
+	if got := len(h.m.d.tree); got < 20 {
+		t.Fatalf("the tree holds %d of 20 groups", got)
+	}
+	// Put the cursor on the deepest one so the window scrolls to it.
+	h.m.focus = panelGroups
+	h.m.groupIdx = len(h.m.d.tree) - 1
+	h.mustContain("level-19")
+}
+
+func TestTheIndentNeverCrowdsOutTheName(t *testing.T) {
+	h := newHarness(t)
+	for _, field := range []int{12, 24, 36} {
+		for _, depth := range []int{0, 3, 8, 20, 100} {
+			label := h.m.groupLabel(store.GroupNode{
+				Group: store.Group{Name: "prod"}, Depth: depth,
+			}, field)
+
+			if !strings.HasSuffix(label, "prod") {
+				t.Errorf("field %d, depth %d: %q does not end in the name", field, depth, label)
+			}
+			if indent := ansiWidth(label) - ansiWidth("prod"); indent > field/2 {
+				t.Errorf("field %d, depth %d: indented %d, more than half the room there is", field, depth, indent)
+			}
+		}
+	}
+}
+
 // Padding is counted in cells, not bytes, so a row is the same width whatever
 // the name is written in.
 func TestARowIsTheSameWidthWhateverTheNameContains(t *testing.T) {

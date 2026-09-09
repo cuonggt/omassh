@@ -95,7 +95,13 @@ func FlattenGroups(gs []Group) []GroupNode {
 	var walk func(parent string, depth int)
 	walk = func(parent string, depth int) {
 		for _, g := range byParent[parent] {
-			if seen[g.ID] || depth > 16 { // cycle / runaway nesting guard
+			// Visiting each group once is the whole guard needed. A group has
+			// one parent, so nothing is reachable twice, and a cycle never
+			// enters this walk at all — no group in one is a root. A depth
+			// limit alongside it only ever fired on a tree that was genuinely
+			// that deep, and dropped it silently: the groups vanished from the
+			// list and their hosts became unreachable except by searching.
+			if seen[g.ID] {
 				continue
 			}
 			seen[g.ID] = true

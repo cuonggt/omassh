@@ -11,6 +11,7 @@ import (
 
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/sshx"
+	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
@@ -195,6 +196,23 @@ func tooSmall(w, h int) string {
 	return strings.Join(lines, "\n")
 }
 
+// groupLabel indents a group by its depth, without letting the indent crowd
+// out the name it is indenting.
+//
+// Two spaces a level filled a narrow sidebar by about the twelfth, and every
+// group past that drew as an ellipsis — present and selectable, but with
+// nothing to tell it from its neighbours. The indent stops growing at half
+// the field; a group indented that far is marked, since past the cap two
+// levels are drawn alike and the tree's order is what places them.
+func (m Model) groupLabel(g store.GroupNode, field int) string {
+	const perLevel = 2
+	full := g.Depth * perLevel
+	if capped := max(field/2, 0); full > capped {
+		return strings.Repeat(" ", max(capped-1, 0)) + "·" + g.Name
+	}
+	return strings.Repeat(" ", full) + g.Name
+}
+
 func (m Model) groupsBody(w, rows int) string {
 	if len(m.d.tree) == 0 {
 		return theme.Dim.Render("no groups yet — n to add")
@@ -204,8 +222,7 @@ func (m Model) groupsBody(w, rows int) string {
 	for i, g := range m.d.tree[start:end] {
 		i += start
 		n := len(m.d.hostsIn(g.ID))
-		label := strings.Repeat("  ", g.Depth) + g.Name
-		text := fmt.Sprintf("%s %d", pad(label, max(w-4, 1)), n)
+		text := fmt.Sprintf("%s %d", pad(m.groupLabel(g, max(w-4, 1)), max(w-4, 1)), n)
 
 		selected := i == m.groupIdx && m.focus == panelGroups && !m.filtering()
 		if isSynthetic(g.ID) && !selected {
