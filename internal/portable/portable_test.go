@@ -1,6 +1,7 @@
 package portable
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -61,6 +62,77 @@ func TestExportLeavesOutSessionHistory(t *testing.T) {
 		if strings.Contains(string(raw), s) {
 			t.Errorf("export leaked %q:\n%s", s, raw)
 		}
+	}
+}
+
+// A key the format does not have must be named, not skipped past. The report
+// reads the same either way — "2 added, 0 updated" — so jump_host where the
+// field is jump would otherwise leave the host showing via — with nothing on
+// screen to say a line was ignored.
+func TestParseNamesAKeyTheFormatDoesNotHave(t *testing.T) {
+	raw := []byte("version: 1\nhosts:\n  - name: web\n    addr: 10.0.0.1\n    jump_host: bastion\n")
+
+	if _, err := Parse(raw); err == nil {
+		t.Fatal("parsed a document with a key the format does not have")
+	} else if !strings.Contains(err.Error(), "jump_host") {
+		t.Errorf("error does not name the key: %v", err)
+	} else if !strings.Contains(err.Error(), "line 5") {
+		// The line is what makes the message usable in a document holding a
+		// hundred hosts.
+		t.Errorf("error does not name the line: %v", err)
+	}
+}
+
+// The other half of that bargain: every key the format does have must still
+// be accepted, since a yaml tag that drifted from its field would now turn a
+// working document into an error rather than a silently dropped line.
+func TestParseAcceptsEveryFieldTheFormatHas(t *testing.T) {
+	d, err := Parse([]byte(`version: 1
+groups:
+  - name: Production
+    user: admin
+  - name: EU
+    parent: Production
+    identity: ~/.ssh/eu
+    jump: bastion
+hosts:
+  - name: web
+    addr: 10.0.0.1
+    port: 2222
+    user: deploy
+    identity: ~/.ssh/web
+    jump: bastion
+    group: EU
+    tags: [prod, web]
+`))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Groups) != 2 || len(d.Hosts) != 1 {
+		t.Fatalf("got %d groups and %d hosts, want 2 and 1", len(d.Groups), len(d.Hosts))
+	}
+	want := Host{
+		Name: "web", Addr: "10.0.0.1", Port: 2222, User: "deploy",
+		Identity: "~/.ssh/web", Jump: "bastion", Group: "EU",
+		Tags: []string{"prod", "web"},
+	}
+	if !reflect.DeepEqual(d.Hosts[0], want) {
+		t.Errorf("host = %+v, want %+v", d.Hosts[0], want)
+	}
+	if eu := d.Groups[1]; eu != (Group{Name: "EU", Parent: "Production", Identity: "~/.ssh/eu", Jump: "bastion"}) {
+		t.Errorf("group = %+v", eu)
+	}
+}
+
+// An empty file is empty, not malformed — it decodes to EOF, and the import
+// has a better complaint about it than anything about YAML.
+func TestParseAcceptsADocumentWithNothingInIt(t *testing.T) {
+	d, err := Parse([]byte("# only a comment\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Hosts) != 0 || len(d.Groups) != 0 {
+		t.Errorf("got records out of an empty document: %+v", d)
 	}
 }
 
