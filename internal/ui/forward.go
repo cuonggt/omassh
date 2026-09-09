@@ -394,7 +394,9 @@ func (m Model) forwardDetail() []string {
 	case st.Running && forwardStale(m.forwardTarget(), f, st):
 		return []string{
 			theme.Fg(theme.Yellow).Render("running an older version of this rule"),
-			theme.Dim.Render("↳ it carries what it was started with, not what this says — ↵ restarts it"),
+			// Short enough to survive the dialog's width: the previous wording
+			// ran past it and lost the half that says what to do.
+			theme.Dim.Render("↳ carries what it was started with — ↵ restarts it"),
 		}
 	case st.Running:
 		return []string{theme.Fg(theme.Green).Render("running") + theme.Dim.Render("  ↵ stops it")}

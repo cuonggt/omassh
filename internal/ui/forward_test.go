@@ -453,3 +453,26 @@ func TestRestartingATunnelRunningAnOlderRule(t *testing.T) {
 		t.Errorf("status is %q, want it to say the tunnel is being restarted", h.m.status)
 	}
 }
+
+// The dialog truncates, so what a stale tunnel says has to fit inside it. The
+// first wording ran past the edge and lost the half naming the remedy.
+func TestTheStaleNoticeFitsTheDialog(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	f := h.addForward(host.ID, 5432, "old.internal", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(f): {Running: true, Args: "not-what-this-rule-says"},
+	}
+
+	// The dialog is 64 wide with a two-cell border and a two-space indent.
+	const usable = 64 - 4 - 2
+	for _, line := range h.m.forwardDetail() {
+		if w := ansiWidth(line); w > usable {
+			t.Errorf("a line %d cells wide will be cut short at %d: %q", w, usable, line)
+		}
+	}
+	// And the remedy actually reaches the screen.
+	h.mustContain("↵ restarts it")
+}

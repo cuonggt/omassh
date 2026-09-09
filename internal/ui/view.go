@@ -347,7 +347,7 @@ func (m Model) detailBody() (string, string) {
 		for i, f := range fs {
 			if i == shown && len(fs) > shown+1 {
 				lines = append(lines, theme.Dim.Render(
-					fmt.Sprintf("    +%d more — %s", len(fs)-shown, m.keys.Key(keymap.Forward))))
+					fmt.Sprintf("    +%d more — %s to see them", len(fs)-shown, m.keys.Key(keymap.Forward))))
 				break
 			}
 			st, known := m.d.forwardStatus(f)
