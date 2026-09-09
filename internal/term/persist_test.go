@@ -190,3 +190,64 @@ func TestLiveSessionsWithNoServer(t *testing.T) {
 		t.Errorf("got %+v, want none", live)
 	}
 }
+
+// A session with a client on it says so, and one without says so too. What
+// this decides is a sentence, so a tmux that will not answer must not be
+// mistaken for a session nobody is on — but it must not fail either.
+func TestSessionAttachedReportsAClient(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux is not installed")
+	}
+	killServer(t)
+	sock := testSocket(t)
+
+	const name = "omassh-attachcheck"
+	// Created detached: no client on it yet.
+	if err := exec.Command("tmux", "-L", sock, "new-session", "-d", "-s", name, "sh").Run(); err != nil {
+		t.Fatalf("creating the session: %v", err)
+	}
+	if term.SessionAttached(name) {
+		t.Error("a session nobody is attached to reported a client")
+	}
+
+	// A session that does not exist has no client either.
+	if term.SessionAttached("omassh-not-a-session") {
+		t.Error("a session that does not exist reported a client")
+	}
+}
+
+// The case that matters: a session an Omassh pane is on reports a client, so a
+// second window can be told the session is already open.
+func TestSessionAttachedSeesAPane(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed; sessions are ephemeral")
+	}
+	killServer(t)
+	sshx.SetGlobalOptions([]string{
+		"StrictHostKeyChecking=no", "UserKnownHostsFile=/dev/null", "IdentitiesOnly=yes",
+	})
+	t.Cleanup(func() { sshx.SetGlobalOptions(nil) })
+
+	h := testHost(t)
+	h.ID, h.Name = "attached-1", "attachedbox"
+	name := term.SessionName(h)
+
+	if term.SessionAttached(name) {
+		t.Fatal("a client was reported before anything opened one")
+	}
+
+	p, err := term.Open(h, 80, 20)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { p.Kill() })
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && !term.SessionAttached(name) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !term.SessionAttached(name) {
+		live, _ := term.LiveSessions()
+		t.Fatalf("an open pane was not reported as a client; live: %+v", live)
+	}
+}

@@ -2006,3 +2006,31 @@ func TestARecordThatWillNotReadDoesNotEmptyTheList(t *testing.T) {
 	// And it says what it skipped, rather than a bare parser complaint.
 	h.mustContain("badrecord")
 }
+
+// Two windows may hold the same session, and tmux gives it the size of
+// whichever was typed in last — so the other draws it short of its pane or
+// clipped by it. The mirroring is what reattaching means; the silence about
+// the size is what made it look like a fault.
+func TestAttachingSaysWhenTheSessionIsOpenElsewhere(t *testing.T) {
+	alone := attachedMessage("sandbox", false)
+	shared := attachedMessage("sandbox", true)
+
+	if alone == shared {
+		t.Fatal("a session already open elsewhere reads the same as one that is not")
+	}
+	for _, got := range []string{alone, shared} {
+		if !strings.Contains(got, "sandbox") {
+			t.Errorf("%q does not name the host", got)
+		}
+	}
+	if !strings.Contains(shared, "another window") {
+		t.Errorf("%q does not say the session is open elsewhere", shared)
+	}
+	if !strings.Contains(shared, "size") {
+		t.Errorf("%q does not explain what that changes", shared)
+	}
+	// Alone, the prefix is the thing worth saying.
+	if !strings.Contains(alone, prefixKey) {
+		t.Errorf("%q dropped the way back to the host list", alone)
+	}
+}

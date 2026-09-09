@@ -57,8 +57,12 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 		m.reload()
 	}
 
+	target := m.d.resolver.Resolve(h).Host
+	// Asked before opening, since opening is what makes it true.
+	shared := term.SessionAttached(term.SessionName(target))
+
 	w, ht := m.sessionArea()
-	p, err := term.Open(m.d.resolver.Resolve(h).Host, w, ht)
+	p, err := term.Open(target, w, ht)
 	if err != nil {
 		m.setErr(err)
 		return m, nil
@@ -66,8 +70,23 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 	m.attached = p
 	m.focus = panelSession
 	m.prefixArmed = false
-	m.setStatus("connected to " + h.Name + " — " + prefixKey + " w for the host list")
+	m.setStatus(attachedMessage(h.Name, shared))
 	return m, paneTick()
+}
+
+// attachedMessage says what has just been connected to, and warns when the
+// session is already open somewhere else.
+//
+// Two windows sharing a session mirror each other, which is what reattaching
+// means and is often what you want. What is not obvious is the size: tmux
+// gives the session to whichever client was last typed in, so the other window
+// draws it short of its pane or clipped by it, with nothing to say why.
+func attachedMessage(name string, shared bool) string {
+	if shared {
+		return "connected to " + name +
+			" — also open in another window; its size follows whichever you type in"
+	}
+	return "connected to " + name + " — " + prefixKey + " w for the host list"
 }
 
 // sessionArea is the emulator size inside the main pane's border.

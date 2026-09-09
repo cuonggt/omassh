@@ -116,6 +116,30 @@ type LiveSession struct {
 // into one. A pipe survives, and cannot occur in a sanitised session name.
 const fieldSep = "|"
 
+// SessionAttached reports whether a session already has a client on it —
+// another Omassh window, or a bare tmux client.
+//
+// Two windows may hold the same session, and tmux gives it the size of
+// whichever client was last active: the other one then draws the session
+// either short of its pane or clipped by it. That is tmux behaving as
+// documented, but with nothing said it looks like a fault, so the interface
+// says it.
+//
+// Best effort by design. This decides what to say, never what to do, so a
+// tmux that will not answer costs a sentence rather than a session.
+func SessionAttached(name string) bool {
+	sessions, err := LiveSessions()
+	if err != nil {
+		return false
+	}
+	for _, s := range sessions {
+		if s.Name == name {
+			return s.Attached
+		}
+	}
+	return false
+}
+
 // LiveSessions lists Omassh's persistent sessions.
 func LiveSessions() ([]LiveSession, error) {
 	if !TmuxAvailable() {
