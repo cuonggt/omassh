@@ -44,6 +44,13 @@ func (m Model) startProbe() (tea.Model, tea.Cmd) {
 	if len(hosts) == 0 {
 		return m, nil
 	}
+	// One sweep at a time. A second start reset the tally the first was still
+	// filling and put another reader on the same channel, so both runs' results
+	// landed in one count — two hundred hosts reported four hundred down.
+	if m.probing {
+		m.setStatus("still probing — that sweep has to finish first")
+		return m, nil
+	}
 	// Resolve first: inheritance decides whether a host has a jump host, and
 	// therefore whether probing it directly means anything.
 	targets := make([]store.Host, 0, len(hosts))

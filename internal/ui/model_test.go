@@ -769,6 +769,8 @@ func TestProbeCountsResetBetweenSweeps(t *testing.T) {
 	h.press("2")
 	h.press("p")
 	h.m.probeCounts[probe.Up] = 7 // as if a previous group had been probed
+	h.m.probing = false           // and as if that sweep had finished, since
+	//                               a second one no longer starts over a first
 	h.press("p")
 
 	if got := h.m.probeCounts[probe.Up]; got != 0 {
@@ -1772,6 +1774,23 @@ func TestAPrefilledFieldsHintIsNotItsValue(t *testing.T) {
 		}
 		h.press("esc")
 	}
+}
+
+// A second sweep used to reset the tally the first was still filling and put
+// another reader on the same channel, so both runs' results landed in one
+// count — two hundred hosts reported four hundred down.
+func TestASecondProbeDoesNotJoinTheFirstsTally(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("alpha", "10.0.0.1")
+	h.m.probing = true
+	h.m.probeCounts = map[probe.State]int{probe.Down: 7}
+
+	h.press("p")
+
+	if got := h.m.probeCounts[probe.Down]; got != 7 {
+		t.Errorf("the running sweep's tally became %d, want the 7 it had", got)
+	}
+	h.mustContain("still probing")
 }
 
 // A sweep is bounded by its dials, never by a clock on the run as a whole. A
