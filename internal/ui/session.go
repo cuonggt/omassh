@@ -63,7 +63,7 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 
 // sessionArea is the emulator size inside the main pane's border.
 func (m Model) sessionArea() (int, int) {
-	side := clamp(sidebarWidth, 20, m.w/2)
+	side := m.sidebar()
 	return max(m.w-side-4, 20), max(m.h-statusHeight-2, 5)
 }
 
@@ -252,7 +252,7 @@ func (m Model) sessionCursor() *tea.Cursor {
 	if m.attached == nil || !m.attached.Alive() || m.focus != panelSession {
 		return nil
 	}
-	side := clamp(sidebarWidth, 20, m.w/2)
+	side := m.sidebar()
 	x, y := m.attached.CursorPosition()
 	return tea.NewCursor(side+x+2, y+1)
 }

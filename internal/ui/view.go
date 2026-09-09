@@ -108,7 +108,7 @@ func dialogHeight(body string, content int) int {
 }
 
 func (m Model) browserBody(content int) string {
-	side := clamp(sidebarWidth, 20, m.w/2)
+	side := m.sidebar()
 	main := m.w - side
 
 	// Groups takes what it needs; Hosts gets the rest, since it is the list

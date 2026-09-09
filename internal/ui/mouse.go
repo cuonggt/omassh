@@ -27,7 +27,7 @@ func (m Model) layout() sidebarLayout {
 	content := m.h - statusHeight
 	groupsH := clamp(len(m.d.tree)+2, 4, content/3)
 	return sidebarLayout{
-		side:    clamp(sidebarWidth, 20, m.w/2),
+		side:    m.sidebar(),
 		groupsH: groupsH,
 		hostsH:  content - groupsH,
 		content: content,

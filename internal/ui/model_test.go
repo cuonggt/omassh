@@ -1613,3 +1613,40 @@ func TestTheStatusBarNeverRunsIntoTheStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestTheSidebarGrowsWithTheFrame(t *testing.T) {
+	h := newHarness(t)
+	// aaa sorts first and stays selected, so the long name appears only in
+	// the host list — the detail pane's title would otherwise show it too and
+	// the assertion would pass without the sidebar fitting anything.
+	h.addHost("aaa", "10.0.0.1")
+	h.addHost("prod-be-capichi-chat-server", "10.0.0.2")
+
+	const long = "prod-be-capichi-chat-server"
+	h.send(tea.WindowSizeMsg{Width: 80, Height: testH})
+	h.mustNotContain(long) // no room at this width; truncating is right
+
+	h.send(tea.WindowSizeMsg{Width: 120, Height: testH})
+	h.mustContain(long) // room to spare, and the list is where it belongs
+}
+
+func TestTheSidebarLeavesRoomForThePaneBesideIt(t *testing.T) {
+	h := newHarness(t)
+	for w := minWidth; w <= 300; w++ {
+		h.send(tea.WindowSizeMsg{Width: w, Height: testH})
+		side := h.m.sidebar()
+		switch {
+		case side > sidebarMax:
+			t.Fatalf("width %d: sidebar %d is wider than %d", w, side, sidebarMax)
+		case side > max(w/2, 1):
+			t.Fatalf("width %d: sidebar %d takes more than half the frame", w, side)
+		case w-side < 1:
+			t.Fatalf("width %d: sidebar %d leaves nothing beside it", w, side)
+		}
+		// The hit-test has to land on what was drawn, so it cannot work the
+		// width out for itself.
+		if got := h.m.layout().side; got != side {
+			t.Fatalf("width %d: the mouse layout uses %d, the view uses %d", w, got, side)
+		}
+	}
+}

@@ -44,7 +44,11 @@ const (
 )
 
 const (
-	sidebarWidth = 32
+	// The sidebar scales with the frame between these. Below the first a name
+	// and its marker stop fitting; above the second the extra width is mostly
+	// padding, and the pane beside it has better uses for it.
+	sidebarMin   = 32
+	sidebarMax   = 44
 	statusHeight = 1
 
 	// The smallest frame the layout can be drawn in: narrower or shorter than
@@ -184,7 +188,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.w, m.h = msg.Width, msg.Height
 		m.ready = true
 		// The search box lives in the sidebar, so size it to that, not the screen.
-		m.filter.SetWidth(max(clamp(sidebarWidth, 20, m.w/2)-8, 8))
+		m.filter.SetWidth(max(m.sidebar()-8, 8))
 
 	case probeEvent:
 		return m.handleProbeEvent(msg)
@@ -274,6 +278,22 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleThemeKey(msg)
 	}
 	return m.handleBrowseKey(msg)
+}
+
+// sidebar is how wide the group and host lists are drawn.
+//
+// Everything asks here rather than working it out again. The mouse hit-test,
+// the session pane's size and the cursor position all have to agree with what
+// was drawn, and five copies of one expression is four chances for them not to.
+//
+// It scales because host names are as long as whoever named them: a list of
+// prod-be-delivery-console and prod-VPC_CAPICHI_SUPERSET_BI ended every row in
+// an ellipsis while the pane beside it had width to spare.
+func (m Model) sidebar() int {
+	// Half the frame is the ceiling: on a narrow terminal the sidebar gives
+	// way rather than squeezing out what it sits beside.
+	half := max(m.w/2, 1)
+	return clamp(m.w/3, min(sidebarMin, half), min(sidebarMax, half))
 }
 
 // nextPanel cycles focus, skipping the session slot when nothing is connected
