@@ -885,6 +885,12 @@ func sessionSummary(msg sshx.SessionEndedMsg) string {
 	switch {
 	case msg.Err != nil:
 		return fmt.Sprintf("%s failed: %v", msg.HostName, msg.Err)
+	case msg.ExitCode == sshx.ConnectionFailed && msg.Detail != "":
+		// The code and what ssh said, in that order: the code is certain, and
+		// the last line of stderr is context rather than a claim about the
+		// cause. Without it every failure to connect read the same, however
+		// different the fix — refused, rejected, timed out, host key changed.
+		return fmt.Sprintf("%s exited %d — %s", msg.HostName, msg.ExitCode, msg.Detail)
 	case msg.ExitCode != 0:
 		return fmt.Sprintf("%s exited %d after %s", msg.HostName, msg.ExitCode, dur(msg.Duration))
 	default:

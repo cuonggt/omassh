@@ -50,10 +50,20 @@ way, with `ssh-add` or `AddKeysToAgent yes` in your `~/.ssh/config`. Nothing
 here duplicates what ssh-agent already does.
 
 `enter` **hands the whole terminal to `ssh`**. Omassh releases the terminal,
-the child gets the real stdin, stdout and stderr, and exiting drops you back
-into the list. That path is emulation-free by construction — correct
-`SIGWINCH`, your terminal's own scrollback, mouse and every escape sequence —
-and it is the default for exactly that reason.
+the child gets the real stdin and stdout, and exiting drops you back into the
+list. That path is emulation-free by construction — correct `SIGWINCH`, your
+terminal's own scrollback, mouse and every escape sequence — and it is the
+default for exactly that reason.
+
+Its stderr is the one thing Omassh listens in on, keeping the last few lines so
+that a session which fails can say why. Everything still reaches the terminal
+unchanged; it is only copied on the way. Without it, ssh wrote the reason to a
+screen the interface immediately painted over, and a connection refused, a key
+rejected, a host key that had changed and a timeout all read alike — `exited
+255`, with the reason visible only after quitting. The exit code is still
+reported, since that is the certain part; the last line of stderr follows it as
+context rather than as a claim about the cause. Passphrase and host-key prompts
+are unaffected: ssh puts those on `/dev/tty`, not stderr.
 
 `t` opens the session in the **main pane** instead, keeping the host list
 beside it. There is one such session at a time, so connecting somewhere else

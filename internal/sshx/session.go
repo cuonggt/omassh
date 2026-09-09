@@ -4,6 +4,8 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"strings"
+	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -22,6 +24,51 @@ type SessionEndedMsg struct {
 	ExitCode int
 	Duration time.Duration
 	Err      error
+	// Detail is the last thing ssh wrote to stderr, kept because it is the
+	// only place the reason for a failure appears. ssh prints it to the
+	// terminal, which the interface then paints over, so it was visible only
+	// after quitting — every failure read as "exited 255" until then.
+	Detail string
+}
+
+// ConnectionFailed is the code ssh exits with when the fault is its own:
+// refused, timed out, rejected, a host key that changed. A remote command
+// exiting non-zero is its own business, and nothing on its stderr says
+// anything about the connection.
+const ConnectionFailed = 255
+
+// tailBytes is how much of a session's stderr is kept. Only the end of it can
+// be a diagnosis, and an interactive session may write a great deal.
+const tailBytes = 4096
+
+// tail keeps the last of what is written through it.
+type tail struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+func (t *tail) Write(b []byte) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.buf = append(t.buf, b...)
+	if len(t.buf) > tailBytes {
+		t.buf = t.buf[len(t.buf)-tailBytes:]
+	}
+	return len(b), nil
+}
+
+// last is the final non-empty line, which is where ssh puts the reason: the
+// lines before it are warnings and banners it printed on the way.
+func (t *tail) last() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	lines := strings.Split(string(t.buf), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if s := strings.TrimSpace(lines[i]); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // timedCmd implements tea.ExecCommand so we can time the session precisely:
@@ -34,6 +81,7 @@ type timedCmd struct {
 	*exec.Cmd
 	start time.Time
 	end   time.Time
+	said  tail
 }
 
 func (c *timedCmd) Run() error {
@@ -55,9 +103,16 @@ func (c *timedCmd) SetStdout(w io.Writer) {
 	}
 }
 
+// SetStderr keeps a copy of what the child says on its way to the terminal.
+//
+// The terminal still gets everything, unchanged; this only listens in, so that
+// a failure can be reported here instead of scrolling past behind the
+// interface. It does mean the child's stderr is a pipe rather than the
+// inherited file — ssh's diagnostics do not depend on that, and its passphrase
+// and host-key prompts go to /dev/tty rather than stderr.
 func (c *timedCmd) SetStderr(w io.Writer) {
 	if c.Stderr == nil {
-		c.Stderr = w
+		c.Stderr = io.MultiWriter(w, &c.said)
 	}
 }
 
@@ -72,21 +127,29 @@ func (c *timedCmd) SetStderr(w io.Writer) {
 func Connect(h store.Host) tea.Cmd {
 	c := &timedCmd{Cmd: exec.Command("ssh", Build(h)...)}
 
-	return tea.Exec(c, func(err error) tea.Msg {
-		msg := SessionEndedMsg{
-			HostID:   h.ID,
-			HostName: h.Name,
-			Key:      h.StatKey(),
-			Duration: c.end.Sub(c.start),
-		}
-		// A non-zero exit is ordinary (the remote shell exited 1, the
-		// connection dropped); it is session data, not an error in omassh.
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			msg.ExitCode = ee.ExitCode()
-		} else {
-			msg.Err = err
+	return tea.Exec(c, func(err error) tea.Msg { return ended(h, c, err) })
+}
+
+// ended turns how the child finished into what the interface reports. It is a
+// function of its own so that it can be exercised without a terminal to hand
+// over, which is the only part of this path a test can reach.
+func ended(h store.Host, c *timedCmd, err error) SessionEndedMsg {
+	msg := SessionEndedMsg{
+		HostID:   h.ID,
+		HostName: h.Name,
+		Key:      h.StatKey(),
+		Duration: c.end.Sub(c.start),
+	}
+	// A non-zero exit is ordinary (the remote shell exited 1, the connection
+	// dropped); it is session data, not an error in omassh.
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		msg.ExitCode = ee.ExitCode()
+		if msg.ExitCode == ConnectionFailed {
+			msg.Detail = c.said.last()
 		}
 		return msg
-	})
+	}
+	msg.Err = err
+	return msg
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/probe"
 	"github.com/cuonggt/omassh/internal/sftpx"
+	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 )
 
@@ -1939,5 +1940,46 @@ func TestAFinishedTransferReloadsThePaneItWasGoingTo(t *testing.T) {
 				t.Errorf("the destination pane still shows %v", got)
 			}
 		})
+	}
+}
+
+// Every failure to connect used to read the same — an exit code and a
+// duration — however different the fix. ssh's own diagnosis went to the
+// terminal, which the interface then painted over.
+func TestAFailedConnectionSaysWhatSSHSaid(t *testing.T) {
+	refused := sshx.SessionEndedMsg{
+		HostName: "web", ExitCode: 255, Duration: 300 * time.Millisecond,
+		Detail: "ssh: connect to host 10.0.0.1 port 22: Connection refused",
+	}
+	rejected := sshx.SessionEndedMsg{
+		HostName: "web", ExitCode: 255, Duration: 300 * time.Millisecond,
+		Detail: "deploy@10.0.0.1: Permission denied (publickey).",
+	}
+	if a, b := sessionSummary(refused), sessionSummary(rejected); a == b {
+		t.Fatalf("two different failures read the same: %q", a)
+	}
+	for _, msg := range []sshx.SessionEndedMsg{refused, rejected} {
+		got := sessionSummary(msg)
+		if !strings.Contains(got, msg.Detail) {
+			t.Errorf("summary %q does not say what ssh said", got)
+		}
+		if !strings.Contains(got, "255") {
+			t.Errorf("summary %q dropped the exit code, which is the certain part", got)
+		}
+	}
+}
+
+// A remote command exiting non-zero is its own business; the last line of its
+// stderr says nothing about the connection, so it is not offered as a reason.
+func TestAnOrdinaryNonZeroExitIsReportedPlainly(t *testing.T) {
+	got := sessionSummary(sshx.SessionEndedMsg{
+		HostName: "web", ExitCode: 1, Duration: 2 * time.Second,
+		Detail: "make: *** [build] Error 1",
+	})
+	if strings.Contains(got, "make:") {
+		t.Errorf("summary %q offered a remote command's output as the reason", got)
+	}
+	if !strings.Contains(got, "exited 1") {
+		t.Errorf("summary = %q, want the exit code", got)
 	}
 }
