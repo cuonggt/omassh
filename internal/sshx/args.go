@@ -42,7 +42,7 @@ func Build(h store.Host, extra ...string) []string {
 		// and options would be dropped. Spelling the inner connection out is
 		// what ssh does internally anyway, and it composes: a hop behind
 		// another hop carries its own ProxyCommand.
-		args = append(args, "-o", "ProxyCommand="+proxyCommand(*h.Jump))
+		args = append(args, "-o", "ProxyCommand="+proxyCommand(*h.Jump, forwardTarget(h)))
 	case h.ProxyJump != "":
 		// Not one of our hosts, so it is already an ssh destination.
 		args = append(args, "-J", h.ProxyJump)
@@ -64,8 +64,29 @@ func SubsystemArgs(h store.Host, subsystem string, opts ...string) []string {
 // -W makes the hop forward stdio to the next address, which is exactly what
 // ssh's own implicit ProxyCommand does; %h and %p are placeholders ssh fills
 // in with the address it is trying to reach.
-func proxyCommand(jump store.Host) string {
-	inner := append([]string{"ssh"}, Build(jump, "-W", "[%h]:%p")...)
+// forwardTarget is the address a hop has to reach on this host's behalf,
+// written out rather than left to ssh's %h and %p.
+//
+// Those are expanded by the outermost ssh across the whole ProxyCommand,
+// nested levels included, so in a chain every hop was handed the *final*
+// destination: the first hop dialled it directly and the ones in between were
+// never contacted at all. Where the network allowed that it connected anyway,
+// quietly bypassing the very hosts the chain existed to go through; where a
+// bastion forwards only to the next hop — which is what a bastion is for — it
+// refused, and nothing connected. Omassh knows every address in the chain, so
+// it writes each one instead of asking ssh to substitute it.
+func forwardTarget(h store.Host) string {
+	port := h.Port
+	if port == 0 {
+		port = 22
+	}
+	return "[" + h.Addr + "]:" + strconv.Itoa(port)
+}
+
+// proxyCommand is the ssh invocation that opens a channel through jump to
+// dest, for use as another connection's ProxyCommand.
+func proxyCommand(jump store.Host, dest string) string {
+	inner := append([]string{"ssh"}, Build(jump, "-W", dest)...)
 	quoted := make([]string, len(inner))
 	for i, a := range inner {
 		quoted[i] = shellQuote(a)

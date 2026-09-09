@@ -97,7 +97,7 @@ func TestBuildSpellsOutTheJumpConnection(t *testing.T) {
 	h := store.Host{Name: "web", Addr: "10.0.1.9", User: "deploy", Identity: "/keys/w", Jump: &jump}
 
 	got := strings.Join(Build(h), " ")
-	want := "-i /keys/w -o ProxyCommand=ssh -p 2222 -i /keys/b -W '[%h]:%p' jump@10.0.0.1 deploy@10.0.1.9"
+	want := "-i /keys/w -o ProxyCommand=ssh -p 2222 -i /keys/b -W '[10.0.1.9]:22' jump@10.0.0.1 deploy@10.0.1.9"
 	if got != want {
 		t.Errorf("Build() = %q\nwant           %q", got, want)
 	}
@@ -133,10 +133,52 @@ func TestBuildQuotesTheForwardAddress(t *testing.T) {
 	h := store.Host{Name: "web", Addr: "10.0.1.9", Jump: &jump}
 
 	got := strings.Join(Build(h), " ")
-	if strings.Contains(got, "-W [%h]:%p") {
+	if strings.Contains(got, "-W [10.0.1.9]:22") {
 		t.Errorf("Build() = %q, want the -W address quoted against globbing", got)
 	}
-	if !strings.Contains(got, `-W '[%h]:%p'`) {
-		t.Errorf("Build() = %q, want -W '[%%h]:%%p'", got)
+	if !strings.Contains(got, `-W '[10.0.1.9]:22'`) {
+		t.Errorf("Build() = %q, want the -W address quoted", got)
+	}
+}
+
+// Each hop is told to reach the *next* one. ssh expands %h and %p across the
+// whole ProxyCommand, nested levels included, so writing them meant every hop
+// in a chain was handed the final destination: the first dialled it directly
+// and the ones between were never contacted. A bastion that forwards only to
+// its next hop refused outright, and nothing connected.
+func TestEachHopInAChainReachesTheNextOne(t *testing.T) {
+	hopA := store.Host{Name: "hopA", Addr: "10.0.0.1", Port: 2201, User: "u"}
+	hopB := store.Host{Name: "hopB", Addr: "10.0.0.2", Port: 2202, User: "u", Jump: &hopA}
+	target := store.Host{Name: "target", Addr: "10.0.0.3", Port: 2203, User: "u", Jump: &hopB}
+
+	got := strings.Join(Build(target), " ")
+
+	// hopB's address has to appear as somewhere a hop is asked to reach. It
+	// never did: every level was handed the final destination, so hopA dialled
+	// the target directly and hopB was never contacted at all.
+	if !strings.Contains(got, "[10.0.0.2]:2202") {
+		t.Errorf("nothing in the chain is asked to reach hopB:\n  %s", got)
+	}
+	if !strings.Contains(got, "[10.0.0.3]:2203") {
+		t.Errorf("nothing in the chain is asked to reach the target:\n  %s", got)
+	}
+	if strings.Contains(got, "%h") || strings.Contains(got, "%p") {
+		t.Errorf("an address is still left for ssh to substitute:\n  %s", got)
+	}
+	// And it is hopA's own leg of the chain that reaches hopB, quoting and all.
+	inner := shellQuote("ProxyCommand=" + proxyCommand(hopA, forwardTarget(hopB)))
+	if !strings.Contains(got, inner) {
+		t.Errorf("hopA's leg is not the one pointed at hopB:\n  %s", got)
+	}
+}
+
+// A hop on the default port still gets a port written out, since the address
+// has to be complete for -W.
+func TestAHopOnTheDefaultPortIsStillWrittenOut(t *testing.T) {
+	jump := store.Host{Name: "bastion", Addr: "10.0.0.1"}
+	h := store.Host{Name: "web", Addr: "10.0.1.9", Jump: &jump}
+
+	if got := strings.Join(Build(h), " "); !strings.Contains(got, "'[10.0.1.9]:22'") {
+		t.Errorf("Build() = %q, want the destination port spelled out", got)
 	}
 }

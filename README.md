@@ -99,8 +99,14 @@ spelled out rather than left to `ssh -J`. `-J` hands the hop only `-l`, `-p`
 and `-v`, so the jump host's own key would be silently ignored; Omassh emits
 the `ProxyCommand` that `ssh` would build internally, with that host's port and
 identity in it. A jump host that Omassh does not know — `ops@edge.example.com`
-— is passed through as a plain `-J`, since `ssh` already understands it. Chains
-work: a jump host may sit behind another.
+— is passed through as a plain `-J`, since `ssh` already understands it.
+
+Chains work: a jump host may sit behind another, and each hop is told the
+address of the next one rather than being left to work it out. `ssh` expands
+`%h` and `%p` across a whole `ProxyCommand`, nested levels included, so writing
+them would hand every hop in a chain the *final* destination — the first hop
+would dial it directly and the hosts in between would never be contacted.
+Omassh knows every address in the chain, so it writes each one.
 
 SFTP needs no SSH client of its own. Omassh runs `ssh -s <host> sftp` and
 speaks the SFTP protocol over that child's stdio, so OpenSSH performs the
