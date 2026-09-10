@@ -106,6 +106,14 @@ func (m Model) handleForwardsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// rule added in the other window stayed invisible until this view was
 		// closed and opened again.
 		m.reload()
+		if _, ok := m.d.hostByID(m.forwardHost.ID); !ok {
+			// Another window deleted it. Everything on this screen is about
+			// that host, including the offer to add a rule to it — and a rule
+			// saved against a host that has gone belongs to nothing.
+			m.mode = modeBrowse
+			m.setErr(fmt.Errorf("%s is gone — another window deleted it", m.forwardHost.Name))
+			return m, nil
+		}
 		m.forwardIdx = clamp(m.forwardIdx, 0, len(m.d.forwardsFor(m.forwardHost.ID))-1)
 		m.setStatus("refreshed")
 	case "enter", " ", "space":

@@ -99,6 +99,17 @@ func load(s *store.Store) (data, error) {
 // hasSession reports whether a host has a persistent session running.
 func (d data) hasSession(h store.Host) bool { return d.live[term.SessionName(h)] }
 
+// hostByID finds a host, so a view holding on to one can tell whether it is
+// still there.
+func (d data) hostByID(id string) (store.Host, bool) {
+	for _, h := range d.hosts {
+		if h.ID == id {
+			return h, true
+		}
+	}
+	return store.Host{}, false
+}
+
 // forwardsFor is the rules belonging to one host, in the order they are shown.
 func (d data) forwardsFor(hostID string) []store.Forward {
 	var out []store.Forward

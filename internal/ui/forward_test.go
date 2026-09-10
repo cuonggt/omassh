@@ -584,3 +584,57 @@ func TestTheForwardsListWindowsToTheFrame(t *testing.T) {
 	// The count says there is more than fits, since the border no longer can.
 	h.mustContain(fmt.Sprintf("%d/%d", n, n))
 }
+
+// The view is about one host, and holds on to it. When another window deletes
+// that host, everything on the screen is about something that is not there —
+// including the offer to add a rule to it, which would belong to nothing.
+func TestTheForwardsViewNoticesItsHostIsGone(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+	h.mustContain("Forwards on db-01")
+
+	// Deleted the way another window would: straight in the store.
+	if err := h.store.DeleteHost(host.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	h.press("r")
+	if h.m.mode == modeForwards {
+		t.Error("the view stayed open on a host that is gone")
+	}
+	if !strings.Contains(h.m.status, "gone") {
+		t.Errorf("status is %q, want it to say the host is gone", h.m.status)
+	}
+	h.mustNotContain("no forwards on db-01 yet")
+}
+
+// And a rule saved against a host that has gone is refused where it is
+// written, since that is the only place the two cannot come apart.
+func TestSavingAForwardForADeletedHostIsRefused(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	h.selectHost("db-01")
+	h.press("f", "n")
+
+	if err := h.store.DeleteHost(host.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.press("tab")
+	h.type_("5432")
+	h.press("tab")
+	h.type_("db.internal:5432")
+	h.press("enter")
+
+	if h.m.mode != modeForm {
+		t.Fatalf("the rule was accepted; mode is %v", h.m.mode)
+	}
+	if h.m.form.problem == "" {
+		t.Error("nothing was said about why it was refused")
+	}
+	if fs, _ := h.store.Forwards(); len(fs) != 0 {
+		t.Errorf("an orphan was written: %+v", fs)
+	}
+}

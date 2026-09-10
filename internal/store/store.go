@@ -246,9 +246,20 @@ func (s *Store) PutHost(h Host) (Host, error) {
 	return h, s.put(bucketHosts, h.ID, h)
 }
 
+// ErrNoSuchHost is why a rule was refused: the host it names is not there.
+var ErrNoSuchHost = errors.New("that host no longer exists")
+
 // PutForward inserts or updates a forwarding rule, assigning an id when
 // absent. The id is what the running tunnel is named after, so it is minted
 // here and never changes again.
+//
+// The host is checked in the same transaction as the write. A rule names a
+// host by id and means nothing without it — DeleteHost already takes a host's
+// rules with it — and checking in a transaction of its own would leave a gap
+// for another Omassh to delete the host in between. That gap was reachable:
+// one window with a forwards view open on a host, another deleting it, and the
+// rule the first then saved belonged to nothing, showing under no host and
+// reachable by nothing that could remove it.
 func (s *Store) PutForward(f Forward) (Forward, error) {
 	if err := f.Validate(); err != nil {
 		return f, err
@@ -256,7 +267,16 @@ func (s *Store) PutForward(f Forward) (Forward, error) {
 	if f.ID == "" {
 		f.ID = NewID()
 	}
-	return f, s.put(bucketForwards, f.ID, f)
+	enc, err := json.Marshal(f)
+	if err != nil {
+		return f, err
+	}
+	return f, s.write(func(tx *bolt.Tx) error {
+		if tx.Bucket(bucketHosts).Get([]byte(f.HostID)) == nil {
+			return ErrNoSuchHost
+		}
+		return tx.Bucket(bucketForwards).Put([]byte(f.ID), enc)
+	})
 }
 
 func (s *Store) DeleteForward(id string) error {

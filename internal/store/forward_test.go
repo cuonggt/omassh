@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"math/rand/v2"
 	"path/filepath"
 	"strings"
@@ -200,8 +201,12 @@ func TestForwardsRoundTrip(t *testing.T) {
 // a host does not.
 func TestForwardsSurviveAnUnreadableRecord(t *testing.T) {
 	s := openTest(t)
+	h, err := s.PutHost(Host{Name: "db-01", Addr: "10.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.PutForward(Forward{
-		HostID: "h1", Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432,
+		HostID: h.ID, Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -307,4 +312,35 @@ func ids(fs []Forward) []string {
 		out[i] = f.ID
 	}
 	return out
+}
+
+// A rule names a host by id and means nothing without it. Between one window
+// reading a host and saving a rule for it, another can delete that host — and
+// the rule then belonged to nothing, showing under no host and reachable by
+// nothing that could remove it. The host is checked where the rule is written,
+// which is the only place the two cannot come apart.
+func TestAForwardNeedsAHostThatExists(t *testing.T) {
+	s := openTest(t)
+	h, err := s.PutHost(Host{Name: "db-01", Addr: "10.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := Forward{HostID: h.ID, Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432}
+	if _, err := s.PutForward(f); err != nil {
+		t.Fatalf("a rule for a host that exists was refused: %v", err)
+	}
+
+	// The host goes, taking its rule with it, and the window opens.
+	if err := s.DeleteHost(h.ID); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := s.PutForward(Forward{
+		HostID: h.ID, Kind: ForwardLocal, ListenPort: 9999, Dest: "db", DestPort: 5432,
+	})
+	if !errors.Is(err, ErrNoSuchHost) {
+		t.Fatalf("a rule for a deleted host was accepted as %+v (err %v)", saved, err)
+	}
+	if got, _ := s.Forwards(); len(got) != 0 {
+		t.Errorf("the store kept %+v", got)
+	}
 }
