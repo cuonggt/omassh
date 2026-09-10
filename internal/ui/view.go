@@ -289,15 +289,22 @@ func (m Model) hostsBody(w, rows int) string {
 		}
 		selected := i == m.hostIdx && (m.focus == panelHosts || m.mode == modeFilter)
 
+		// The marks come off the width first. They are fixed and they are the
+		// only thing the row says that is not in the name — a session waiting,
+		// a tunnel up — so truncating the composed line dropped them off the
+		// end, and a long name silently hid the very thing they were there to
+		// show. The name gives way instead.
+		marks := ""
+		if badge != "" {
+			marks += " " + badge
+		}
+		if tunnel != "" {
+			marks += " " + tunnel
+		}
+		keep := max(w-ansi.StringWidth(marks), 0)
+
 		if selected {
-			text := mark + " " + label
-			if badge != "" {
-				text += " " + badge
-			}
-			if tunnel != "" {
-				text += " " + tunnel
-			}
-			lines = append(lines, row(text, true, w))
+			lines = append(lines, row(ansi.Truncate(mark+" "+label, keep, "…")+marks, true, w))
 			continue
 		}
 
@@ -307,13 +314,14 @@ func (m Model) hostsBody(w, rows int) string {
 				line += theme.Dim.Render("  " + g)
 			}
 		}
+		line = ansi.Truncate(line, keep, "…")
 		if badge != "" {
 			line += theme.Fg(badgeColour).Render(" " + badge)
 		}
 		if tunnel != "" {
 			line += theme.Fg(theme.Green).Render(" " + tunnel)
 		}
-		lines = append(lines, ansi.Truncate(line, w, "…"))
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }

@@ -678,3 +678,43 @@ func TestAGroupChangeMakesATunnelStale(t *testing.T) {
 	}
 	h.mustContain("what it was started with")
 }
+
+// The marks are the only thing a host row says that is not in the name: a
+// session waiting, a tunnel up. Truncating the composed line dropped them off
+// the end, so a long name hid the very thing they were there to show — the
+// tunnel went on running with nothing on screen saying so.
+func TestALongNameDoesNotEatTheMarks(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("prod-be-delivery-console-eu-west-1", "10.0.0.1")
+	f := h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("prod-be-delivery-console-eu-west-1")
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(f): {Running: true},
+	}
+
+	// Selected and unselected rows are composed separately, so both are asked.
+	h.mustContain("▶")
+	h.m.focus = panelGroups
+	h.mustContain("▶")
+
+	// And it is the name that gave way: the host row carries an elision and
+	// still ends with the mark.
+	var row string
+	for _, line := range strings.Split(h.screen(), "\n") {
+		// The mark identifies the host row: the detail pane's title carries the
+		// name too, on a line that also holds the sidebar's border.
+		if strings.Contains(line, "○ prod-be-delivery") {
+			row = line
+			break
+		}
+	}
+	if row == "" {
+		t.Fatalf("no host row found:\n%s", h.screen())
+	}
+	if !strings.Contains(row, "…") {
+		t.Errorf("the name was not elided though the marks needed the room: %q", row)
+	}
+	if !strings.Contains(row, "▶") {
+		t.Errorf("the mark did not survive on the host row: %q", row)
+	}
+}
