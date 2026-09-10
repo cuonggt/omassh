@@ -192,6 +192,22 @@ func forwardStale(target store.Host, f store.Forward, st term.ForwardState) bool
 	return st.Args != term.ForwardFingerprint(sshx.ForwardArgs(target, f))
 }
 
+// holderOf finds a tunnel of ours already bound to the port a rule wants.
+//
+// A remote rule binds its port on the host, so one of those is never what is
+// holding a port here however alike the numbers look.
+func (m Model) holderOf(f store.Forward) (store.Forward, string, bool) {
+	for _, x := range m.d.forwards {
+		if x.ID == f.ID || x.Kind == store.ForwardRemote {
+			continue
+		}
+		if x.ListenPort == f.ListenPort && m.d.forwardState(x).Running {
+			return x, m.d.hostName(x.HostID), true
+		}
+	}
+	return store.Forward{}, "", false
+}
+
 // forwardTarget is the host a tunnel connects to: the selected host with its
 // group inheritance applied, exactly as an interactive session would reach it.
 //
@@ -231,7 +247,7 @@ func (m Model) handleForwardDone(msg forwardDoneMsg) (tea.Model, tea.Cmd) {
 	m.refreshForwards()
 	switch {
 	case msg.err != nil:
-		m.setErr(fmt.Errorf("%s: %s", msg.f.Label(), m.forwardAdvice(msg.err.Error())))
+		m.setErr(fmt.Errorf("%s: %s", msg.f.Label(), m.forwardAdvice(msg.f, msg.err.Error())))
 	case msg.stopped:
 		m.setStatus("stopped " + msg.f.Label())
 	default:
@@ -496,7 +512,7 @@ func (m Model) forwardDetail() []string {
 	out := []string{theme.Fg(theme.Red).Render("stopped: ") + theme.Normal.Render(reason)}
 	// On its own line rather than after the reason: the box truncates, and a
 	// hint cut off at the edge is exactly the part worth reading.
-	if advice := m.forwardAdvice(reason); advice != reason {
+	if advice := m.forwardAdvice(f, reason); advice != reason {
 		out = append(out, theme.Dim.Render("↳ "+strings.TrimPrefix(advice, reason+" — ")))
 	}
 	return out
@@ -508,8 +524,15 @@ func (m Model) forwardDetail() []string {
 // and the two questions it would have asked come back as statements instead.
 // Both are accurate and both are dead ends: neither is fixed on this screen,
 // and neither says so.
-func (m Model) forwardAdvice(reason string) string {
+func (m Model) forwardAdvice(f store.Forward, reason string) string {
 	switch {
+	case strings.Contains(reason, "already in use"):
+		// Far more often than not it is one of these rules, sitting on the
+		// same screen with a ▶ against it. Saying which turns a sentence that
+		// sends someone to lsof into one that points a line up.
+		if other, host, ok := m.holderOf(f); ok {
+			return reason + " — by " + host + "'s " + other.Route()
+		}
 	case strings.Contains(reason, "Host key verification failed"):
 		return reason + " — " + m.keys.Key(keymap.Connect) + " on the host once to accept its key"
 	case strings.Contains(reason, "Permission denied"), strings.Contains(reason, "publickey"):

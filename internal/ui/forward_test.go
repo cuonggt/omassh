@@ -317,7 +317,7 @@ func TestAFailedTunnelSaysWhatToDo(t *testing.T) {
 		{"Host key verification failed.", "accept its key"},
 		{"tester@10.0.0.1: Permission denied (publickey).", "ssh-add"},
 	} {
-		got := h.m.forwardAdvice(c.reason)
+		got := h.m.forwardAdvice(store.Forward{}, c.reason)
 		if !strings.Contains(got, c.want) {
 			t.Errorf("advice for %q = %q, want it to mention %q", c.reason, got, c.want)
 		}
@@ -327,7 +327,7 @@ func TestAFailedTunnelSaysWhatToDo(t *testing.T) {
 	}
 	// Anything else is left exactly as ssh wrote it, rather than guessed at.
 	plain := "ssh: connect to host 10.0.0.1 port 22: Connection refused"
-	if got := h.m.forwardAdvice(plain); got != plain {
+	if got := h.m.forwardAdvice(store.Forward{}, plain); got != plain {
 		t.Errorf("a reason with no known remedy was embellished: %q", got)
 	}
 }
@@ -808,5 +808,58 @@ func TestATunnelThatOutlivesItsStartIsReportedUp(t *testing.T) {
 	h.send(forwardDoneMsg{f: f})
 	if !strings.Contains(h.m.status, "is up") {
 		t.Errorf("status is %q, want it to report the tunnel up", h.m.status)
+	}
+}
+
+// "port 5432 is already in use" is accurate and useless: far more often than
+// not it is one of these rules, sitting on the same screen with a ▶ against
+// it. Saying which turns a sentence that sends someone to lsof into one that
+// points a line up.
+func TestAPortConflictNamesTheRuleHoldingIt(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	running := h.addForward(host.ID, 5432, "primary.internal", 5432)
+	wants := h.addForward(host.ID, 5432, "replica.internal", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(running): {Running: true},
+	}
+
+	got := h.m.forwardAdvice(wants, "port 5432 is already in use")
+	for _, want := range []string{"db-01", "primary.internal"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("advice %q does not name %q", got, want)
+		}
+	}
+
+	// With nothing of ours on that port, the reason is left as it came.
+	h.m.d.fwd = nil
+	if plain := h.m.forwardAdvice(wants, "port 5432 is already in use"); plain != "port 5432 is already in use" {
+		t.Errorf("a port held by something else was blamed on us: %q", plain)
+	}
+}
+
+// A remote rule binds its port on the host, so one of those is never what is
+// holding a port here however alike the numbers look.
+func TestARemoteRuleIsNotBlamedForALocalPort(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	remote, err := h.store.PutForward(store.Forward{
+		HostID: host.ID, Kind: store.ForwardRemote,
+		ListenPort: 5432, Dest: "localhost", DestPort: 5432,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := h.addForward(host.ID, 5432, "replica.internal", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(remote): {Running: true},
+	}
+
+	if got := h.m.forwardAdvice(local, "port 5432 is already in use"); got != "port 5432 is already in use" {
+		t.Errorf("a remote rule was blamed for a local port: %q", got)
 	}
 }

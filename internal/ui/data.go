@@ -121,6 +121,14 @@ func (d data) forwardsFor(hostID string) []store.Forward {
 	return out
 }
 
+// hostName names a host for a message, when only its id is to hand.
+func (d data) hostName(id string) string {
+	if h, ok := d.hostByID(id); ok {
+		return h.Name
+	}
+	return ""
+}
+
 // forwardByID finds a rule, so an action that was in flight can tell whether
 // what it was about is still there.
 func (d data) forwardByID(id string) (store.Forward, bool) {
