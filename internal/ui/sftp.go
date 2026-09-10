@@ -403,7 +403,14 @@ func (m Model) transferStrip() string {
 	t := m.transfer
 	switch {
 	case t.err != nil:
-		return theme.Fg(theme.Red).Render(" " + ansi.Truncate(t.name+": "+t.err.Error(), m.w-1, "…"))
+		// The name only if it fits beside the reason. It is in the listing
+		// just above either way, and cut the other way round this row said
+		// which file and not what went wrong.
+		msg := t.err.Error()
+		if with := t.name + ": " + msg; ansi.StringWidth(with)+1 <= m.w {
+			msg = with
+		}
+		return theme.Fg(theme.Red).Render(" " + ansi.Truncate(msg, m.w-1, "…"))
 	case t.finished:
 		return theme.Fg(theme.Green).Render(fmt.Sprintf(" %s — copied %s", t.name, humanSize(t.total)))
 	default:

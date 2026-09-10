@@ -240,6 +240,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and a listing that disagrees with the disk is worse than one
 			// that is merely a moment out of date.
 			m.panes[msg.dst].reload()
+			// And the bar stops saying "copying". It was set when the copy
+			// started and nothing replaced it, so after a failure the strip
+			// said the transfer was refused while the row beneath it said the
+			// transfer was still going.
+			if msg.err != nil {
+				m.setErrOf(msg.name, msg.err)
+			} else {
+				m.setStatus("")
+			}
 		}
 		return m, waitTransfer(m.transfers)
 

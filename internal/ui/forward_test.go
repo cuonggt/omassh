@@ -1167,3 +1167,59 @@ func TestAnSftpFailureKeepsItsRemedy(t *testing.T) {
 		t.Errorf("the host was kept at the remedy's expense: %q", narrow)
 	}
 }
+
+// The bar is set to "copying …" when a transfer starts, and nothing replaced
+// it — so after a refusal the strip said the transfer had failed while the row
+// beneath it went on saying it was in progress.
+func TestAFinishedTransferStopsTheBarSayingCopying(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("filebox", "10.0.0.1")
+	h.selectHost("filebox")
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: fakeFS{}}, {fs: fakeFS{}}}
+
+	h.m.setStatus("copying report.csv → filebox")
+	h.send(transferMsg{name: "report.csv", err: errors.New("permission denied"), finished: true, dst: 1})
+
+	if strings.Contains(h.m.status, "copying") {
+		t.Errorf("the bar still says the transfer is running: %q", h.m.status)
+	}
+	if !strings.Contains(h.m.status, "permission denied") {
+		t.Errorf("the bar does not say what went wrong: %q", h.m.status)
+	}
+
+	// And a transfer that worked leaves the outcome to the strip rather than
+	// standing there claiming to still be copying.
+	h.m.setStatus("copying report.csv → filebox")
+	h.send(transferMsg{name: "report.csv", finished: true, total: 10, done: 10, dst: 1})
+	if strings.Contains(h.m.status, "copying") {
+		t.Errorf("after a successful transfer the bar still says: %q", h.m.status)
+	}
+}
+
+// The strip is one row too, and the file it names is in the listing directly
+// above — so when there is no room for both, the reason is what stays.
+func TestANarrowTransferStripKeepsTheReason(t *testing.T) {
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: fakeFS{}}, {fs: fakeFS{}}}
+	h.m.transfer = transferMsg{
+		name:     "quarterly-revenue-reconciliation-2026-Q3.csv",
+		err:      errors.New("permission denied"),
+		finished: true,
+	}
+
+	h.m.w = 110
+	if wide := h.m.transferStrip(); !strings.Contains(wide, "quarterly-revenue") || !strings.Contains(wide, "permission denied") {
+		t.Errorf("at 110 columns: %q", wide)
+	}
+
+	h.m.w = 50
+	narrow := ansiRE.ReplaceAllString(h.m.transferStrip(), "")
+	if !strings.Contains(narrow, "permission denied") {
+		t.Errorf("the reason was cut at 50 columns: %q", narrow)
+	}
+	if strings.Contains(narrow, "quarterly-revenue") {
+		t.Errorf("the name was kept at the reason's expense: %q", narrow)
+	}
+}
