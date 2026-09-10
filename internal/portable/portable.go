@@ -27,10 +27,29 @@ import (
 	"github.com/cuonggt/omassh/internal/store"
 )
 
-// Version is the document format. It is written on export and checked on
-// import, so a document from a later omassh is refused with something better
-// than a field that quietly did nothing.
-const Version = 1
+// Version is the highest document format this omassh understands. It is
+// checked on import, so a document from a later omassh is refused with
+// something better than a field that quietly did nothing.
+//
+// 1 is the original. 2 added a host's forwarding rules, and an omassh that
+// only knows 1 rejects an unknown field outright — with the name of a Go type
+// and no hint that upgrading is the answer, which is exactly what this number
+// is for.
+const Version = 2
+
+// versionFor is the lowest version that can read a document.
+//
+// A document says what it needs rather than what wrote it, so a list with no
+// forwarding rules in it goes on being readable by an older omassh. Only one
+// that would genuinely be misread announces the newer format.
+func versionFor(d Document) int {
+	for _, h := range d.Hosts {
+		if len(h.Forwards) > 0 {
+			return 2
+		}
+	}
+	return 1
+}
 
 // Document is the whole exchange format.
 type Document struct {
@@ -122,7 +141,7 @@ func Export(gs []store.Group, hs []store.Host, fs []store.Forward) Document {
 		rules[f.HostID] = append(rules[f.HostID], f)
 	}
 
-	d := Document{Version: Version}
+	var d Document
 	for _, g := range gs {
 		d.Groups = append(d.Groups, Group{
 			Name:     g.Name,
@@ -154,6 +173,7 @@ func Export(gs []store.Group, hs []store.Host, fs []store.Forward) Document {
 	// which is what makes the document reviewable in a diff.
 	sort.Slice(d.Groups, func(i, j int) bool { return less(d.Groups[i].Name, d.Groups[j].Name) })
 	sort.Slice(d.Hosts, func(i, j int) bool { return less(d.Hosts[i].Name, d.Hosts[j].Name) })
+	d.Version = versionFor(d)
 	return d
 }
 
@@ -180,6 +200,18 @@ func (d Document) YAML() ([]byte, error) {
 
 // Parse reads a document, rejecting one this version cannot honour.
 func Parse(raw []byte) (Document, error) {
+	// The version comes first, and loosely. A document from a later omassh
+	// carries fields this one has never heard of, and the strict decode below
+	// rejects an unknown field before anything looks at the version — so the
+	// number meant to say "upgrade omassh" was answered with the name of a Go
+	// type and a line number instead.
+	var probe struct {
+		Version int `yaml:"version"`
+	}
+	if err := yaml.Unmarshal(raw, &probe); err == nil && probe.Version > Version {
+		return Document{}, fmt.Errorf("document is version %d, this omassh understands %d — upgrade omassh", probe.Version, Version)
+	}
+
 	var d Document
 	dec := yaml.NewDecoder(bytes.NewReader(raw))
 	// A key that is not a field is an error, for the reason config.Load

@@ -208,3 +208,52 @@ func TestAForwardIsReportedAsItsOwnChange(t *testing.T) {
 		}
 	}
 }
+
+// A document says what it needs to be read, not what wrote it. An omassh that
+// does not know forwards rejects the unknown field with the name of a Go type
+// and no hint that upgrading is the answer — the version is what turns that
+// into a sentence, and only a document that would genuinely be misread should
+// pay for it.
+func TestADocumentDeclaresTheVersionItNeeds(t *testing.T) {
+	hosts := []store.Host{{ID: "h1", Name: "db-01", Addr: "10.0.0.1"}}
+
+	if got := Export(nil, hosts, nil).Version; got != 1 {
+		t.Errorf("a list with no forwards is version %d — an older omassh could have read it", got)
+	}
+
+	withRules := []store.Forward{
+		{ID: "f1", HostID: "h1", Kind: store.ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432},
+	}
+	if got := Export(nil, hosts, withRules).Version; got != 2 {
+		t.Errorf("a list carrying forwards is version %d, want 2", got)
+	}
+
+	// And this omassh still reads what the old one wrote.
+	if _, err := Parse([]byte("version: 1\nhosts:\n  - name: web\n    addr: 10.0.0.1\n")); err != nil {
+		t.Errorf("a version 1 document was refused: %v", err)
+	}
+	// A document from a later omassh is refused in words.
+	_, err := Parse([]byte("version: 99\nhosts: []\n"))
+	if err == nil || !strings.Contains(err.Error(), "upgrade omassh") {
+		t.Errorf("a newer document gave %v, want it to say to upgrade", err)
+	}
+}
+
+// The version has to be read before the fields are, or it can never do its
+// job: a document from a later omassh carries fields this one has not heard
+// of, and a strict decode rejects one of those first — naming a Go type where
+// the version would have said to upgrade.
+func TestAVersionFromTheFutureIsReadBeforeItsFields(t *testing.T) {
+	raw := []byte("version: 99\nhosts:\n  - name: web\n    addr: 10.0.0.1\n    somethingNew: yes\n")
+
+	_, err := Parse(raw)
+	if err == nil {
+		t.Fatal("a document from the future was accepted")
+	}
+	if !strings.Contains(err.Error(), "upgrade omassh") {
+		t.Errorf("said %q, want it to say to upgrade", err)
+	}
+	if strings.Contains(err.Error(), "not found in type") {
+		t.Errorf("the field error won the race: %q", err)
+	}
+}
