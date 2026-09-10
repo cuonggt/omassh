@@ -87,7 +87,11 @@ func connectError(err error, stderr string) error {
 		msg = strings.TrimSpace(msg[i+1:])
 	}
 	if strings.Contains(msg, "Permission denied") || strings.Contains(msg, "publickey") {
-		msg += " — add the key to your ssh-agent first (ssh-add)"
+		// Short, because the status bar is one row and ssh's own half of this
+		// is already long: "cuonggt@10.0.0.1: Permission denied
+		// (publickey,keyboard-interactive)." leaves little room, and what got
+		// cut was the half saying what to do.
+		msg += " — ssh-add the key first"
 	}
 	return fmt.Errorf("%s", msg)
 }

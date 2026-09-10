@@ -1137,3 +1137,33 @@ func lastLine(screen string) string {
 	lines := strings.Split(strings.TrimRight(screen, "\n"), "\n")
 	return lines[len(lines)-1]
 }
+
+// An sftp failure is a sentence like any other, and its remedy is at the end.
+// ssh's own half of it is long, so the omassh half has to be short, and the
+// host has to be droppable — it is named on screen either way.
+func TestAnSftpFailureKeepsItsRemedy(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("filebox", "10.0.0.1")
+	h.selectHost("filebox")
+
+	h.send(sftpConnectedMsg{
+		host: "filebox",
+		err:  errors.New("cuonggt@10.0.0.1: Permission denied (publickey,keyboard-interactive). — ssh-add the key first"),
+	})
+
+	// Wide: the host is named alongside the reason.
+	h.send(tea.WindowSizeMsg{Width: 120, Height: testH})
+	if wide := lastLine(h.screen()); !strings.Contains(wide, "filebox:") || !strings.Contains(wide, "ssh-add the key first") {
+		t.Errorf("at 120 columns: %q", wide)
+	}
+
+	// Narrow: the host goes, the remedy stays.
+	h.send(tea.WindowSizeMsg{Width: 100, Height: testH})
+	narrow := lastLine(h.screen())
+	if !strings.Contains(narrow, "ssh-add the key first") {
+		t.Errorf("the remedy was cut at 100 columns: %q", narrow)
+	}
+	if strings.Contains(narrow, "filebox:") {
+		t.Errorf("the host was kept at the remedy's expense: %q", narrow)
+	}
+}

@@ -90,7 +90,9 @@ func (m Model) openSFTP() (tea.Model, tea.Cmd) {
 
 func (m Model) sftpConnected(msg sftpConnectedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		m.setErr(msg.err)
+		// The host as the subject, so a narrow bar keeps ssh's reason and the
+		// remedy and lets the name go — it is on screen either way.
+		m.setErrOf(msg.host, msg.err)
 		return m, nil
 	}
 	local := sftpx.Local{}

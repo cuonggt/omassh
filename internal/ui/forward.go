@@ -537,7 +537,7 @@ func (m Model) forwardAdvice(f store.Forward, reason string) string {
 	case strings.Contains(reason, "Host key verification failed"):
 		return reason + " — " + m.keys.Key(keymap.Connect) + " on the host once to accept its key"
 	case strings.Contains(reason, "Permission denied"), strings.Contains(reason, "publickey"):
-		return reason + " — add the key to your ssh-agent first (ssh-add)"
+		return reason + " — ssh-add the key first"
 	}
 	return reason
 }
