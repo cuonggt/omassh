@@ -135,6 +135,57 @@ func TestSFTPOverSSHSubsystem(t *testing.T) {
 		}
 	})
 
+	// A real server, because the point is what the protocol answers. pkg/sftp
+	// maps only the two status codes with os equivalents, so a name already
+	// taken came back as `sftp: "Failure" (SSH_FX_FAILURE)` — a protocol
+	// constant, shown to whoever had just typed the name.
+	t.Run("says a name is taken without naming a protocol constant", func(t *testing.T) {
+		dest := filepath.Join(work, "taken")
+		if err := os.Mkdir(dest, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		raw := sess.Mkdir(dest)
+		if raw == nil {
+			t.Fatal("making a directory that is already there succeeded")
+		}
+		got := sftpx.Problem(sess, dest, "taken", raw).Error()
+		if !strings.Contains(got, "taken is already there") {
+			t.Errorf("says %q, want that the name is taken", got)
+		}
+		for _, leak := range []string{"SSH_FX", "sftp:", "Failure"} {
+			if strings.Contains(got, leak) {
+				t.Errorf("leaks %q at the user: %s", leak, got)
+			}
+		}
+	})
+
+	// Renaming into a directory that is not there answered "file does not
+	// exist", which names the wrong subject: the file being renamed is fine,
+	// and it is the destination's directory that is missing.
+	t.Run("says which directory is missing", func(t *testing.T) {
+		src := filepath.Join(work, "movable.txt")
+		if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		dest := filepath.Join(work, "nowhere", "moved.txt")
+		raw := sess.Rename(src, dest)
+		if raw == nil {
+			t.Fatal("renaming into a directory that is not there succeeded")
+		}
+		got := sftpx.Problem(sess, dest, "moved.txt", raw).Error()
+		if !strings.Contains(got, "there is no nowhere") {
+			t.Errorf("says %q, want it to name the missing directory", got)
+		}
+		if strings.Contains(got, "does not exist") {
+			t.Errorf("still blames the file being renamed: %s", got)
+		}
+		// The message is one line inside a dialog. Spelling the directory out
+		// in full pushed the name it exists to say past the right-hand edge.
+		if strings.Contains(got, work) {
+			t.Errorf("names the directory by its whole path, which will not fit: %s", got)
+		}
+	})
+
 	t.Run("downloads with progress", func(t *testing.T) {
 		body := strings.Repeat("payload", 5000) // big enough for several chunks
 		src := filepath.Join(work, "big.bin")
@@ -247,4 +298,33 @@ func TestLocalFS(t *testing.T) {
 		t.Errorf("Label = %q", l.Label())
 	}
 	fmt.Fprint(os.Stderr, "")
+}
+
+// SSH_FX_FAILURE is the protocol's "no, and I will not say why". Once the
+// name and its directory have both been asked about and neither explains it,
+// that is the whole of what is known — and saying so beats printing the
+// constant.
+func TestARefusalWithNoReasonSaysThatRatherThanTheConstant(t *testing.T) {
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "absent") // its parent is there, it is not
+
+	raw := &sftp.StatusError{Code: 4} // SSH_FX_FAILURE
+	got := sftpx.Problem(sftpx.Local{}, dest, "absent", raw).Error()
+
+	if !strings.Contains(got, "the server refused it") {
+		t.Errorf("says %q, want that the server refused without a reason", got)
+	}
+	for _, leak := range []string{"SSH_FX", "sftp:"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("leaks %q at the user: %s", leak, got)
+		}
+	}
+}
+
+// Nothing wrong stays nothing wrong: Problem is on every one of these paths,
+// so a success must pass straight through it.
+func TestProblemLeavesSuccessAlone(t *testing.T) {
+	if err := sftpx.Problem(sftpx.Local{}, t.TempDir(), "x", nil); err != nil {
+		t.Errorf("Problem turned success into %v", err)
+	}
 }

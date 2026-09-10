@@ -278,14 +278,16 @@ func (m Model) saveFileForm() (tea.Model, tea.Cmd) {
 	var err error
 	switch f.kind {
 	case formMkdir:
-		err = p.fs.Mkdir(p.fs.Join(p.path, name))
+		dest := p.fs.Join(p.path, name)
+		err = sftpx.Problem(p.fs, dest, name, p.fs.Mkdir(dest))
 	case formRename:
 		old, ok := p.selectedPath()
 		if !ok {
 			err = fmt.Errorf("nothing selected")
 			break
 		}
-		err = p.fs.Rename(old, p.fs.Join(p.path, name))
+		dest := p.fs.Join(p.path, name)
+		err = sftpx.Problem(p.fs, dest, name, p.fs.Rename(old, dest))
 	case formChmod:
 		mode, perr := strconv.ParseUint(name, 8, 32)
 		if perr != nil {

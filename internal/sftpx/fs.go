@@ -2,6 +2,8 @@
 package sftpx
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path"
@@ -9,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/pkg/sftp"
 )
 
 // Entry is one row in a file listing, on either side of a transfer.
@@ -39,6 +43,50 @@ type FS interface {
 	Create(p string) (io.WriteCloser, error)
 	Stat(p string) (Entry, error)
 	Label() string
+}
+
+// Problem puts a failed operation on a name into omassh's words.
+//
+// pkg/sftp turns the two status codes with os equivalents into os.ErrNotExist
+// and os.ErrPermission and hands back the rest as they came, so a server
+// refusing a name that is already taken reached the user as
+// `sftp: "Failure" (SSH_FX_FAILURE)` — a protocol constant, shown to someone
+// who has just typed a directory name.
+//
+// SSH_FX_FAILURE does not say why, so the reason is established here rather
+// than guessed at: the destination and the directory meant to hold it are
+// asked about, the same way a forward binds its port itself before asking ssh
+// to. What none of that explains is reported as the server refusing, which is
+// all the protocol actually said.
+func Problem(fs FS, dest, name string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, serr := fs.Stat(dest); serr == nil {
+		return fmt.Errorf("%s is already there", name)
+	}
+	if dir := fs.Parent(dest); dir != dest {
+		if _, serr := fs.Stat(dir); serr != nil {
+			// By its last part, not the whole path. The path is long, the
+			// message is a line inside a dialog, and spelling it out put the
+			// directory being complained about past the right-hand edge —
+			// which is the one word the sentence exists to say.
+			return fmt.Errorf("there is no %s here to put it in", path.Base(dir))
+		}
+	}
+	switch {
+	case errors.Is(err, os.ErrPermission):
+		return fmt.Errorf("%s: permission denied", name)
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("%s is not there any more", name)
+	}
+	var status *sftp.StatusError
+	if errors.As(err, &status) {
+		// Everything checkable has been checked, and the protocol carries no
+		// reason of its own — saying which is better than naming its constant.
+		return fmt.Errorf("%s: the server refused it, without saying why", name)
+	}
+	return err
 }
 
 // sortEntries puts directories first, then names, case-insensitively — the
