@@ -409,3 +409,161 @@ func TestReadingWhileAnotherInstanceWrites(t *testing.T) {
 		}
 	}
 }
+
+// A jump host is named, not pointed at, so nothing stopped two hosts naming
+// each other. The loop became a ProxyCommand nested until the resolver ran out
+// of hops, and ssh answered "Connection closed by UNKNOWN port 65535" — while
+// the host list showed one host "via" the other, looking like any other pair.
+func TestAHostCannotBeMadeToJumpThroughItself(t *testing.T) {
+	s := openTest(t)
+
+	a, err := s.PutHost(Host{Name: "bastion-a", Addr: "10.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := s.PutHost(Host{Name: "bastion-b", Addr: "10.0.0.2", ProxyJump: "bastion-a"})
+	if err != nil {
+		t.Fatalf("a plain chain was refused: %v", err)
+	}
+
+	// Closing the loop is what must be refused, and the message has to show
+	// the way round, since neither host is wrong on its own.
+	a.ProxyJump = "bastion-b"
+	_, err = s.PutHost(a)
+	if err == nil {
+		t.Fatal("two hosts were allowed to jump through each other")
+	}
+	for _, want := range []string{"bastion-a", "bastion-b", "→"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error does not show the loop (%q missing): %v", want, err)
+		}
+	}
+	_ = b
+
+	// And a host naming itself, whose loop is exactly one hop long: said any
+	// longer it reads as a fault in the reporting rather than in the host.
+	_, err = s.PutHost(Host{Name: "selfie", Addr: "10.0.0.3", ProxyJump: "selfie"})
+	if err == nil {
+		t.Fatal("a host was allowed to name itself as its own jump host")
+	}
+	if !strings.Contains(err.Error(), "selfie → selfie") || strings.Contains(err.Error(), "selfie → selfie → ") {
+		t.Errorf("the loop should be one hop: %v", err)
+	}
+}
+
+// Import writes the lot in one transaction, and a document can name a loop as
+// easily as a form can.
+func TestAnImportCannotBringInALoop(t *testing.T) {
+	s := openTest(t)
+	err := s.PutAll(nil, []Host{
+		{ID: NewID(), Name: "a", Addr: "10.0.0.1", ProxyJump: "b"},
+		{ID: NewID(), Name: "b", Addr: "10.0.0.2", ProxyJump: "a"},
+	}, nil)
+	if err == nil {
+		t.Fatal("an import brought in two hosts jumping through each other")
+	}
+	if !strings.Contains(err.Error(), "→") {
+		t.Errorf("the error does not show the loop: %v", err)
+	}
+	// All or nothing, as every other refusal in PutAll is.
+	if hosts, _ := s.Hosts(); len(hosts) != 0 {
+		t.Errorf("a refused import left %d hosts behind", len(hosts))
+	}
+}
+
+// The loop closes through a group two hops out: the host names its bastion,
+// and the bastion takes its own jump host from the group it sits in. Nothing
+// on either record looks wrong on its own.
+func TestALoopThatClosesThroughAnInheritedJumpHostIsRefused(t *testing.T) {
+	s := openTest(t)
+	g, err := s.PutGroup(Group{Name: "edge", ProxyJump: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutHost(Host{Name: "bastion", Addr: "10.0.0.1", GroupID: g.ID}); err != nil {
+		t.Fatalf("the bastion could not be saved: %v", err)
+	}
+	// app → bastion → (group edge) → app
+	_, err = s.PutHost(Host{Name: "app", Addr: "10.0.0.2", ProxyJump: "bastion"})
+	if err == nil {
+		t.Fatal("a loop closing through a group's jump host was allowed")
+	}
+	for _, want := range []string{"app", "bastion"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the loop does not name %q: %v", want, err)
+		}
+	}
+}
+
+// The chain is followed only through hosts this store holds. Anything else is
+// an ssh destination, which is the documented way to reach a bastion omassh
+// does not know about.
+func TestAJumpHostOmasshDoesNotKnowIsLeftAlone(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.PutHost(Host{Name: "web", Addr: "10.0.0.9", ProxyJump: "ops@edge.example.com"}); err != nil {
+		t.Errorf("an ssh destination was refused as a jump host: %v", err)
+	}
+}
+
+// A group hands its jump host to everything beneath it, so a loop can be made
+// by editing a group alone, with no host written at all.
+func TestAGroupCannotPutItsOwnBastionIntoALoop(t *testing.T) {
+	s := openTest(t)
+	g, err := s.PutGroup(Group{Name: "behind"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutHost(Host{Name: "bastion", Addr: "10.0.0.1", GroupID: g.ID}); err != nil {
+		t.Fatal(err)
+	}
+	// The bastion is in the group, so pointing the group at it makes the
+	// bastion its own jump host.
+	g.ProxyJump = "bastion"
+	if _, err := s.PutGroup(g); err == nil {
+		t.Error("a group was allowed to make its own member jump through itself")
+	}
+}
+
+// A database written before any of this was checked has to stay editable —
+// most of all the host at fault, which is where the loop has to be undone.
+func TestALoopAlreadyStoredDoesNotBlockUnrelatedEdits(t *testing.T) {
+	s := openTest(t)
+	a, _ := s.PutHost(Host{Name: "a", Addr: "10.0.0.1"})
+	b, _ := s.PutHost(Host{Name: "b", Addr: "10.0.0.2", ProxyJump: "a"})
+	// Put the loop in behind the check, the way an older omassh would have.
+	a.ProxyJump = "b"
+	if err := s.put(bucketHosts, a.ID, a); err != nil {
+		t.Fatal(err)
+	}
+
+	other, err := s.PutHost(Host{Name: "unrelated", Addr: "10.0.0.3"})
+	if err != nil {
+		t.Errorf("an unrelated host could not be saved: %v", err)
+	}
+	_ = other
+
+	// And the way out: editing the looping host to break the loop.
+	a.ProxyJump = ""
+	if _, err := s.PutHost(a); err != nil {
+		t.Errorf("the looping host could not be mended: %v", err)
+	}
+	_ = b
+}
+
+// jumpChain has to follow inherited jump hosts at every hop, not only the
+// first. Walking from every host happens to reveal any loop from one end or
+// the other, so this is checked here rather than left to that coincidence.
+func TestJumpChainFollowsInheritedJumpHostsAtEveryHop(t *testing.T) {
+	edge := Group{ID: "g1", Name: "edge", ProxyJump: "app"}
+	app := Host{ID: "h1", Name: "app", ProxyJump: "bastion"}
+	bastion := Host{ID: "h2", Name: "bastion", GroupID: "g1"} // takes "app" from edge
+
+	r := NewResolver([]Group{edge}, []Host{app, bastion})
+	loop, ok := jumpChain(r, app)
+	if !ok {
+		t.Fatal("the chain app → bastion → (edge) → app was not followed round")
+	}
+	if got := strings.Join(loop, " → "); got != "bastion → app" {
+		t.Errorf("path = %q, want bastion → app", got)
+	}
+}

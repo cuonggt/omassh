@@ -230,6 +230,11 @@ func (s *Store) PutGroup(g Group) (Group, error) {
 		if err := acyclicIn(b, []Group{g}); err != nil {
 			return err
 		}
+		// A group supplies a jump host to every host under it, so editing one
+		// can put a host into a loop without that host being written at all.
+		if err := noNewJumpLoop(b, tx.Bucket(bucketHosts), []Group{g}, nil); err != nil {
+			return err
+		}
 		enc, err := json.Marshal(g)
 		if err != nil {
 			return err
@@ -243,7 +248,122 @@ func (s *Store) PutHost(h Host) (Host, error) {
 	if h.ID == "" {
 		h.ID = NewID()
 	}
-	return h, s.put(bucketHosts, h.ID, h)
+	// Checked and written in one transaction, as a group's parent is, and for
+	// the same reason: a loop is not something the resolver can report from
+	// where it finds it.
+	err := s.write(func(tx *bolt.Tx) error {
+		if err := noNewJumpLoop(tx.Bucket(bucketGroups), tx.Bucket(bucketHosts), nil, []Host{h}); err != nil {
+			return err
+		}
+		enc, err := json.Marshal(h)
+		if err != nil {
+			return err
+		}
+		return tx.Bucket(bucketHosts).Put([]byte(h.ID), enc)
+	})
+	return h, err
+}
+
+// noNewJumpLoop rejects a write that would leave a host jumping through
+// itself, by way of the hosts it names or the groups it belongs to.
+//
+// A jump host is named rather than pointed at by id, and a name that is none
+// of yours is left for ssh to interpret — so a chain is followed only while it
+// stays among hosts this store holds, and ends the moment it leaves them.
+// Inherited ones count: a host naming no jump host of its own takes its
+// group's, and a loop made that way connects no better than one written out.
+//
+// Unchecked, a loop became a ProxyCommand nested until the resolver ran out of
+// hops, and what came back was ssh's "Connection closed by UNKNOWN port 65535"
+// — its proxy having died, with nothing anywhere saying that two of your own
+// hosts point at each other. A host reading "via" the name it is itself called
+// looked like every other host in the list.
+//
+// What is refused is a loop this write would *make*. A database already
+// holding one — written before this was checked — stays editable, including
+// the host at fault, which is where the loop has to be undone.
+func noNewJumpLoop(gb, hb *bolt.Bucket, groups []Group, hosts []Host) error {
+	storedGroups, _ := decodeGroups(gb)
+	storedHosts, _ := decodeHosts(hb)
+
+	before := loopingHosts(storedGroups, storedHosts)
+	after := loopingHosts(mergedGroups(storedGroups, groups), mergedHosts(storedHosts, hosts))
+	for id, loop := range after {
+		if _, already := before[id]; !already {
+			return fmt.Errorf("host %q would jump through itself: %s", loop[0], strings.Join(loop, " → "))
+		}
+	}
+	return nil
+}
+
+// mergedGroups and mergedHosts are what a bucket holds with an incoming set
+// written over it, which is what the store will look like after this write.
+func mergedGroups(stored, incoming []Group) []Group {
+	byID := make(map[string]Group, len(stored)+len(incoming))
+	for _, g := range stored {
+		byID[g.ID] = g
+	}
+	for _, g := range incoming {
+		byID[g.ID] = g
+	}
+	out := make([]Group, 0, len(byID))
+	for _, g := range byID {
+		out = append(out, g)
+	}
+	return out
+}
+
+func mergedHosts(stored, incoming []Host) []Host {
+	byID := make(map[string]Host, len(stored)+len(incoming))
+	for _, h := range stored {
+		byID[h.ID] = h
+	}
+	for _, h := range incoming {
+		byID[h.ID] = h
+	}
+	out := make([]Host, 0, len(byID))
+	for _, h := range byID {
+		out = append(out, h)
+	}
+	return out
+}
+
+// loopingHosts is every host whose jump hosts lead back to it, and the path
+// each one takes to get there.
+func loopingHosts(groups []Group, hosts []Host) map[string][]string {
+	r := NewResolver(groups, hosts)
+	out := map[string][]string{}
+	for _, h := range hosts {
+		if loop, ok := jumpChain(r, h); ok {
+			out[h.ID] = append([]string{h.Name}, loop...)
+		}
+	}
+	return out
+}
+
+// jumpChain follows a host's jump hosts and reports the names it went through
+// if it arrives somewhere it has already been.
+func jumpChain(r Resolver, start Host) ([]string, bool) {
+	seen := map[string]bool{start.ID: true}
+	var path []string
+	cur := r.inherit(start).Host
+	for range maxJumpHops {
+		name := strings.TrimSpace(cur.ProxyJump)
+		if name == "" {
+			return nil, false
+		}
+		next, ok := r.byName[strings.ToLower(name)]
+		if !ok {
+			return nil, false // none of ours, so ssh's to make sense of
+		}
+		path = append(path, next.Name)
+		if seen[next.ID] {
+			return path, true
+		}
+		seen[next.ID] = true
+		cur = r.inherit(next).Host
+	}
+	return nil, false
 }
 
 // ErrNoSuchHost is why a rule was refused: the host it names is not there.
@@ -317,6 +437,9 @@ func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward) error {
 		// Checked once over the whole tree, rather than each group re-reading
 		// every other one from a transaction of its own.
 		if err := acyclicIn(gb, gs); err != nil {
+			return err
+		}
+		if err := noNewJumpLoop(gb, hb, gs, hs); err != nil {
 			return err
 		}
 		for _, g := range gs {
