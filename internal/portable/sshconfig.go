@@ -11,6 +11,44 @@ import (
 	sshcfg "github.com/kevinburke/ssh_config"
 )
 
+// hostName is the address ssh resolves HostName to for one alias.
+//
+// ssh expands two tokens there: %h, the name being connected to, and %% for a
+// literal percent. `HostName %h.internal` is how a whole estate of machines
+// gets one block instead of thirty, so it is common — and taken literally it
+// became an address with a %h still in it, which nothing can resolve. ssh
+// expands tokens in the HostName *setting*, never in the destination it is
+// finally handed, so those hosts imported cleanly and then could not connect
+// to anything.
+//
+// Only those two, because they are the only two ssh accepts here. Anything
+// else makes ssh itself refuse the file ("percent_expand: failed"), and
+// deciding what it ought to have meant would put an address in the list that
+// ssh would never have used.
+func hostName(raw, alias string) string {
+	if !strings.Contains(raw, "%") {
+		return raw
+	}
+	var b strings.Builder
+	for i := 0; i < len(raw); i++ {
+		if raw[i] != '%' || i+1 == len(raw) {
+			b.WriteByte(raw[i])
+			continue
+		}
+		switch raw[i+1] {
+		case 'h':
+			b.WriteString(alias)
+			i++
+		case '%':
+			b.WriteByte('%')
+			i++
+		default:
+			b.WriteByte(raw[i])
+		}
+	}
+	return b.String()
+}
+
 // DefaultSSHConfig is where OpenSSH keeps a user's client configuration.
 func DefaultSSHConfig() (string, error) {
 	home, err := os.UserHomeDir()
@@ -69,7 +107,7 @@ func FromSSHConfig(path string) (Document, error) {
 		}
 		h := Host{
 			Name:     a,
-			Addr:     get("HostName"),
+			Addr:     hostName(get("HostName"), a),
 			User:     get("User"),
 			Identity: get("IdentityFile"),
 			Jump:     get("ProxyJump"),

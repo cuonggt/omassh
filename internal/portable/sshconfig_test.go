@@ -3,6 +3,7 @@ package portable
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -137,5 +138,60 @@ func TestAnAliasDeclaredTwiceIsOneHost(t *testing.T) {
 	// to be settled here.
 	if _, err := Merge(d, nil, nil, nil); err != nil {
 		t.Fatalf("the document it produced does not merge: %v", err)
+	}
+}
+
+// `HostName %h.internal` is how an estate of machines gets one block instead
+// of thirty. ssh expands the token in the setting and never in the destination
+// it is finally handed, so imported literally those hosts carried an address
+// with a %h in it — reported as a clean import, and unable to resolve
+// anything. The expansions are ssh's own, checked against ssh -G.
+func TestHostNameTokensAreExpandedTheWaySshExpandsThem(t *testing.T) {
+	cases := []struct{ raw, alias, want string }{
+		{"%h.internal", "web1", "web1.internal"},
+		{"%h.internal", "web2", "web2.internal"},
+		{"pre-%h", "t", "pre-t"},
+		{"%h.%h", "t", "t.t"},
+		{"%%literal", "t", "%literal"},
+		{"10.0.0.1", "t", "10.0.0.1"},
+		{"", "t", ""},
+		// ssh accepts no other token here — it refuses the file outright — so
+		// nothing is invented for one.
+		{"%r.foo", "t", "%r.foo"},
+		{"%p", "t", "%p"},
+		// A trailing percent is not the start of anything.
+		{"host%", "t", "host%"},
+	}
+	for _, c := range cases {
+		if got := hostName(c.raw, c.alias); got != c.want {
+			t.Errorf("hostName(%q, %q) = %q, want %q", c.raw, c.alias, got, c.want)
+		}
+	}
+}
+
+// And end to end: one block naming two machines becomes two hosts, each
+// carrying its own address rather than the pattern they share.
+func TestABlockOfMachinesImportsWithTheirOwnAddresses(t *testing.T) {
+	dir := t.TempDir()
+	path := write(t, dir, "config", `
+Host web1 web2
+  HostName %h.internal.example.com
+  User deploy
+`)
+	d, err := FromSSHConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{"web1": "web1.internal.example.com", "web2": "web2.internal.example.com"}
+	if len(d.Hosts) != len(want) {
+		t.Fatalf("imported %d hosts, want %d: %+v", len(d.Hosts), len(want), d.Hosts)
+	}
+	for _, h := range d.Hosts {
+		if h.Addr != want[h.Name] {
+			t.Errorf("%s has addr %q, want %q", h.Name, h.Addr, want[h.Name])
+		}
+		if strings.Contains(h.Addr, "%") {
+			t.Errorf("%s kept a token in its address: %q", h.Name, h.Addr)
+		}
 	}
 }
