@@ -2,6 +2,7 @@ package sshx
 
 import (
 	"net"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -90,6 +91,11 @@ func TestListenAvailable(t *testing.T) {
 	if !strings.Contains(err.Error(), strconv.Itoa(taken)) {
 		t.Errorf("the complaint does not name the port: %v", err)
 	}
+	// Go's raw error names the port too, so naming it is not enough to show
+	// the message was written for a person.
+	if strings.Contains(err.Error(), "listen tcp") {
+		t.Errorf("Go's own error shape reached the message: %v", err)
+	}
 
 	// The far side is the one place this cannot look, so it must not guess:
 	// a remote forward binds its port on the host, where a local listener
@@ -171,5 +177,44 @@ func TestListenAvailableUnderstandsTheStar(t *testing.T) {
 	f := store.Forward{Kind: store.ForwardLocal, Listen: "*", ListenPort: port}
 	if err := ListenAvailable(f); err != nil {
 		t.Errorf("a free port bound to every interface was refused: %v", err)
+	}
+}
+
+// The kernel's answers reach the interface as sentences, not as Go's own
+// error shape. Each of these is an ordinary thing to get wrong, and the raw
+// form named the symptom rather than the reason.
+func TestListenAvailableExplainsWhatTheKernelSaid(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root, so a privileged port is not privileged")
+	}
+	for _, c := range []struct {
+		name string
+		f    store.Forward
+		want string
+	}{
+		{
+			"a port below 1024",
+			store.Forward{Kind: store.ForwardLocal, Listen: "127.0.0.1", ListenPort: 443},
+			"needs root",
+		},
+		{
+			// TEST-NET-1, which no interface is ever configured with.
+			"an address this machine does not have",
+			store.Forward{Kind: store.ForwardLocal, Listen: "192.0.2.1", ListenPort: 8080},
+			"no interface here has the address",
+		},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			err := ListenAvailable(c.f)
+			if err == nil {
+				t.Fatal("the bind was reported as available")
+			}
+			if !strings.Contains(err.Error(), c.want) {
+				t.Errorf("said %q, want it to mention %q", err, c.want)
+			}
+			if strings.Contains(err.Error(), "listen tcp") {
+				t.Errorf("Go's own error shape reached the message: %q", err)
+			}
+		})
 	}
 }

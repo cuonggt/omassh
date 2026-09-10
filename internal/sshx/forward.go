@@ -73,10 +73,29 @@ func ListenAvailable(f store.Forward) error {
 
 	l, err := net.Listen("tcp", net.JoinHostPort(addr, strconv.Itoa(f.ListenPort)))
 	if err != nil {
-		if errors.Is(err, syscall.EADDRINUSE) {
-			return fmt.Errorf("port %d is already in use", f.ListenPort)
-		}
-		return err
+		return bindProblem(err, f, addr)
 	}
 	return l.Close()
+}
+
+// bindProblem says in words what the kernel said in an errno.
+//
+// What comes back otherwise is Go's own shape — "listen tcp 127.0.0.1:443:
+// bind: permission denied" — in an interface that speaks plainly everywhere
+// else, and it names the symptom rather than the reason. Each of these is an
+// ordinary thing to get wrong: a port something else holds, a port below 1024,
+// an address this machine does not have.
+func bindProblem(err error, f store.Forward, addr string) error {
+	switch {
+	case errors.Is(err, syscall.EADDRINUSE):
+		return fmt.Errorf("port %d is already in use", f.ListenPort)
+	case errors.Is(err, syscall.EACCES):
+		if f.ListenPort < 1024 {
+			return fmt.Errorf("port %d is not yours to bind — a port below 1024 needs root", f.ListenPort)
+		}
+		return fmt.Errorf("not allowed to bind port %d", f.ListenPort)
+	case errors.Is(err, syscall.EADDRNOTAVAIL):
+		return fmt.Errorf("no interface here has the address %s", addr)
+	}
+	return err
 }
