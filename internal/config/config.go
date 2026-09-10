@@ -57,25 +57,88 @@ func inWords(err error) error {
 	}
 	out := make([]string, 0, len(te.Errors))
 	for _, e := range te.Errors {
-		out = append(out, rewriteField(e))
+		out = append(out, rewrite(e))
 	}
 	return errors.New(strings.Join(out, "; "))
+}
+
+// rewrite turns one of yaml's lines into omassh's own, or leaves it alone.
+//
+// Left alone rather than half-translated: a shape yaml grows later would
+// otherwise be described by whichever half of the sentence was understood,
+// and a confident wrong answer is worse than yaml's own words.
+func rewrite(e string) string {
+	if out, ok := rewriteField(e); ok {
+		return out
+	}
+	if out, ok := rewriteShape(e); ok {
+		return out
+	}
+	return e
 }
 
 // fieldRE matches yaml's complaint about a key a struct does not have.
 var fieldRE = regexp.MustCompile(`^(line \d+: )?field (\S+) not found in type (\S+)$`)
 
-func rewriteField(e string) string {
+func rewriteField(e string) (string, bool) {
 	m := fieldRE.FindStringSubmatch(e)
 	if m == nil {
-		return e
+		return "", false
 	}
 	where, name, typ := m[1], m[2], m[3]
 	if strings.HasSuffix(typ, "Palette") {
 		return fmt.Sprintf("%s%q is not a palette colour — they are %s",
-			where, name, strings.Join(theme.PaletteKeys(), ", "))
+			where, name, strings.Join(theme.PaletteKeys(), ", ")), true
 	}
-	return fmt.Sprintf("%s%q is not a setting", where, name)
+	return fmt.Sprintf("%s%q is not a setting", where, name), true
+}
+
+// shapeRE matches yaml's complaint about a value of the wrong shape.
+//
+// The value itself is in there too, backquoted and sometimes cut short to
+// "Connect...", which reads like damage rather than like quoting. The line
+// number says where to look, so the value is dropped.
+var shapeRE = regexp.MustCompile("^(line \\d+: )?cannot unmarshal (!!\\w+)(?: `.*`)? into (.+)$")
+
+// found names what yaml met, and wanted what the setting is. Between them
+// these cover every shape this config file has: the schema is six types wide
+// and fixed, and a type that is not in either is left in yaml's words.
+//
+// No entry for !!null, which never reaches here: an empty value decodes to
+// the zero value at every position, including the whole file, so it is a
+// config that sets nothing rather than one of the wrong shape.
+var found = map[string]string{
+	"!!str":   "text",
+	"!!int":   "a number",
+	"!!float": "a number",
+	"!!bool":  "true or false",
+	"!!seq":   "a list",
+	"!!map":   "a block of key: value lines",
+}
+
+var wanted = map[string]string{
+	"config.Config":            "settings",
+	"theme.Palette":            `a palette of colour: "#rrggbb" lines`,
+	"map[string]theme.Palette": "a palette under each name",
+	"map[string]string":        "a block of key: value lines",
+	"[]string":                 "a list",
+	"string":                   "a single value",
+}
+
+func rewriteShape(e string) (string, bool) {
+	m := shapeRE.FindStringSubmatch(e)
+	if m == nil {
+		return "", false
+	}
+	got, ok := found[m[2]]
+	if !ok {
+		return "", false
+	}
+	want, ok := wanted[m[3]]
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("%sthis should be %s, not %s", m[1], want, got), true
 }
 
 // Load reads path, filling anything unset from the defaults.

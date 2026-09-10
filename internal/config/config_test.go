@@ -227,3 +227,60 @@ func TestEveryColourTheComplaintOffersIsAccepted(t *testing.T) {
 		}
 	}
 }
+
+// Every setting in the file, given the wrong shape. yaml answers with Go types
+// and YAML tags — "cannot unmarshal !!str `blue` into theme.Palette" — which is
+// nothing someone editing a config file can act on. The schema is small and
+// fixed, so every position this can happen at is listed here; a setting of a
+// new type fails this test until it has words of its own.
+//
+// The line numbers are part of what is asserted. The offending value is not
+// quoted — yaml cuts it short to "Connect...", which reads like damage — so
+// the line is the only thing left saying where to look.
+func TestAValueOfTheWrongShapeIsDescribedInWords(t *testing.T) {
+	cases := map[string]struct{ body, want string }{
+		"the file itself":  {"- a\n- b\n", "line 1: this should be settings, not a list"},
+		"theme":            {"theme:\n  - a\n", "line 2: this should be a single value, not a list"},
+		"themes":           {"themes: hello\n", "line 1: this should be a palette under each name, not text"},
+		"one palette":      {"themes:\n  mine: blue\n", `line 2: this should be a palette of colour: "#rrggbb" lines, not text`},
+		"a palette number": {"themes:\n  mine: 2.5\n", `line 2: this should be a palette of colour: "#rrggbb" lines, not a number`},
+		"one colour":       {"themes:\n  mine:\n    accent:\n      a: b\n", "line 4: this should be a single value, not a block of key: value lines"},
+		"keys":             {"keys: true\n", "line 1: this should be a block of key: value lines, not true or false"},
+		"one binding":      {"keys:\n  connect:\n    - a\n", "line 3: this should be a single value, not a list"},
+		"ssh_options":      {"ssh_options: 10\n", "line 1: this should be a list, not a number"},
+		"probe_timeout":    {"probe_timeout:\n  a: b\n", "line 2: this should be a single value, not a block of key: value lines"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(write(t, tc.body))
+			if err == nil {
+				t.Fatal("Load accepted it")
+			}
+			got := err.Error()
+			if !strings.Contains(got, tc.want) {
+				t.Errorf("want %q\n got %s", tc.want, got)
+			}
+			for _, leak := range []string{"cannot unmarshal", "!!", "theme.Palette", "config.Config", "map[string]", "[]string"} {
+				if strings.Contains(got, leak) {
+					t.Errorf("leaks %q at the user: %s", leak, got)
+				}
+			}
+		})
+	}
+}
+
+// A shape yaml grows later has to fall back to yaml's own words. Describing it
+// from whichever half of the sentence was understood would produce a confident
+// wrong answer, or half a sentence, in place of something merely technical.
+func TestAComplaintOmasshDoesNotRecogniseIsLeftAlone(t *testing.T) {
+	for _, e := range []string{
+		"line 9: cannot unmarshal !!timestamp into string",
+		"line 9: cannot unmarshal !!str into chan int",
+		"line 9: mapping key \"a\" already defined at line 8",
+		"something yaml has not said before",
+	} {
+		if got := rewrite(e); got != e {
+			t.Errorf("rewrote\n %q\ninto\n %q", e, got)
+		}
+	}
+}
