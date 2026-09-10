@@ -540,13 +540,26 @@ func (m Model) helpLines() []string {
 	}
 	// The status bar carries "any key back", so the body spends none of its
 	// rows repeating it.
+	// The key column is as wide as the widest key it has to show, and never
+	// narrower than 16 — the width the built-in labels settled at, where
+	// "tab / shift+tab" ran straight into its own description at less.
+	//
+	// It has to be measured rather than fixed because a key comes from the
+	// config file: one longer than the column welded itself to the text
+	// beside it, on the very line whoever changed the binding would look for.
+	col := 16
+	for _, s := range sections {
+		for _, r := range s.rows {
+			col = max(col, ansi.StringWidth(r[0])+1)
+		}
+	}
+
 	lines := []string{theme.Title.Render(name) + theme.Dim.Render("  keyboard-driven SSH client")}
 	for _, s := range sections {
 		lines = append(lines, "", theme.Fg(theme.Yellow).Render("  "+s.title))
 		for _, r := range s.rows {
-			// Wide enough for the longest key shown, "tab / shift+tab", which
-			// at 14 ran straight into its own description.
-			lines = append(lines, theme.Key.Render(fmt.Sprintf("  %-16s", r[0]))+theme.Normal.Render(r[1]))
+			pad := strings.Repeat(" ", max(col-ansi.StringWidth(r[0]), 0))
+			lines = append(lines, theme.Key.Render("  "+r[0]+pad)+theme.Normal.Render(r[1]))
 		}
 	}
 	return lines

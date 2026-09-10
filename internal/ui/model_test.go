@@ -2198,3 +2198,63 @@ func groupIndex(t *testing.T, m Model, name string) int {
 	t.Fatalf("no group %q in the tree", name)
 	return 0
 }
+
+// column is where text starts on a line, in cells, so two rows can be checked
+// against each other without counting the bytes a border takes.
+func column(line, text string) int {
+	i := strings.Index(line, text)
+	if i < 0 {
+		return -1
+	}
+	return ansiWidth(line[:i])
+}
+
+func helpLine(t *testing.T, screen, text string) string {
+	t.Helper()
+	for _, l := range strings.Split(screen, "\n") {
+		if strings.Contains(l, text) {
+			return l
+		}
+	}
+	t.Fatalf("the help screen has no line saying %q:\n%s", text, screen)
+	return ""
+}
+
+// A key comes from the config file, so it can be longer than the column the
+// built-in labels settled at. It used to weld itself onto the text beside it —
+// "ctrl+shift+alt+enterconnect —" — on the one line whoever rebound the key
+// would go looking for.
+func TestALongKeyBindingDoesNotRunIntoItsDescription(t *testing.T) {
+	const bound = "ctrl+shift+alt+enter"
+	km, err := keymap.New(map[string]string{"connect": bound})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t, func(o *Options) { o.Keys = km })
+	h.press("?")
+	screen := h.screen()
+
+	h.mustNotContain(bound + "connect")
+
+	// The column is a column: every key's description starts in the same
+	// place, or the list stops reading as two of them.
+	long := helpLine(t, screen, bound)
+	short := helpLine(t, screen, "edit the selection")
+	if a, b := column(long, "connect —"), column(short, "edit the selection"); a != b {
+		t.Errorf("descriptions start at columns %d and %d, want the same:\n%s\n%s", a, b, long, short)
+	}
+}
+
+// Widening happens only for a key that needs it: with the default bindings the
+// cheatsheet is laid out exactly as it always was.
+func TestTheHelpColumnsAreUnchangedByDefault(t *testing.T) {
+	h := newHarness(t)
+	h.press("?")
+	// Two cells of border, two of indent and a sixteen-cell key column: the
+	// same twenty this has always been, measured off the screen rather than
+	// worked out, since it is what the reader's eye follows down the page.
+	line := helpLine(t, h.screen(), "edit the selection")
+	if got := column(line, "edit the selection"); got != 20 {
+		t.Errorf("descriptions start at column %d, want the 20 they always have:\n%s", got, line)
+	}
+}
