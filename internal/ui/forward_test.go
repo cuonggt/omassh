@@ -477,16 +477,17 @@ func TestTheStaleNoticeFitsTheDialog(t *testing.T) {
 	h.mustContain("↵ restarts it")
 }
 
+// withTmux says whether the interface should believe tmux is installed.
+func withTmux(ok bool) func(*Options) {
+	return func(o *Options) { o.TmuxAvailable = func() bool { return ok } }
+}
+
 // On a machine with no tmux there is no tunnel to be had, and the screen has
 // to say so where it can be read — not after a rule has been written and
 // started. It used to describe the tmux server a tunnel runs on, to someone
 // who had no tmux to run one.
 func TestWithoutTmuxTheScreenSaysSo(t *testing.T) {
-	// LookPath is how availability is decided, so an empty PATH is a machine
-	// without it.
-	t.Setenv("PATH", t.TempDir())
-
-	h := newHarness(t)
+	h := newHarness(t, withTmux(false))
 	host := h.addHost("db-01", "10.0.0.1")
 	h.selectHost("db-01")
 
@@ -503,12 +504,12 @@ func TestWithoutTmuxTheScreenSaysSo(t *testing.T) {
 	h.mustNotContain("↵ starts it")
 }
 
-// With tmux there, none of that appears.
+// With tmux there, none of that appears. Both halves of the contrast are
+// drawn from what the model was told rather than from what the machine has, so
+// the pair says the same thing on a build agent without tmux as on a laptop
+// with it — and neither half decides it by reaching for the process PATH.
 func TestWithTmuxTheOfferStands(t *testing.T) {
-	if !term.TmuxAvailable() {
-		t.Skip("tmux not installed, so there is no contrast to draw")
-	}
-	h := newHarness(t)
+	h := newHarness(t, withTmux(true))
 	host := h.addHost("db-01", "10.0.0.1")
 	h.addForward(host.ID, 5432, "localhost", 5432)
 	h.selectHost("db-01")

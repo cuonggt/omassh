@@ -82,6 +82,14 @@ type Options struct {
 	// the interface needs to know nothing about where configuration lives —
 	// and leaving it nil makes the choice last only for the session.
 	SaveTheme func(name string) error
+
+	// TmuxAvailable reports whether tmux can be found. It is a field so the
+	// tests can describe a machine without one: they used to say it by
+	// emptying PATH, which is process-wide, so a question about what a single
+	// screen says was answered by changing the environment every goroutine in
+	// the run shares — including the ones that shell out to tmux. Nil asks the
+	// machine, so only the tests pay for the indirection.
+	TmuxAvailable func() bool
 }
 
 // Model is the root Bubble Tea model.

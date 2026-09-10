@@ -351,6 +351,16 @@ func forwardMarker(st term.ForwardState, known, stale bool) (string, color.Color
 	}
 }
 
+// tmuxAvailable is what the forwards screens describe the machine as. The
+// option carries it so a test can be a machine without tmux without editing
+// the environment the whole run shares; nil is the real answer.
+func (m Model) tmuxAvailable() bool {
+	if m.opts.TmuxAvailable != nil {
+		return m.opts.TmuxAvailable()
+	}
+	return term.TmuxAvailable()
+}
+
 func (m Model) forwardsBody(w int) string {
 	fs := m.d.forwardsFor(m.forwardHost.ID)
 	if len(fs) == 0 {
@@ -362,7 +372,7 @@ func (m Model) forwardsBody(w int) string {
 			"a tunnel runs on omassh's tmux server, so it",
 			"outlives the window that started it",
 		}
-		if !term.TmuxAvailable() {
+		if !m.tmuxAvailable() {
 			why = []string{
 				"port forwarding needs tmux, which is not installed —",
 				"without it a tunnel would die with omassh and still",
@@ -425,7 +435,7 @@ func (m Model) forwardDetail() []string {
 		}
 	case st.Running:
 		return []string{theme.Fg(theme.Green).Render("running") + theme.Dim.Render("  ↵ stops it")}
-	case !known && !term.TmuxAvailable():
+	case !known && !m.tmuxAvailable():
 		// ↵ cannot start it, so it must not be offered as though it could.
 		return []string{
 			theme.Fg(theme.Yellow).Render("port forwarding needs tmux"),
