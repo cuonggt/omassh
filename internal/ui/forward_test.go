@@ -863,3 +863,118 @@ func TestARemoteRuleIsNotBlamedForALocalPort(t *testing.T) {
 		t.Errorf("a remote rule was blamed for a local port: %q", got)
 	}
 }
+
+// confirmLines is the dialog's body as it will be drawn, escapes stripped.
+// The rendered screen is boxes side by side with this one overlaid in the
+// middle, so reading it back off the screen finds the pane behind it; the
+// body is what the box is actually given.
+func confirmLines(h *harness) []string {
+	const width = 60 // what dialog() passes: the box's content width
+	var out []string
+	for _, l := range strings.Split(ansiRE.ReplaceAllString(h.m.confirmBody(width), ""), "\n") {
+		if strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func confirmSays(h *harness) string {
+	return strings.Join(strings.Fields(strings.Join(confirmLines(h), " ")), " ")
+}
+
+// Every line has to fit the box, because box() cuts what does not — which is
+// how the end of the sentence went missing in the first place.
+func confirmFits(t *testing.T, h *harness) {
+	t.Helper()
+	for _, l := range confirmLines(h) {
+		if w := ansiWidth(l); w > 60 {
+			t.Errorf("a line %d cells wide will be cut at 60: %q", w, l)
+		}
+	}
+}
+
+// The confirmation is the sentence that says what a destructive action will
+// do, and what it says last is the part that reassures — "nothing is
+// deleted", "session history is kept". Cutting the line at the border took
+// exactly that off, and left the group things were moving to half spelled.
+func TestALongConfirmationWrapsRatherThanTruncating(t *testing.T) {
+	h := newHarness(t)
+	parent := h.addGroup("capichi-production-singapore", "")
+	child := h.addGroup("capichi-production-singapore-legacy", parent.ID)
+	for _, n := range []string{"web-01", "web-02", "web-03"} {
+		h.addGroupedHost(n, child.ID)
+	}
+	h.m.focus = panelGroups
+	for i, g := range h.m.d.tree {
+		if g.ID == child.ID {
+			h.m.groupIdx = i
+		}
+	}
+
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Fatalf("d did not ask, mode is %v", h.m.mode)
+	}
+	got := confirmSays(h)
+	// Where things go, and that nothing is lost: the two questions it exists
+	// to answer, both of which the truncation took.
+	for _, want := range []string{
+		"Delete group capichi-production-singapore-legacy?",
+		"3 host(s) move to",
+		"nothing is deleted",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the dialog does not say %q; it says: %s", want, got)
+		}
+	}
+	confirmFits(t, h)
+
+	// And through the real render, so the width the dialog hands it is pinned
+	// too: get that wrong and box truncates the line exactly as before.
+	h.mustContain("nothing is deleted")
+}
+
+// And a name with no break opportunities at all still cannot overflow: it is
+// hard-broken, because a line wider than the box is truncated there, which is
+// the thing being fixed.
+func TestAnUnbreakableNameIsBrokenRatherThanOverflowing(t *testing.T) {
+	h := newHarness(t)
+	parent := h.addGroup(strings.Repeat("z", 70), "")
+	child := h.addGroup("child", parent.ID)
+	h.addGroupedHost("web-01", child.ID)
+	h.m.focus = panelGroups
+	for i, g := range h.m.d.tree {
+		if g.ID == child.ID {
+			h.m.groupIdx = i
+		}
+	}
+
+	h.press("d")
+	got := confirmSays(h)
+	if !strings.Contains(got, "nothing is deleted") {
+		t.Errorf("the end of the sentence was lost: %s", got)
+	}
+	if n := strings.Count(got, "z"); n != 70 {
+		t.Errorf("the name appears as %d characters, want all 70: %s", n, got)
+	}
+	confirmFits(t, h)
+}
+
+// The host confirmation carries the same risk, and got longer when forwards
+// were added to what it has to say.
+func TestTheHostConfirmationWrapsToo(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+
+	h.press("d")
+	got := confirmSays(h)
+	for _, want := range []string{"its forward goes too", "session history is kept"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the dialog does not say %q; it says: %s", want, got)
+		}
+	}
+	confirmFits(t, h)
+}

@@ -90,7 +90,7 @@ func (m Model) dialog(content int) (string, bool) {
 		d := box(m.form.title, true, w, h, body)
 		return overlay(d, list, 4, top), true
 	case modeConfirm:
-		body := m.confirmBody()
+		body := m.confirmBody(w - 4)
 		return box("Confirm", true, w, dialogHeight(body, content), body), true
 	case modeForwards:
 		body := m.forwardsBody(w-4, content)
@@ -396,10 +396,30 @@ func detailField(k, v, from string) string {
 	return s
 }
 
-func (m Model) confirmBody() string {
-	return "\n  " + theme.Fg(theme.TextBrt).Bold(true).Render(m.confirm.prompt) +
-		"\n\n  " + theme.Dim.Render(m.confirm.detail) +
+func (m Model) confirmBody(w int) string {
+	// Wrapped rather than cut. This is the sentence that says what a
+	// destructive action is about to do, and what it says last is the part
+	// that reassures — "nothing is deleted", "session history is kept".
+	// Truncating at the border took exactly that off, and left the group
+	// things were moving to half spelled, so the dialog stopped answering
+	// either of the questions it exists to answer.
+	return "\n  " + wrapIndented(m.confirm.prompt, w, theme.Fg(theme.TextBrt).Bold(true)) +
+		"\n\n  " + wrapIndented(m.confirm.detail, w, theme.Dim) +
 		"\n\n  " + hint("y", "yes") + theme.Dim.Render("  ·  ") + hint("n", "no")
+}
+
+// wrapIndented wraps text to the width inside a two-space indent, styling each
+// line and indenting the ones after the first to line up under it.
+//
+// ansi.Wrap rather than Wordwrap: a host or group name is one long token with
+// no spaces to break at, and Wordwrap would let it run past the border to be
+// truncated there — which is the thing being fixed.
+func wrapIndented(s string, w int, st lipgloss.Style) string {
+	lines := strings.Split(ansi.Wrap(s, max(w-2, 1), ""), "\n")
+	for i, l := range lines {
+		lines[i] = st.Render(l)
+	}
+	return strings.Join(lines, "\n  ")
 }
 
 // helpRows is how many lines of the cheatsheet fit inside its border.
