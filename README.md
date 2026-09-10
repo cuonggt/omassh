@@ -149,10 +149,16 @@ port that cannot be bound is a failure rather than a connection carrying
 nothing, and `ServerAliveInterval` so a tunnel whose network went away is
 reported as stopped instead of holding its port and reading as up.
 
-`BatchMode` is forced on, because nobody is watching: a passphrase or host-key
-prompt in a detached session would wait for an answer that is never coming, and
-"up" would mean a question rather than a tunnel. `ssh-add` the key first, and
-connect once interactively to accept an unknown host key.
+`BatchMode` and `ExitOnForwardFailure` are forced on, ahead of anything `-o`
+passes in, because nobody is watching: a passphrase or host-key prompt in a
+detached session waits for an answer that is never coming, and a connection
+that could not bind its port carries nothing. Either way "up" would mean
+something other than a tunnel — with `-o BatchMode=no` on omassh's own command
+line, a forward to a host that refused the key sat at a password prompt while
+the interface reported it running. They are not preferences competing with
+yours; they are what makes `▶` mean anything. `ssh-add` the key first, and
+connect once interactively to accept an unknown host key. The keepalives are a
+preference, and stay yours to tune.
 
 The local port is bound here before ssh is asked to bind it, so a port already
 in use is a sentence naming the port rather than a tunnel that vanishes a

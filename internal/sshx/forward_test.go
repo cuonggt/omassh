@@ -118,3 +118,58 @@ func TestListenAvailableAcceptsAFreePort(t *testing.T) {
 		t.Errorf("the check kept the port to itself: %v", err)
 	}
 }
+
+// ssh takes the first value it is given for a setting, so what leads the argv
+// is what holds. Two of a forward's options are not preferences: without them
+// "running" stops meaning "carrying", and the interface reported a tunnel as
+// up while its ssh sat at a password prompt in a pane nobody was looking at.
+func TestAForwardsLoadBearingOptionsCannotBeOverridden(t *testing.T) {
+	t.Cleanup(func() { SetGlobalOptions(nil) })
+	SetGlobalOptions([]string{"BatchMode=no", "ExitOnForwardFailure=no", "ServerAliveInterval=99"})
+
+	got := ForwardArgs(store.Host{Addr: "10.0.1.14"},
+		store.Forward{Kind: store.ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432})
+
+	first := func(prefix string) int {
+		for i, a := range got {
+			if strings.HasPrefix(a, prefix) {
+				return i
+			}
+		}
+		return -1
+	}
+	for _, o := range []struct{ ours, theirs string }{
+		{"BatchMode=yes", "BatchMode=no"},
+		{"ExitOnForwardFailure=yes", "ExitOnForwardFailure=no"},
+	} {
+		ours, theirs := first(o.ours), first(o.theirs)
+		if ours < 0 || theirs < 0 {
+			t.Fatalf("expected both %q and %q in %v", o.ours, o.theirs, got)
+		}
+		if ours > theirs {
+			t.Errorf("%q comes after %q, so the override wins: %v", o.ours, o.theirs, got)
+		}
+	}
+
+	// The keepalives are a preference, so someone who tuned their own keeps it.
+	if mine, yours := first("ServerAliveInterval=30"), first("ServerAliveInterval=99"); yours > mine {
+		t.Errorf("a tuned keepalive was overridden: %v", got)
+	}
+}
+
+// ssh spells "every interface" with a star and Go spells it with nothing, so
+// the check has to translate. Left alone, net.Listen would reject "*:port" and
+// every such rule would be refused as a port already in use.
+func TestListenAvailableUnderstandsTheStar(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+
+	f := store.Forward{Kind: store.ForwardLocal, Listen: "*", ListenPort: port}
+	if err := ListenAvailable(f); err != nil {
+		t.Errorf("a free port bound to every interface was refused: %v", err)
+	}
+}

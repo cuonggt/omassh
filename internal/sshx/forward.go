@@ -17,28 +17,35 @@ import (
 // chains included. Only the flags that make a connection a tunnel are added:
 //
 //   - -N asks for no remote command, since a forward has nothing to run.
-//   - ExitOnForwardFailure makes ssh give up when the port cannot be bound,
-//     rather than holding a connection that carries nothing.
 //   - BatchMode refuses to prompt. The tunnel runs where nobody is watching,
 //     so a passphrase or host-key prompt would wait for an answer that is
-//     never coming, and the interface would report a tunnel that is up when
-//     what is up is a question. Failing says which key to add instead.
-//   - The keepalives are what make "running" mean something: without them a
-//     connection whose network went away holds its port open indefinitely and
-//     the interface goes on showing it as up.
+//     never coming. Failing says which key to add instead.
+//   - ExitOnForwardFailure makes ssh give up when the port cannot be bound,
+//     rather than holding a connection that carries nothing.
+//   - The keepalives mean a connection whose network went away is noticed,
+//     instead of holding its port open indefinitely.
 //
-// These are appended after the global -o settings, so an option given on
-// omassh's own command line still wins — ssh takes the first value it is
-// given for a setting.
+// The first two lead, ahead of the global -o settings, and ssh takes the first
+// value it is given for a setting — so they cannot be overridden. They are not
+// preferences competing with the user's: they are what makes "running" mean
+// "carrying". With BatchMode turned off from omassh's own command line, a
+// tunnel to a host that refused the key sat at a password prompt in a detached
+// pane, and the interface reported it as up — a tunnel binding nothing, with
+// nobody there to answer.
+//
+// The keepalives are a preference, and follow the global settings so that
+// someone who has tuned their own still gets them.
 func ForwardArgs(h store.Host, f store.Forward) []string {
-	return Build(h,
-		"-N",
-		"-o", "ExitOnForwardFailure=yes",
+	fixed := []string{
 		"-o", "BatchMode=yes",
+		"-o", "ExitOnForwardFailure=yes",
+	}
+	return append(fixed, Build(h,
+		"-N",
 		"-o", "ServerAliveInterval=30",
 		"-o", "ServerAliveCountMax=3",
 		f.Flag(), f.Spec(),
-	)
+	)...)
 }
 
 // ListenAvailable reports whether the near end of a rule can be bound.
