@@ -517,3 +517,27 @@ func TestWithTmuxTheOfferStands(t *testing.T) {
 	h.mustContain("↵ starts it")
 	h.mustNotContain("needs tmux")
 }
+
+// Two windows keep up with each other by reading the disk again, and r is how
+// that is asked for. In this view it asked only tmux, so a rule added in the
+// other window was invisible until the view was closed and reopened.
+func TestReloadInTheForwardsViewSeesAnotherWindowsRule(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+	h.mustNotContain("8080 → localhost:80")
+
+	// Written straight to the store, the way another window would.
+	if _, err := h.store.PutForward(store.Forward{
+		HostID: host.ID, Kind: store.ForwardLocal,
+		ListenPort: 8080, Dest: "localhost", DestPort: 80,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	h.press("r")
+	h.mustContain("8080 → localhost:80")
+	h.mustContain("5432 → localhost:5432")
+}

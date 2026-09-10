@@ -100,7 +100,13 @@ func (m Model) handleForwardsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "k", "up":
 		m.forwardIdx = clamp(m.forwardIdx-1, 0, len(fs)-1)
 	case "g", "r":
-		m.refreshForwards()
+		// The store as well as the tunnels. Everywhere else in the interface
+		// r means "read the disk again", and that is the whole of how two
+		// windows keep up with each other — but here it asked only tmux, so a
+		// rule added in the other window stayed invisible until this view was
+		// closed and opened again.
+		m.reload()
+		m.forwardIdx = clamp(m.forwardIdx, 0, len(m.d.forwardsFor(m.forwardHost.ID))-1)
 		m.setStatus("refreshed")
 	case "enter", " ", "space":
 		return m.toggleForward()

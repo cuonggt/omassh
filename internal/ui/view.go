@@ -449,7 +449,7 @@ func (m Model) helpLines() []string {
 		{"Port forwarding (" + m.keys.Key(keymap.Forward) + ")", [][2]string{
 			{"↵", "start or stop the highlighted tunnel"},
 			{"n / e / d", "new / edit / delete a rule"},
-			{m.keys.Key(keymap.Reload), "re-ask tmux what is still up"},
+			{m.keys.Key(keymap.Reload), "reload the rules, and re-ask what is still up"},
 			{"", "local  binds a port here and carries it out of the host"},
 			{"", "remote binds a port on the host and carries it back"},
 			{"", "dynamic binds a SOCKS proxy here"},
