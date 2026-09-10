@@ -718,3 +718,28 @@ func TestALongNameDoesNotEatTheMarks(t *testing.T) {
 		t.Errorf("the mark did not survive on the host row: %q", row)
 	}
 }
+
+// A host can have both at once: a session waiting and a tunnel up. They are
+// separate tmux sessions under separate names, and the row has to show both —
+// neither is derivable from the other, and each is the only sign of its own.
+func TestASessionAndATunnelBothMarkTheRow(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	f := h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+
+	h.mustNotContain("db-01 ●")
+	h.mustNotContain("db-01 ▶")
+
+	h.m.d.live = map[string]bool{sessionNameFor(host): true}
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(f): {Running: true},
+	}
+	h.mustContain("db-01 ● ▶")
+
+	// And the two names cannot be the same string, or stopping one would end
+	// the other.
+	if sessionNameFor(host) == term.ForwardSessionName(f) {
+		t.Error("a host's session and its tunnel share a name")
+	}
+}
