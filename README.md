@@ -147,6 +147,14 @@ stored, so importing fills in and corrects but never blanks; clearing a field
 is the interface's job. `-n` reports what an import would do and writes
 nothing.
 
+A key the format does not have is named with its line rather than skipped
+past. An import reports the same `2 added, 0 updated` whether or not it
+understood every line, so `jump_host` where the field is `jump` would
+otherwise leave that host showing `via —` and nothing on screen to say a line
+was dropped — the mistake and the success read identically. More than one YAML
+document in the file is refused on the same grounds, since only the first
+would be imported; a file that merely opens with `---` is still one document.
+
 Session history itself stays behind. "Last connected two hours ago" is a fact
 about the machine that connected, and carrying it across would let a laptop's
 history overwrite a desktop's on every import.
@@ -239,8 +247,10 @@ startup rather than ignored, because settings that silently do nothing are
 worse than an error that says why — and so is a key that is not a setting.
 `ssh_option` without its `s`, or a palette with `selected` where it means
 `selected_bg`, is named with its line rather than skipped past, since skipping
-looks exactly like the file not being read at all. Arrow keys and `ctrl+c` are
-reserved and always work, so no config can trap you in the program.
+looks exactly like the file not being read at all. More than one YAML document
+in the file is refused for the same reason, since only the first would take
+effect. Arrow keys and `ctrl+c` are reserved and always work, so no config can
+trap you in the program.
 
 `T` opens a theme picker that recolours the interface as you move through it,
 since a palette is something you judge by looking at it. Keeping one writes
