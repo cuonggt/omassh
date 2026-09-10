@@ -284,3 +284,46 @@ func TestAComplaintOmasshDoesNotRecogniseIsLeftAlone(t *testing.T) {
 		}
 	}
 }
+
+// A duration that will not parse must be described the way the file spells
+// one. time.ParseDuration says `time: invalid duration "soon"`, which puts a
+// Go package name where this file has setting names.
+func TestABadProbeTimeoutSaysWhatALengthOfTimeLooksLike(t *testing.T) {
+	cases := map[string]struct{ body, value string }{
+		"in words":    {"probe_timeout: soon\n", `"soon"`},
+		"without ing": {"probe_timeout: 5\n", `"5"`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(write(t, tc.body))
+			if err == nil {
+				t.Fatal("Load accepted it")
+			}
+			got := err.Error()
+			for _, w := range []string{"probe_timeout", tc.value, "2s"} {
+				if !strings.Contains(got, w) {
+					t.Errorf("does not say %s: %s", w, got)
+				}
+			}
+			for _, leak := range []string{"time: invalid", "time: missing"} {
+				if strings.Contains(got, leak) {
+					t.Errorf("leaks %q at the user: %s", leak, got)
+				}
+			}
+		})
+	}
+}
+
+// Zero is a valid duration and a useless timeout: it calls every host down
+// before it has been given a chance to answer.
+func TestAProbeTimeoutOfZeroOrLessIsRefused(t *testing.T) {
+	for _, v := range []string{"0s", "-2s"} {
+		_, err := Load(write(t, "probe_timeout: "+v+"\n"))
+		if err == nil {
+			t.Fatalf("Load accepted probe_timeout: %s", v)
+		}
+		if !strings.Contains(err.Error(), "longer than zero") {
+			t.Errorf("probe_timeout: %s says %v", v, err)
+		}
+	}
+}

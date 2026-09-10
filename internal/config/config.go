@@ -232,10 +232,14 @@ func (c Config) ProbeDuration() (time.Duration, error) {
 	}
 	d, err := time.ParseDuration(c.ProbeTimeout)
 	if err != nil {
-		return 0, fmt.Errorf("probe_timeout: %w", err)
+		// time.ParseDuration says `time: invalid duration "soon"`, which puts
+		// a Go package name where this file has setting names and reads as
+		// though "time" were a key of its own. What is missing is nearly
+		// always the unit, so the answer is an example rather than a rule.
+		return 0, fmt.Errorf("probe_timeout: %q is not a length of time — try 2s, 750ms or 1m", c.ProbeTimeout)
 	}
 	if d <= 0 {
-		return 0, fmt.Errorf("probe_timeout must be positive")
+		return 0, fmt.Errorf("probe_timeout: %q must be longer than zero", c.ProbeTimeout)
 	}
 	return d, nil
 }
