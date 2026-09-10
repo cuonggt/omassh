@@ -100,10 +100,12 @@ func (m Model) dialog(content int) (string, bool) {
 			listPosition(m.forwardIdx, len(m.d.forwardsFor(m.forwardHost.ID)), m.forwardListRows(content))
 		return box(title, true, w, dialogHeight(body, content), body), true
 	case modeTheme:
-		// Narrower than the rest: the entries are one word, and a dialog this
-		// size leaves more of the coloured interface showing behind it, which
-		// is the thing actually being previewed.
-		tw := clamp(34, 20, m.w-4)
+		// Narrower than the rest: a dialog this size leaves more of the
+		// coloured interface showing behind it, which is the thing actually
+		// being previewed. It widens for a name that does not fit, since the
+		// built-ins are one word but a palette from the config file is named
+		// by whoever wrote it.
+		tw := clamp(m.themeWidth(), 20, m.w-4)
 		body := m.themeBody(tw - 4)
 		return box("Theme", true, tw, dialogHeight(body, content), body), true
 	}

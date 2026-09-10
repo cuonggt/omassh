@@ -2,8 +2,10 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
 	"github.com/cuonggt/omassh/internal/ui/theme"
@@ -136,5 +138,58 @@ func TestAThemeThatCannotBeSavedStillApplies(t *testing.T) {
 	}
 	if !h.contains("read-only file system") {
 		t.Errorf("the failure was not reported:\n%s", h.screen())
+	}
+}
+
+// longTheme is a palette named the way people name them in a config file,
+// rather than the way the built-ins are named.
+const longTheme = "capichi-production-dark-high-contrast"
+
+func withLongTheme(o *Options) {
+	o.Themes = map[string]theme.Palette{longTheme: {Accent: "#ff8800"}}
+}
+
+// The picker is the only place a palette's name is written, and it was drawn
+// in a box fixed at 34 cells however much room there was — so a name from the
+// config file lost its end on a terminal with a hundred columns to spare, and
+// two names differing late in them drew as the same row.
+func TestALongThemeNameIsListedInFull(t *testing.T) {
+	h, _ := themeHarness(t, withLongTheme)
+	h.press("T")
+	h.mustContain(longTheme)
+	// The built-ins are what the narrow box was for; widening for one long
+	// name must not stop them being listed.
+	for _, name := range theme.BuiltinNames() {
+		h.mustContain(name)
+	}
+}
+
+// Widening happens only when a name asks for it. With the built-ins alone the
+// picker is the size it has always been, because what it is for is the
+// interface showing around it rather than the list itself.
+func TestTheThemePickerIsUnchangedForTheBuiltIns(t *testing.T) {
+	h, _ := themeHarness(t)
+	h.press("T")
+	if got := h.m.themeWidth(); got != 34 {
+		t.Errorf("the picker is %d cells wide for the built-ins, want the 34 it has always been", got)
+	}
+}
+
+// Widening stops at the frame. Where the name will not fit it is cut with an
+// ellipsis, rather than drawn through the border or off the screen.
+func TestTheThemePickerStaysInsideTheFrame(t *testing.T) {
+	h, _ := themeHarness(t, withLongTheme)
+	for _, size := range [][2]int{{200, 50}, {100, 30}, {60, 20}, {40, 12}} {
+		h.send(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		h.press("T")
+		if h.m.mode != modeTheme {
+			t.Fatalf("%dx%d: T did not open the picker", size[0], size[1])
+		}
+		for i, l := range strings.Split(h.screen(), "\n") {
+			if w := ansiWidth(l); w > size[0] {
+				t.Errorf("%dx%d line %d is %d wide, want at most %d", size[0], size[1], i, w, size[0])
+			}
+		}
+		h.press("esc")
 	}
 }

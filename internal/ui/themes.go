@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/ui/theme"
@@ -108,6 +109,23 @@ func (m Model) keepTheme() (tea.Model, tea.Cmd) {
 	}
 	m.setStatus("theme " + name)
 	return m, nil
+}
+
+// themeWidth is how wide the picker has to be for what it is listing.
+//
+// The built-in names all fit the 34 it has always been, and that width is
+// deliberate: the point of the picker is the interface showing around it. A
+// palette from the config file is named by hand, though, and one long enough
+// to be cut lost the end of itself in the only place it is written — so two
+// that differ late in the name drew as the same row, in a list whose whole job
+// is telling them apart.
+func (m Model) themeWidth() int {
+	w := 34
+	for _, n := range m.themes.names {
+		// Two cells of marker, four of border and padding.
+		w = max(w, ansi.StringWidth(n)+6)
+	}
+	return w
 }
 
 // themeBody lists the palettes, marking the one that is actually configured
