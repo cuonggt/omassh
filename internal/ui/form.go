@@ -165,7 +165,16 @@ func (f *form) render(w int) string {
 		b.WriteString("  " + marker + label + x.input.View() + "\n")
 	}
 	if f.problem != "" {
-		b.WriteString("\n  " + theme.Fg(theme.Red).Render("✖ "+f.problem) + "\n")
+		// Wrapped, for the reason a confirmation is. What a complaint says
+		// last is usually what it is about: "would be its own ancestor" cut
+		// to "would be it…" leaves a group name and no complaint, and the
+		// store's busy message leads with the database path, so cutting it
+		// leaves a path and nothing else at all.
+		lines := strings.Split(ansi.Wrap(f.problem, max(w-4, 1), ""), "\n")
+		b.WriteString("\n  " + theme.Fg(theme.Red).Render("✖ "+lines[0]) + "\n")
+		for _, l := range lines[1:] {
+			b.WriteString("    " + theme.Fg(theme.Red).Render(l) + "\n")
+		}
 	}
 	b.WriteString("\n" + theme.Dim.Render("  ") +
 		hint("tab", "next field") + theme.Dim.Render("  ·  ") +

@@ -978,3 +978,116 @@ func TestTheHostConfirmationWrapsToo(t *testing.T) {
 	}
 	confirmFits(t, h)
 }
+
+// formLines is the form's body as the box will be given it, escapes stripped.
+func formLines(h *harness) []string {
+	const width = 60 // what dialog() passes
+	var out []string
+	for _, l := range strings.Split(ansiRE.ReplaceAllString(h.m.form.render(width), ""), "\n") {
+		if strings.TrimSpace(l) != "" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// A complaint says last what it is about, so cutting the line at the border
+// takes the complaint and leaves the name: "would be its own ancestor" became
+// "would be it…", and the store's busy message leads with the database path,
+// so cutting that leaves a path and nothing else.
+func TestALongFormProblemWrapsRatherThanTruncating(t *testing.T) {
+	h := newHarness(t)
+	parent := h.addGroup("capichi-production-singapore", "")
+	child := h.addGroup("capichi-production-singapore-legacy", parent.ID)
+	h.m.focus = panelGroups
+	for i, g := range h.m.d.tree {
+		if g.ID == parent.ID {
+			h.m.groupIdx = i
+		}
+	}
+
+	// Make the parent a child of its own child: the store refuses it.
+	h.press("e", "tab")
+	h.type_(child.Name)
+	h.press("enter")
+
+	if h.m.mode != modeForm {
+		t.Fatalf("the cycle was accepted; mode is %v", h.m.mode)
+	}
+	said := strings.Join(strings.Fields(strings.Join(formLines(h), " ")), " ")
+	if !strings.Contains(said, "would be its own ancestor") {
+		t.Errorf("the complaint was cut short; the form says: %s", said)
+	}
+	for _, l := range formLines(h) {
+		if w := ansiWidth(l); w > 60 {
+			t.Errorf("a line %d cells wide will be cut at 60: %q", w, l)
+		}
+	}
+}
+
+// The worst of them: a message that leads with a path, so truncation leaves
+// the path and none of the reason.
+func TestAProblemLeadingWithAPathStillSaysWhy(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("db-01", "10.0.0.1")
+	h.selectHost("db-01")
+	h.press("e")
+	h.m.form.problem = "/Users/someone/Library/Application Support/omassh/omassh.db is busy — another omassh has been writing to it for over 5s"
+
+	said := strings.Join(strings.Fields(strings.Join(formLines(h), " ")), " ")
+	if !strings.Contains(said, "another omassh has been writing to it") {
+		t.Errorf("the reason was cut; the form says: %s", said)
+	}
+	for _, l := range formLines(h) {
+		if w := ansiWidth(l); w > 60 {
+			t.Errorf("a line %d cells wide will be cut at 60: %q", w, l)
+		}
+	}
+}
+
+// A name with nothing to break at is the case Wordwrap cannot handle: it
+// leaves the line over the width, and the box cuts it there — which is the
+// thing being fixed. And the continuation lines sit under the text, not
+// against the border.
+func TestAnUnbreakableProblemIsBrokenAndIndented(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("db-01", "10.0.0.1")
+	h.selectHost("db-01")
+	h.press("e")
+	h.m.form.problem = `group "` + strings.Repeat("z", 70) + `" would be its own ancestor`
+
+	// Just the complaint: the fields above it are their own business, and the
+	// hints below it are not part of it.
+	var problem []string
+	for _, l := range formLines(h) {
+		if strings.Contains(l, "✖") {
+			problem = append(problem, l)
+			continue
+		}
+		if len(problem) > 0 {
+			if strings.Contains(l, "tab next field") {
+				break
+			}
+			problem = append(problem, l)
+		}
+	}
+	if len(problem) < 2 {
+		t.Fatalf("the complaint did not wrap at all: %q", problem)
+	}
+
+	said := strings.Join(strings.Fields(strings.Join(problem, " ")), " ")
+	if !strings.Contains(said, "would be its own ancestor") {
+		t.Errorf("the complaint was cut short: %s", said)
+	}
+	for _, l := range problem {
+		if w := ansiWidth(l); w > 60 {
+			t.Errorf("a line %d cells wide will be cut at 60: %q", w, l)
+		}
+	}
+	// The lines after the first line up under the text, past the ✖.
+	for _, l := range problem[1:] {
+		if !strings.HasPrefix(l, "    ") {
+			t.Errorf("a continuation line is not indented under the text: %q", l)
+		}
+	}
+}
