@@ -4,9 +4,11 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -434,4 +436,69 @@ func TestAPortAlreadyTakenIsRefusedBeforeAnythingIsStarted(t *testing.T) {
 	if st, ok := states[term.ForwardSessionName(f)]; ok {
 		t.Errorf("a session was left behind for a forward that never started: %+v", st)
 	}
+}
+
+// tmux reports a signal death with an empty exit status, so reading the status
+// alone scored it as zero — and a tunnel the system killed read exactly like
+// one stopped on purpose, which is the distinction the marks exist to draw.
+func TestATunnelKilledBySignalCountsAsFailed(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed")
+	}
+	killServer(t)
+	forwardOptions(t)
+
+	target := startGreeter(t, "the service")
+	h := forwardingHost(t, true)
+	f := store.Forward{
+		ID: "fwd-killed", HostID: h.ID, Kind: store.ForwardLocal,
+		ListenPort: freePort(t), Dest: "127.0.0.1", DestPort: target,
+	}
+	if err := term.StartForward(f, sshx.ForwardArgs(h, f)); err != nil {
+		t.Fatalf("StartForward: %v", err)
+	}
+	t.Cleanup(func() { term.StopForward(f) })
+
+	name := term.ForwardSessionName(f)
+	// The pane's own process, as tmux knows it — matching the command line
+	// would also catch the tmux server, whose argv carries the same text.
+	out, err := exec.Command("tmux", "-L", os.Getenv(term.SocketEnv),
+		"list-panes", "-t", name, "-F", "#{pane_pid}").Output()
+	if err != nil {
+		t.Fatalf("finding the pane's process: %v", err)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatalf("pane pid %q: %v", out, err)
+	}
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil {
+		t.Fatalf("killing the tunnel's ssh: %v", err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if st, ok := mustStates(t)[name]; ok && !st.Running {
+			if !st.Failed() {
+				t.Fatalf("a tunnel killed by a signal reports %+v, which reads as a clean stop", st)
+			}
+			if st.Signal == "" {
+				t.Errorf("nothing was recorded about what killed it: %+v", st)
+			}
+			if r := term.FailureReason(name, st); !strings.Contains(r, "kill") {
+				t.Errorf("FailureReason = %q, want it to say it was killed", r)
+			}
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("the tunnel never showed as stopped")
+}
+
+func mustStates(t *testing.T) map[string]term.ForwardState {
+	t.Helper()
+	states, err := term.ForwardStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return states
 }

@@ -47,10 +47,22 @@ type ForwardState struct {
 	Running bool
 	// Exit is ssh's exit code, once it has stopped.
 	Exit int
+	// Signal names what killed it, when something did. tmux reports a signal
+	// death with an empty exit status, so reading the status alone made a
+	// tunnel the system killed — out of memory, a stray pkill — read exactly
+	// like one stopped on purpose, which is the distinction the marks exist
+	// to draw.
+	Signal string
 	// Args identifies the invocation actually running, which is not always
 	// the one the rule now describes. Empty for a tunnel started before this
 	// was recorded, which must not be read as a mismatch.
 	Args string
+}
+
+// Failed reports whether a tunnel stopped because something went wrong, as
+// opposed to being stopped.
+func (s ForwardState) Failed() bool {
+	return !s.Running && (s.Exit != 0 || s.Signal != "")
 }
 
 // argsOption is where a tunnel keeps the fingerprint of what it was started
@@ -128,7 +140,7 @@ func StartForward(f store.Forward, sshArgs []string) error {
 		return nil // it started; whether it is still up is the next refresh's answer
 	}
 	if st, ok := states[name]; ok && !st.Running {
-		return errors.New(forwardFailure(name, st.Exit))
+		return errors.New(forwardFailure(name, st))
 	}
 	return nil
 }
@@ -168,7 +180,8 @@ func ForwardStates() (map[string]ForwardState, error) {
 		return nil, nil
 	}
 	format := strings.Join([]string{
-		"#{session_name}", "#{pane_dead}", "#{pane_dead_status}", "#{" + argsOption + "}",
+		"#{session_name}", "#{pane_dead}", "#{pane_dead_status}",
+		"#{pane_dead_signal}", "#{" + argsOption + "}",
 	}, fieldSep)
 
 	cmd := exec.Command("tmux", "-L", tmuxSocket(), "list-panes", "-a", "-F", format)
@@ -187,12 +200,13 @@ func ForwardStates() (map[string]ForwardState, error) {
 	states := map[string]ForwardState{}
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		parts := strings.Split(line, fieldSep)
-		if len(parts) != 4 || !strings.HasPrefix(parts[0], forwardPfx) {
+		if len(parts) != 5 || !strings.HasPrefix(parts[0], forwardPfx) {
 			continue
 		}
-		st := ForwardState{Running: parts[1] == "0", Args: parts[3]}
+		st := ForwardState{Running: parts[1] == "0", Args: parts[4]}
 		if !st.Running {
 			st.Exit, _ = strconv.Atoi(parts[2])
+			st.Signal = parts[3]
 		}
 		states[parts[0]] = st
 	}
@@ -225,10 +239,20 @@ func ForwardReason(name string) string {
 }
 
 // forwardFailure is what to say about a tunnel that did not stay up: what ssh
-// wrote, since that names the cause, and the exit code when it wrote nothing.
-func forwardFailure(name string, code int) string {
+// wrote, since that names the cause, and failing that how it ended.
+func forwardFailure(name string, st ForwardState) string {
+	// A signal comes first, because it is the whole story: ssh wrote nothing
+	// on its way out, so whatever is in the pane is left over from when it
+	// started. Usually that is the known-hosts warning of a first connection,
+	// and reporting it would name a line from minutes ago as the cause.
+	if st.Signal != "" {
+		return "ssh was killed (" + st.Signal + ")"
+	}
 	if reason := ForwardReason(name); reason != "" {
 		return reason
 	}
-	return fmt.Sprintf("ssh exited %d without saying why", code)
+	return fmt.Sprintf("ssh exited %d without saying why", st.Exit)
 }
+
+// FailureReason is what to say about a stopped tunnel, for the interface.
+func FailureReason(name string, st ForwardState) string { return forwardFailure(name, st) }

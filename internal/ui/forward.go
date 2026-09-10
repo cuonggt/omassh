@@ -352,7 +352,7 @@ func forwardMarker(st term.ForwardState, known, stale bool) (string, color.Color
 		return "▷", theme.Yellow
 	case st.Running:
 		return "▶", theme.Green
-	case known && st.Exit != 0:
+	case known && st.Failed():
 		return "✖", theme.Red
 	default:
 		return "■", theme.TextDim
@@ -472,14 +472,11 @@ func (m Model) forwardDetail() []string {
 		// session away. "Not started" was a small lie the moment after you
 		// pressed stop, and this is true of both.
 		return []string{theme.Dim.Render("not running  ·  ↵ starts it")}
-	case st.Exit == 0:
+	case !st.Failed():
 		return []string{theme.Dim.Render("stopped  ·  ↵ starts it again")}
 	}
 
-	reason := term.ForwardReason(term.ForwardSessionName(f))
-	if reason == "" {
-		reason = fmt.Sprintf("ssh exited %d", st.Exit)
-	}
+	reason := term.FailureReason(term.ForwardSessionName(f), st)
 	out := []string{theme.Fg(theme.Red).Render("stopped: ") + theme.Normal.Render(reason)}
 	// On its own line rather than after the reason: the box truncates, and a
 	// hint cut off at the edge is exactly the part worth reading.

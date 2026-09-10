@@ -743,3 +743,28 @@ func TestASessionAndATunnelBothMarkTheRow(t *testing.T) {
 		t.Error("a host's session and its tunnel share a name")
 	}
 }
+
+// A tunnel something killed is a tunnel that failed, and must not draw as one
+// that was stopped on purpose: tmux reports a signal death with an empty exit
+// status, which scored as a clean zero.
+func TestAKilledTunnelDrawsAsAFailure(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	f := h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+
+	// Stopped on purpose: a clean exit, no signal.
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(f): {Exit: 0},
+	}
+	h.mustContain("↵ starts it again")
+	h.mustNotContain("stopped:")
+
+	// Killed: the same empty exit status, with a signal beside it.
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(f): {Exit: 0, Signal: "kill"},
+	}
+	h.mustContain("stopped:")
+	h.mustContain("kill")
+}
