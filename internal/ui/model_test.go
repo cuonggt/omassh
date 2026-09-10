@@ -2351,4 +2351,44 @@ func TestAnOrdinaryFormFailureIsNotBlamedOnAnotherWindow(t *testing.T) {
 	if got := vanished(store.ErrNoSuchGroup, "group"); !strings.Contains(got, "this group was deleted") {
 		t.Errorf("a vanished group says %q", got)
 	}
+	// On a host form the same error means something else: the host is fine,
+	// and it is the group chosen for it that has gone. Saying the host was
+	// deleted would send someone looking for a host that is still there.
+	got := vanished(store.ErrNoSuchGroup, "host")
+	if !strings.Contains(got, "the group chosen here was deleted") {
+		t.Errorf("a host form blames %q", got)
+	}
+	if strings.Contains(got, "this host was deleted") {
+		t.Errorf("a host form blames the host for its group going: %q", got)
+	}
+}
+
+// A host whose group has gone must still be listed. It used to be drawn under
+// no group at all — unselectable, uneditable, undeletable — while the reload
+// went on counting it, so the list said one host and showed none.
+func TestAHostWhoseGroupWentIsStillListed(t *testing.T) {
+	h := newHarness(t)
+	g := h.addGroup("Production", "")
+	host := h.addGroupedHost("web", g.ID)
+	h.reload()
+	h.mustContain("web")
+
+	// The other window, deleting the group out from under this one. Written
+	// straight in, since the store now refuses to file a host under a group
+	// that has gone — this is the database as an older omassh could leave it.
+	if err := h.store.DeleteGroup(g.ID); err != nil {
+		t.Fatal(err)
+	}
+	host.GroupID = g.ID
+	if err := h.store.PutAll(nil, []store.Host{host}, nil); err != nil {
+		t.Fatal(err)
+	}
+	h.reload()
+
+	h.mustContain("Ungrouped")
+	h.mustContain("web")
+	h.selectHost("web")
+	if got, ok := h.m.selectedHost(); !ok || got.Name != "web" {
+		t.Errorf("selectedHost = %+v, %v — the host cannot be reached", got, ok)
+	}
 }

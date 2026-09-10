@@ -770,8 +770,14 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 // record was there when it opened, and nothing but another window can have
 // removed it since, because deleting means closing this one.
 func vanished(err error, kind string) string {
-	if errors.Is(err, store.ErrNoSuchHost) || errors.Is(err, store.ErrNoSuchGroup) {
-		return "this " + kind + " was deleted in another window while the form was open"
+	switch {
+	case errors.Is(err, store.ErrNoSuchHost):
+		return "this host was deleted in another window while the form was open"
+	case errors.Is(err, store.ErrNoSuchGroup) && kind == "host":
+		// The host is fine; the group it was going into is not.
+		return "the group chosen here was deleted in another window"
+	case errors.Is(err, store.ErrNoSuchGroup):
+		return "this group was deleted in another window while the form was open"
 	}
 	return err.Error()
 }

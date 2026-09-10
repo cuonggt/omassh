@@ -78,6 +78,24 @@ func load(s *store.Store) (data, error) {
 		d.fwd, _ = term.ForwardStates()
 	}
 
+	// A host whose group has gone is shown as ungrouped rather than nowhere.
+	//
+	// The group panel is how the host list is reached, so a host filed under a
+	// group that is not there sat in no group at all: it could not be
+	// selected, edited or deleted, while the reload went on counting it. Two
+	// windows are enough to make one — a group deleted in one, a host saved
+	// into it from the other's older view — and a record nothing can see is
+	// also a record nothing can mend.
+	known := make(map[string]bool, len(d.groups))
+	for _, g := range d.groups {
+		known[g.ID] = true
+	}
+	for i, h := range d.hosts {
+		if h.GroupID != "" && !known[h.GroupID] {
+			d.hosts[i].GroupID = ""
+		}
+	}
+
 	d.resolver = store.NewResolver(d.groups, d.hosts)
 	d.tree = store.FlattenGroups(d.groups)
 

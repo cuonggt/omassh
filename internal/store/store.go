@@ -274,6 +274,14 @@ func (s *Store) PutHost(h Host) (Host, error) {
 		if update && hb.Get([]byte(h.ID)) == nil {
 			return ErrNoSuchHost
 		}
+		// And the group it names has to be there. A window whose list is older
+		// than the store will offer a group another window has since deleted,
+		// and a host written into one sits under no group at all — which is
+		// where the interface reaches hosts from, so it could not be got at
+		// again.
+		if h.GroupID != "" && tx.Bucket(bucketGroups).Get([]byte(h.GroupID)) == nil {
+			return ErrNoSuchGroup
+		}
 		if err := noNewJumpLoop(tx.Bucket(bucketGroups), hb, nil, []Host{h}); err != nil {
 			return err
 		}

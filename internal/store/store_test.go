@@ -642,3 +642,29 @@ func TestCreatingStillWorksWhenTheStoreIsEmpty(t *testing.T) {
 		t.Errorf("editing a host that is there was refused: %v", err)
 	}
 }
+
+// A window whose list is older than the store will offer a group another
+// window has since deleted. A host written into one belongs to no group that
+// exists, and the group panel is how hosts are reached — so it could not be
+// got at again.
+func TestAHostCannotBeFiledUnderAGroupThatHasGone(t *testing.T) {
+	s := openTest(t)
+	g, err := s.PutGroup(Group{Name: "Production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteGroup(g.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.PutHost(Host{Name: "web", Addr: "10.0.0.9", GroupID: g.ID}); !errors.Is(err, ErrNoSuchGroup) {
+		t.Fatalf("PutHost = %v, want it refused as a group that is gone", err)
+	}
+	if hosts, _ := s.Hosts(); len(hosts) != 0 {
+		t.Errorf("the host was written anyway: %+v", hosts)
+	}
+	// Without a group it is fine, and that is where such a host belongs.
+	if _, err := s.PutHost(Host{Name: "web", Addr: "10.0.0.9"}); err != nil {
+		t.Errorf("an ungrouped host was refused: %v", err)
+	}
+}
