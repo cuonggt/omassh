@@ -3,6 +3,7 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strconv"
@@ -762,6 +763,19 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// vanished explains a save refused because the record is no longer there.
+//
+// The store states the fact — it is asked the same thing by a forwarding rule
+// naming a host that has gone — and the form is what knows the rest: the
+// record was there when it opened, and nothing but another window can have
+// removed it since, because deleting means closing this one.
+func vanished(err error, kind string) string {
+	if errors.Is(err, store.ErrNoSuchHost) || errors.Is(err, store.ErrNoSuchGroup) {
+		return "this " + kind + " was deleted in another window while the form was open"
+	}
+	return err.Error()
+}
+
 func (m Model) saveForm() (tea.Model, tea.Cmd) {
 	f := m.form
 	switch f.kind {
@@ -790,7 +804,7 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 			g.ParentID = parent.ID
 		}
 		if _, err := m.st.PutGroup(g); err != nil {
-			f.problem = err.Error()
+			f.problem = vanished(err, "group")
 			return m, nil
 		}
 		m.form, m.mode = nil, modeBrowse
@@ -841,7 +855,7 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 	}
 	saved, err := m.st.PutHost(h)
 	if err != nil {
-		f.problem = err.Error()
+		f.problem = vanished(err, "host")
 		return m, nil
 	}
 

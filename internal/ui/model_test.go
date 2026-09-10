@@ -2307,3 +2307,48 @@ func TestAPathTailFitsWhatItIsGiven(t *testing.T) {
 		t.Errorf("a path that fits was changed: %q", got)
 	}
 }
+
+// Two windows share one database, so a host can be deleted while this window
+// still has an edit form open on it. The store refuses the save; the form is
+// what can say why, since it knows the record was there when it opened.
+func TestSavingAHostDeletedElsewhereSaysSo(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("delta", "10.0.0.4")
+	h.reload()
+	h.selectHost("delta")
+	h.press("e")
+	if h.m.mode != modeForm {
+		t.Fatal("e did not open the edit form")
+	}
+
+	// The other window, deleting it out from under this one.
+	if err := h.store.DeleteHost(host.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	h.press("enter")
+	if h.m.mode != modeForm {
+		t.Error("the form closed, so what was typed went nowhere")
+	}
+	// It names what went, since the form's own title is the only other thing
+	// on screen saying what this was about.
+	if got := h.m.form.problem; !strings.Contains(got, "this host was deleted in another window") {
+		t.Errorf("the form says %q, which does not explain the refusal", got)
+	}
+	// The delete stands.
+	if hosts, _ := h.store.Hosts(); len(hosts) != 0 {
+		t.Errorf("the host came back: %+v", hosts)
+	}
+}
+
+// An ordinary failure still reports itself, rather than being described as a
+// delete that did not happen.
+func TestAnOrdinaryFormFailureIsNotBlamedOnAnotherWindow(t *testing.T) {
+	if got := vanished(errors.New("port must be a number"), "host"); got != "port must be a number" {
+		t.Errorf("vanished rewrote an unrelated error into %q", got)
+	}
+	// And a group says group, not host.
+	if got := vanished(store.ErrNoSuchGroup, "group"); !strings.Contains(got, "this group was deleted") {
+		t.Errorf("a vanished group says %q", got)
+	}
+}
