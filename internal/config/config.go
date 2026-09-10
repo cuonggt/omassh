@@ -74,6 +74,13 @@ func Load(path string) (Config, error) {
 	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
 		return Default(), fmt.Errorf("%s: %w", path, err)
 	}
+	// Decode reads one document, and a stream can hold several. A second ---
+	// section would be skipped in exactly the silent way an unknown key would,
+	// so it is an error for the same reason. A leading --- is not one: only a
+	// second marker starts a second document.
+	if err := dec.Decode(new(Config)); !errors.Is(err, io.EOF) {
+		return Default(), fmt.Errorf("%s: this is more than one YAML document — settings after the --- would be skipped", path)
+	}
 	if err := c.Validate(); err != nil {
 		return Default(), fmt.Errorf("%s: %w", path, err)
 	}

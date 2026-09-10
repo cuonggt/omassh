@@ -140,6 +140,13 @@ func Parse(raw []byte) (Document, error) {
 	if err := dec.Decode(&d); err != nil && !errors.Is(err, io.EOF) {
 		return Document{}, err
 	}
+	// Decode reads one document, and a stream can hold several. Importing the
+	// first and skipping the rest is the same silent half-success as dropping
+	// a key, so refuse the file rather than import part of it. A document may
+	// still open with the marker; only a second --- makes a second document.
+	if err := dec.Decode(new(Document)); !errors.Is(err, io.EOF) {
+		return Document{}, errors.New("this is more than one YAML document — a host list is a single document, and anything after the --- would be skipped")
+	}
 	if d.Version > Version {
 		return d, fmt.Errorf("document is version %d, this omassh understands %d — upgrade omassh", d.Version, Version)
 	}
