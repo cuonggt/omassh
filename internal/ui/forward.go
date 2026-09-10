@@ -361,7 +361,17 @@ func (m Model) tmuxAvailable() bool {
 	return term.TmuxAvailable()
 }
 
-func (m Model) forwardsBody(w int) string {
+// forwardListRows is how many rules the dialog can draw, given the frame.
+//
+// Everything else the box holds is fixed: its two borders, a blank line above
+// the list, and beneath it a blank, whatever the selected rule has to say, a
+// blank and the key hints. What is left is the list.
+func (m Model) forwardListRows(content int) int {
+	const fixed = 2 + 1 + 1 + 1 + 1 // borders, blank above, blank, blank, hints
+	return max(content-fixed-len(m.forwardDetail()), 1)
+}
+
+func (m Model) forwardsBody(w, content int) string {
 	fs := m.d.forwardsFor(m.forwardHost.ID)
 	if len(fs) == 0 {
 		// What is said here has to be true of this machine. Describing the
@@ -386,8 +396,15 @@ func (m Model) forwardsBody(w int) string {
 		return out + "\n\n  " + hint("n", "new") + sep() + hint("esc", "close")
 	}
 
+	// Windowed, the way every other list here is. Drawing all of them let the
+	// box grow past the frame, which cut the rules off the bottom along with
+	// the line saying what the selected one is doing — and the selection could
+	// be among what was cut, so ↵ acted on a rule nothing on screen showed.
+	start, end := listWindow(m.forwardIdx, len(fs), m.forwardListRows(content))
+
 	lines := []string{""}
-	for i, f := range fs {
+	for i := start; i < end; i++ {
+		f := fs[i]
 		st, known := m.d.forwardStatus(f)
 		mark, col := forwardMarker(st, known, forwardStale(m.forwardTarget(), f, st))
 		text := fmt.Sprintf("%s %s %s", mark, pad(string(f.Kind), 7), f.Route())

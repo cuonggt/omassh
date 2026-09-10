@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -541,4 +542,45 @@ func TestReloadInTheForwardsViewSeesAnotherWindowsRule(t *testing.T) {
 	h.press("r")
 	h.mustContain("8080 → localhost:80")
 	h.mustContain("5432 → localhost:5432")
+}
+
+// Every other list here is windowed to the frame. Drawing all the rules let
+// the box grow past it, and box() cut the overflow off — taking with it the
+// line saying what the selected rule was doing, the keys, and often the
+// selected rule itself, which ↵ then acted on unseen.
+func TestTheForwardsListWindowsToTheFrame(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	const n = 40
+	for i := range n {
+		if _, err := h.store.PutForward(store.Forward{
+			HostID: host.ID, Kind: store.ForwardLocal,
+			ListenPort: 6000 + i, Dest: "localhost", DestPort: 80,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.reload()
+	h.selectHost("db-01")
+	h.press("f")
+
+	// The first rule, what it is doing, and the keys are all on screen.
+	h.mustContain("6000 → localhost:80")
+	h.mustContain("↵ starts it")
+	h.mustContain("esc")
+
+	// Walk to the last one: it has to come into view, along with everything
+	// the box says beneath it.
+	for range n - 1 {
+		h.press("j")
+	}
+	last := fmt.Sprintf("%d → localhost:80", 6000+n-1)
+	h.mustContain(last)
+	h.mustContain("↵ starts it")
+	h.mustContain("esc")
+	// And the first is now out of view, or nothing scrolled at all.
+	h.mustNotContain("6000 → localhost:80")
+
+	// The count says there is more than fits, since the border no longer can.
+	h.mustContain(fmt.Sprintf("%d/%d", n, n))
 }

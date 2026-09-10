@@ -93,8 +93,12 @@ func (m Model) dialog(content int) (string, bool) {
 		body := m.confirmBody()
 		return box("Confirm", true, w, dialogHeight(body, content), body), true
 	case modeForwards:
-		body := m.forwardsBody(w - 4)
-		return box("Forwards on "+m.forwardHost.Name, true, w, dialogHeight(body, content), body), true
+		body := m.forwardsBody(w-4, content)
+		// The count says there is more than fits, since once the list is
+		// windowed the border alone no longer shows it.
+		title := "Forwards on " + m.forwardHost.Name +
+			listPosition(m.forwardIdx, len(m.d.forwardsFor(m.forwardHost.ID)), m.forwardListRows(content))
+		return box(title, true, w, dialogHeight(body, content), body), true
 	case modeTheme:
 		// Narrower than the rest: the entries are one word, and a dialog this
 		// size leaves more of the coloured interface showing behind it, which
