@@ -60,6 +60,51 @@ type Host struct {
 	Jump     string   `yaml:"jump,omitempty"`
 	Group    string   `yaml:"group,omitempty"`
 	Tags     []string `yaml:"tags,omitempty,flow"`
+
+	// Forwards are nested rather than listed apart, because a rule belongs to
+	// exactly one host and has no name of its own — nesting is what says
+	// which host it is for, without inventing a second way to point at one.
+	Forwards []Forward `yaml:"forwards,omitempty"`
+}
+
+// Forward is a port-forwarding rule as text, written the way ssh writes it
+// and the way the form takes it: a kind, the end that is bound, and the end
+// it comes out at.
+//
+// A rule travels because it says how you work with a host rather than
+// anything about this machine — "the database is on 5432 through there" is as
+// true on a laptop as on a desktop. Session history is the opposite, and stays
+// behind for that reason.
+type Forward struct {
+	Kind   string `yaml:"kind"`
+	Listen string `yaml:"listen"`
+	Dest   string `yaml:"dest,omitempty"`
+}
+
+// parse turns the text form into a rule, which is also how the document is
+// checked: the same two functions the form uses, so a file and a form cannot
+// disagree about what "5432" or "[::1]:8080" means.
+func (f Forward) parse(hostID string) (store.Forward, error) {
+	out := store.Forward{HostID: hostID, Kind: store.ForwardKind(strings.ToLower(strings.TrimSpace(f.Kind)))}
+	var err error
+	if out.Listen, out.ListenPort, err = store.ParseListen(f.Listen); err != nil {
+		return out, err
+	}
+	if out.Kind != store.ForwardDynamic {
+		if out.Dest, out.DestPort, err = store.ParseDest(f.Dest); err != nil {
+			return out, err
+		}
+	}
+	return out, out.Validate()
+}
+
+// asText is a stored rule written back out.
+func asText(f store.Forward) Forward {
+	t := Forward{Kind: string(f.Kind), Listen: f.ListenText()}
+	if f.Kind != store.ForwardDynamic {
+		t.Dest = f.DestText()
+	}
+	return t
 }
 
 // Export renders a store's contents as a document, ids left behind.
@@ -67,10 +112,14 @@ type Host struct {
 // Session history is deliberately absent. "Last connected two hours ago" is a
 // fact about the machine that connected, and carrying it across would let a
 // laptop's history overwrite a desktop's on every import.
-func Export(gs []store.Group, hs []store.Host) Document {
+func Export(gs []store.Group, hs []store.Host, fs []store.Forward) Document {
 	name := make(map[string]string, len(gs))
 	for _, g := range gs {
 		name[g.ID] = g.Name
+	}
+	rules := map[string][]store.Forward{}
+	for _, f := range fs {
+		rules[f.HostID] = append(rules[f.HostID], f)
 	}
 
 	d := Document{Version: Version}
@@ -84,7 +133,7 @@ func Export(gs []store.Group, hs []store.Host) Document {
 		})
 	}
 	for _, h := range hs {
-		d.Hosts = append(d.Hosts, Host{
+		out := Host{
 			Name:     h.Name,
 			Addr:     h.Addr,
 			Port:     h.Port,
@@ -93,7 +142,13 @@ func Export(gs []store.Group, hs []store.Host) Document {
 			Jump:     h.ProxyJump,
 			Group:    name[h.GroupID],
 			Tags:     h.Tags,
-		})
+		}
+		mine := rules[h.ID]
+		store.SortForwards(mine)
+		for _, f := range mine {
+			out.Forwards = append(out.Forwards, asText(f))
+		}
+		d.Hosts = append(d.Hosts, out)
 	}
 	// Sorted so re-exporting an unchanged store produces an identical file,
 	// which is what makes the document reviewable in a diff.

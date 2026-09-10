@@ -344,3 +344,41 @@ func TestAForwardNeedsAHostThatExists(t *testing.T) {
 		t.Errorf("the store kept %+v", got)
 	}
 }
+
+// An import writes everything in one transaction, so a rule that arrives with
+// the host it belongs to finds it — the hosts go in first for that reason.
+func TestPutAllWritesForwardsWithTheirHost(t *testing.T) {
+	s := openTest(t)
+	h := Host{ID: "h1", Name: "db-01", Addr: "10.0.0.1"}
+	f := Forward{ID: "f1", HostID: "h1", Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432}
+
+	if err := s.PutAll(nil, []Host{h}, []Forward{f}); err != nil {
+		t.Fatalf("PutAll: %v", err)
+	}
+	got, err := s.Forwards()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].HostID != "h1" || got[0].Spec() != "5432:db:5432" {
+		t.Fatalf("got %+v", got)
+	}
+}
+
+// And one naming a host that is nowhere — not in the store, not in this write
+// — is refused, since it would belong to nothing.
+func TestPutAllRefusesAForwardWithNoHost(t *testing.T) {
+	s := openTest(t)
+	err := s.PutAll(nil, []Host{{ID: "h1", Name: "db-01", Addr: "10.0.0.1"}},
+		[]Forward{{ID: "f1", HostID: "nobody", Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432}})
+
+	if !errors.Is(err, ErrNoSuchHost) {
+		t.Fatalf("err = %v, want it to refuse the orphan", err)
+	}
+	// All or nothing: the host went with it.
+	if hosts, _ := s.Hosts(); len(hosts) != 0 {
+		t.Errorf("the write was left half done: %+v", hosts)
+	}
+	if got, _ := s.Forwards(); len(got) != 0 {
+		t.Errorf("an orphan was written: %+v", got)
+	}
+}

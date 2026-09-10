@@ -18,7 +18,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 		{ID: "h2", Name: "bastion", Addr: "edge.example.com", User: "ops"},
 	}
 
-	raw, err := Export(groups, hosts).YAML()
+	raw, err := Export(groups, hosts, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Merge(d, nil, nil)
+	p, err := Merge(d, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 }
 
 func TestExportLeavesOutSessionHistory(t *testing.T) {
-	raw, err := Export(nil, []store.Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}).YAML()
+	raw, err := Export(nil, []store.Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestImportMatchesByNameAndKeepsTheID(t *testing.T) {
 	existing := []store.Host{{ID: "keep-me", Name: "web", Addr: "10.0.0.1"}}
 	d := Document{Version: Version, Hosts: []Host{{Name: "WEB", Addr: "10.0.0.9"}}}
 
-	p, err := Merge(d, nil, existing)
+	p, err := Merge(d, nil, existing, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestImportFillsInWithoutBlanking(t *testing.T) {
 	// What ssh_config knows nothing about must survive a second import.
 	d := Document{Version: Version, Hosts: []Host{{Name: "web", Addr: "10.0.0.1"}}}
 
-	p, err := Merge(d, nil, existing)
+	p, err := Merge(d, nil, existing, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestImportFillsInWithoutBlanking(t *testing.T) {
 func TestImportCreatesAGroupAHostNames(t *testing.T) {
 	d := Document{Version: Version, Hosts: []Host{{Name: "web", Addr: "10.0.0.1", Group: "Homelab"}}}
 
-	p, err := Merge(d, nil, nil)
+	p, err := Merge(d, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestImportRejectsWhatItCannotApply(t *testing.T) {
 	}
 	for name, d := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Merge(d, nil, nil); err == nil {
+			if _, err := Merge(d, nil, nil, nil); err == nil {
 				t.Fatalf("merged a document with %s", name)
 			}
 		})
@@ -242,7 +242,7 @@ func TestAParentListedAfterItsChildStillResolves(t *testing.T) {
 		{Name: "EU", Parent: "Production"},
 		{Name: "Production"},
 	}}
-	p, err := Merge(d, nil, nil)
+	p, err := Merge(d, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestEveryRecordIsAccountedForExactlyOnce(t *testing.T) {
 		{Name: "b", Addr: "10.0.0.2", Group: "Work"},
 	}}
 
-	first, err := Merge(d, nil, nil)
+	first, err := Merge(d, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestEveryRecordIsAccountedForExactlyOnce(t *testing.T) {
 	}
 
 	// Applied, the same document is a no-op — and still speaks for all three.
-	second, err := Merge(d, first.Groups, first.Hosts)
+	second, err := Merge(d, first.Groups, first.Hosts, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

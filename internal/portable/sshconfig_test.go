@@ -135,7 +135,7 @@ func TestAnAliasDeclaredTwiceIsOneHost(t *testing.T) {
 	}
 	// Merge would reject a document naming the same host twice, so this has
 	// to be settled here.
-	if _, err := Merge(d, nil, nil); err != nil {
+	if _, err := Merge(d, nil, nil, nil); err != nil {
 		t.Fatalf("the document it produced does not merge: %v", err)
 	}
 }

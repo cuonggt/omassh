@@ -292,7 +292,7 @@ func (s *Store) DeleteForward(id string) error {
 // took the better part of a minute, saying nothing while it went. One
 // transaction is also all-or-nothing, so a disk that fills up halfway leaves
 // the store as it was rather than holding part of a list.
-func (s *Store) PutAll(gs []Group, hs []Host) error {
+func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward) error {
 	for i := range gs {
 		if gs[i].ID == "" {
 			gs[i].ID = NewID()
@@ -301,6 +301,14 @@ func (s *Store) PutAll(gs []Group, hs []Host) error {
 	for i := range hs {
 		if hs[i].ID == "" {
 			hs[i].ID = NewID()
+		}
+	}
+	for i := range fs {
+		if fs[i].ID == "" {
+			fs[i].ID = NewID()
+		}
+		if err := fs[i].Validate(); err != nil {
+			return err
 		}
 	}
 
@@ -327,6 +335,22 @@ func (s *Store) PutAll(gs []Group, hs []Host) error {
 			}
 			if err := hb.Put([]byte(h.ID), b); err != nil {
 				return fmt.Errorf("host %s: %w", h.Name, err)
+			}
+		}
+		// After the hosts, so a rule for a host this same write is bringing
+		// finds it. The check is the one PutForward makes, for the same
+		// reason: a rule naming a host that is not there belongs to nothing.
+		fwb := tx.Bucket(bucketForwards)
+		for _, f := range fs {
+			if hb.Get([]byte(f.HostID)) == nil {
+				return fmt.Errorf("forward %s: %w", f.Label(), ErrNoSuchHost)
+			}
+			b, err := json.Marshal(f)
+			if err != nil {
+				return err
+			}
+			if err := fwb.Put([]byte(f.ID), b); err != nil {
+				return fmt.Errorf("forward %s: %w", f.Label(), err)
 			}
 		}
 		return nil

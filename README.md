@@ -208,9 +208,17 @@ was dropped — the mistake and the success read identically. More than one YAML
 document in the file is refused on the same grounds, since only the first
 would be imported; a file that merely opens with `---` is still one document.
 
+Forwarding rules travel with their host, nested under it, because a rule says
+how you work with a machine — "the database is on 5432 through there" — which
+is as true on a laptop as on a desktop. A rule has no name, so the whole of it
+is its identity: kind, what it binds, where it comes out. Nothing is updated
+in place and nothing is removed, which is what lets two rules bind the same
+port for different destinations and still both arrive.
+
 Session history itself stays behind. "Last connected two hours ago" is a fact
 about the machine that connected, and carrying it across would let a laptop's
-history overwrite a desktop's on every import.
+history overwrite a desktop's on every import. A running tunnel stays behind
+for the same reason: the rule crosses, the process does not.
 
 The file holds no secrets — an identity is a path to a key, never the key — so
 it belongs in a dotfiles repo as comfortably as anything else there.

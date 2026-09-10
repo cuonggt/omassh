@@ -195,13 +195,14 @@ func runExport(args []string) error {
 	// into a file or piped into another machine.
 	groups, gerr := st.Groups()
 	hosts, herr := st.Hosts()
-	for _, e := range []error{gerr, herr} {
+	forwards, ferr := st.Forwards()
+	for _, e := range []error{gerr, herr, ferr} {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
 		}
 	}
 
-	raw, err := portable.Export(groups, hosts).YAML()
+	raw, err := portable.Export(groups, hosts, forwards).YAML()
 	if err != nil {
 		return err
 	}
@@ -312,13 +313,14 @@ func apply(db string, d portable.Document, dry bool) error {
 	// name, so it may end up duplicated — saying so is the honest part.
 	groups, gerr := st.Groups()
 	hosts, herr := st.Hosts()
-	for _, e := range []error{gerr, herr} {
+	forwards, ferr := st.Forwards()
+	for _, e := range []error{gerr, herr, ferr} {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
 		}
 	}
 
-	plan, err := portable.Merge(d, groups, hosts)
+	plan, err := portable.Merge(d, groups, hosts, forwards)
 	if err != nil {
 		return err
 	}
@@ -335,7 +337,7 @@ func apply(db string, d portable.Document, dry bool) error {
 	// One transaction for the lot: a record at a time meant a trip to the disk
 	// each, which took the better part of a minute for a few thousand of them
 	// and left part of a list behind if the disk filled up on the way.
-	if err := st.PutAll(plan.Groups, plan.Hosts); err != nil {
+	if err := st.PutAll(plan.Groups, plan.Hosts, plan.Forwards); err != nil {
 		return err
 	}
 	fmt.Println(summary)

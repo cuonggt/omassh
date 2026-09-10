@@ -18,13 +18,13 @@ const (
 
 // Change describes one record an import would write.
 type Change struct {
-	Kind   string // "group" or "host"
+	Kind   string // "group", "host" or "forward"
 	Name   string
 	Action Action
 }
 
 func (c Change) String() string {
-	return fmt.Sprintf("%-6s %-5s %s", c.Action, c.Kind, c.Name)
+	return fmt.Sprintf("%-6s %-7s %s", c.Action, c.Kind, c.Name)
 }
 
 // Plan is everything an import would do: the records to write, with ids
@@ -34,6 +34,7 @@ func (c Change) String() string {
 type Plan struct {
 	Groups    []store.Group
 	Hosts     []store.Host
+	Forwards  []store.Forward
 	Changes   []Change
 	Unchanged int
 }
@@ -63,7 +64,7 @@ func (p Plan) Counts() (added, updated int) {
 // ssh_config be imported twice without the second pass wiping a user or a tag
 // added here in between, and the cost is that a field cannot be cleared by
 // importing — which the interface does instead.
-func Merge(d Document, groups []store.Group, hosts []store.Host) (Plan, error) {
+func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []store.Forward) (Plan, error) {
 	if err := d.validate(); err != nil {
 		return Plan{}, err
 	}
@@ -160,6 +161,13 @@ func Merge(d Document, groups []store.Group, hosts []store.Host) (Plan, error) {
 			p.Unchanged++
 		}
 		seen[k] = now
+
+		// The rules belong to the host just settled, so they are planned here
+		// where its id is known — minted a moment ago for a host the document
+		// brought, or the one it has always had.
+		if err := p.addForwards(in, now.ID, forwards); err != nil {
+			return Plan{}, err
+		}
 	}
 
 	// PutGroup checks for cycles against the store, which cannot see groups
@@ -170,6 +178,45 @@ func Merge(d Document, groups []store.Group, hosts []store.Host) (Plan, error) {
 	}
 	return p, nil
 }
+
+// addForwards plans one host's rules.
+//
+// A rule has no name, so the whole of it is its identity — kind, what it
+// binds, where it comes out. Nothing is ever updated in place and nothing is
+// removed: two rules may legitimately bind the same port for different
+// destinations, so matching on the binding alone would fold them into one,
+// and import does not blank things anywhere else either. A rule already here
+// is left exactly as it is, which is what makes importing twice change
+// nothing the second time.
+func (p *Plan) addForwards(in Host, hostID string, existing []store.Forward) error {
+	here := map[string]bool{}
+	for _, f := range existing {
+		if f.HostID == hostID {
+			here[ruleKey(f)] = true
+		}
+	}
+	for _, t := range in.Forwards {
+		// The only place a rule is checked. Merge returns an empty plan on any
+		// error, so a document with one bad rule is refused whole — checking
+		// again in validate said the same thing twice.
+		f, err := t.parse(hostID)
+		if err != nil {
+			return fmt.Errorf("host %q: %w", in.Name, err)
+		}
+		if here[ruleKey(f)] {
+			p.Unchanged++
+			continue
+		}
+		here[ruleKey(f)] = true
+		f.ID = store.NewID()
+		p.Forwards = append(p.Forwards, f)
+		p.Changes = append(p.Changes, Change{Kind: "forward", Name: in.Name + " " + f.Label(), Action: Add})
+	}
+	return nil
+}
+
+// ruleKey is a forward's identity: everything about it, since it has no name.
+func ruleKey(f store.Forward) string { return string(f.Kind) + " " + f.Spec() }
 
 // addGroup and addHost queue a record and the line that reports it.
 func (p *Plan) addGroup(g store.Group, a Action) {

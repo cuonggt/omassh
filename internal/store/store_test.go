@@ -276,7 +276,7 @@ func TestPutAllWritesTheLot(t *testing.T) {
 	gs := []Group{{ID: "g1", Name: "Production"}, {ID: "g2", Name: "EU", ParentID: "g1"}}
 	hs := []Host{{ID: "h1", Name: "web", Addr: "10.0.0.1", GroupID: "g2"}}
 
-	if err := s.PutAll(gs, hs); err != nil {
+	if err := s.PutAll(gs, hs, nil); err != nil {
 		t.Fatal(err)
 	}
 	groups, _ := s.Groups()
@@ -296,7 +296,7 @@ func TestPutAllRefusesACycleAndWritesNothing(t *testing.T) {
 	err := s.PutAll([]Group{
 		{ID: "a", Name: "A", ParentID: "b"},
 		{ID: "b", Name: "B", ParentID: "a"},
-	}, []Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}})
+	}, []Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}, nil)
 
 	if err == nil {
 		t.Fatal("a cycle was accepted")
@@ -318,7 +318,7 @@ func TestPutAllSeesTheGroupsAlreadyThere(t *testing.T) {
 	if err := s.PutAll([]Group{
 		{ID: "b", Name: "B", ParentID: "a"},
 		{ID: "a", Name: "A", ParentID: "b"},
-	}, nil); err == nil {
+	}, nil, nil); err == nil {
 		t.Error("a cycle formed against the stored groups was accepted")
 	}
 }
