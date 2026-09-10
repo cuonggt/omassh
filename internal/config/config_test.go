@@ -1,11 +1,15 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
 func write(t *testing.T, body string) string {
@@ -144,5 +148,82 @@ func TestExampleIsValid(t *testing.T) {
 	}
 	if err := c.Validate(); err != nil {
 		t.Errorf("the shipped example does not validate: %v", err)
+	}
+}
+
+// A config file is written by hand, so what is wrong with one has to be said
+// in the words of the file. yaml says "field bg not found in type
+// theme.Palette", which names a Go type at someone choosing colours and never
+// says what the name should have been.
+func TestAKeyThatIsNotASettingIsNamedInOmasshsWords(t *testing.T) {
+	cases := map[string]struct {
+		body string
+		want []string
+	}{
+		"a setting": {
+			body: "ssh_option:\n  - ConnectTimeout=10\n",
+			want: []string{`"ssh_option" is not a setting`, "line 1"},
+		},
+		"a palette colour": {
+			// Palette keys are not guessable — text_bright, selected_bg — so
+			// the complaint has to list them rather than only refuse. Written
+			// out here rather than derived: a colour added to the palette
+			// should fail this and be added deliberately.
+			body: "themes:\n  mine:\n    bg: \"#101014\"\n",
+			want: []string{`"bg" is not a palette colour`, "line 3",
+				"text, text_dim, text_bright, accent, green, yellow, red, magenta, border, selected_bg"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Load(write(t, tc.body))
+			if err == nil {
+				t.Fatal("Load accepted it")
+			}
+			got := err.Error()
+			for _, w := range tc.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("does not say %q: %s", w, got)
+				}
+			}
+			for _, leak := range []string{"not found in type", "theme.Palette", "config.Config", "yaml: unmarshal errors"} {
+				if strings.Contains(got, leak) {
+					t.Errorf("leaks %q at the user: %s", leak, got)
+				}
+			}
+		})
+	}
+}
+
+// yaml collects every mistake in a file, and all of them have to survive the
+// rewriting. Reporting only the first would mean fixing a config file one
+// failed startup at a time.
+func TestEveryMistakeInAFileIsReported(t *testing.T) {
+	_, err := Load(write(t, "themes:\n  mine:\n    bg: \"#101014\"\nssh_option: [a]\n"))
+	if err == nil {
+		t.Fatal("Load accepted a file with two mistakes in it")
+	}
+	got := err.Error()
+	for _, w := range []string{`"bg"`, `"ssh_option"`} {
+		if !strings.Contains(got, w) {
+			t.Errorf("does not mention %s: %s", w, got)
+		}
+	}
+}
+
+// The colours the complaint offers have to be the ones that actually work.
+// That is the whole reason the list is read off the struct rather than written
+// out beside it — a colour added to the palette and not to the list would be
+// named as wrong by the very message meant to help.
+func TestEveryColourTheComplaintOffersIsAccepted(t *testing.T) {
+	keys := theme.PaletteKeys()
+	if !slices.Contains(keys, "selected_bg") {
+		t.Fatalf("PaletteKeys does not list the palette: %v", keys)
+	}
+	for _, key := range keys {
+		body := fmt.Sprintf("theme: mine\nthemes:\n  mine:\n    %s: \"#123456\"\n", key)
+		if _, err := Load(write(t, body)); err != nil {
+			t.Errorf("%s is offered as a palette colour but refused: %v", key, err)
+		}
 	}
 }

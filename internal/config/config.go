@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,6 +43,41 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "omassh", "config.yaml"), nil
 }
 
+// inWords turns yaml's complaints into omassh's own.
+//
+// "line 3: field bg not found in type theme.Palette" names a Go type at
+// someone editing a colour scheme by hand, and says nothing about what the
+// name should have been — which for a palette matters, since the keys are
+// text_bright and selected_bg rather than anything guessable. The line number
+// is yaml's and worth keeping; the rest is not.
+func inWords(err error) error {
+	var te *yaml.TypeError
+	if !errors.As(err, &te) {
+		return err
+	}
+	out := make([]string, 0, len(te.Errors))
+	for _, e := range te.Errors {
+		out = append(out, rewriteField(e))
+	}
+	return errors.New(strings.Join(out, "; "))
+}
+
+// fieldRE matches yaml's complaint about a key a struct does not have.
+var fieldRE = regexp.MustCompile(`^(line \d+: )?field (\S+) not found in type (\S+)$`)
+
+func rewriteField(e string) string {
+	m := fieldRE.FindStringSubmatch(e)
+	if m == nil {
+		return e
+	}
+	where, name, typ := m[1], m[2], m[3]
+	if strings.HasSuffix(typ, "Palette") {
+		return fmt.Sprintf("%s%q is not a palette colour — they are %s",
+			where, name, strings.Join(theme.PaletteKeys(), ", "))
+	}
+	return fmt.Sprintf("%s%q is not a setting", where, name)
+}
+
 // Load reads path, filling anything unset from the defaults.
 //
 // A missing file is not an error — Omassh is usable with no configuration at
@@ -72,7 +108,7 @@ func Load(path string) (Config, error) {
 	// That is a config that sets nothing, which is allowed and is what a
 	// fresh one looks like.
 	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
-		return Default(), fmt.Errorf("%s: %w", path, err)
+		return Default(), fmt.Errorf("%s: %w", path, inWords(err))
 	}
 	// Decode reads one document, and a stream can hold several. A second ---
 	// section would be skipped in exactly the silent way an unknown key would,

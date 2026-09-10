@@ -4,11 +4,26 @@ package theme
 import (
 	"fmt"
 	"image/color"
+	"reflect"
 	"sort"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 )
+
+// PaletteKeys are the colours a palette may set, in the order the example
+// config lists them. Read off the struct so the two cannot drift: a name
+// added here appears in the complaint about a name that is not here.
+func PaletteKeys() []string {
+	t := reflect.TypeOf(Palette{})
+	out := make([]string, 0, t.NumField())
+	for i := range t.NumField() {
+		if tag, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ","); tag != "" {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
 
 // Palette is a named set of colours, as hex strings so it can come from YAML.
 type Palette struct {
