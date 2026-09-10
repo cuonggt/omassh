@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/cuonggt/omassh/internal/keymap"
@@ -43,7 +45,7 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 	if m.attachedTo(h) {
 		m.focus = panelSession
 		m.prefixArmed = false
-		m.setStatus("back to " + h.Name + " — " + prefixKey + " w for the host list")
+		m.setStatusOf(h.Name, "back — "+prefixKey+" w for the host list")
 		return m, nil
 	}
 	// Connecting somewhere else replaces the session rather than silently
@@ -70,7 +72,7 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 	m.attached = p
 	m.focus = panelSession
 	m.prefixArmed = false
-	m.setStatus(attachedMessage(h.Name, shared))
+	m.setStatusOf(h.Name, attachedMessage(shared))
 	return m, paneTick()
 }
 
@@ -81,12 +83,15 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 // means and is often what you want. What is not obvious is the size: tmux
 // gives the session to whichever client was last typed in, so the other window
 // draws it short of its pane or clipped by it, with nothing to say why.
-func attachedMessage(name string, shared bool) string {
+// The name is the subject and goes first when the bar is short of room: it is
+// in the host list and in the pane's own title, while the way back out is not
+// written anywhere else — and a session owns the keyboard, so someone who
+// cannot see it has nothing to try.
+func attachedMessage(shared bool) string {
 	if shared {
-		return "connected to " + name +
-			" — also open in another window; its size follows whichever you type in"
+		return "connected — also open in another window; its size follows whichever you type in"
 	}
-	return "connected to " + name + " — " + prefixKey + " w for the host list"
+	return "connected — " + prefixKey + " w for the host list"
 }
 
 // sessionArea is the emulator size inside the main pane's border.
@@ -121,7 +126,7 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if !m.attached.Alive() {
 		switch key {
 		case "esc", "enter":
-			return m.detachSession(m.attached.Host.Name + " " + m.attached.Status())
+			return m.detachSession(m.attached.Host.Name, m.attached.Status())
 		}
 		m.setStatus(m.attached.Host.Name + " " + m.attached.Status() +
 			" — esc to return to the list")
@@ -196,18 +201,24 @@ func (m *Model) scrollAttached(d int) {
 
 // --- closing -----------------------------------------------------------
 
-// detachMessage reports what detaching actually did. Saying "closed" when the
-// session is still running would be worse than saying nothing.
-func (m Model) detachMessage() string {
-	name := m.attached.Host.Name
-	if m.attached.Persistent() {
-		return "detached from " + name + " — session still running, " +
-			m.keys.Key(keymap.Pane) + " to reattach"
-	}
-	return "disconnected from " + name
+// detachMessage reports what detaching actually did, and the host it did it to
+// separately: on a narrow bar the name goes and "still running, t to reattach"
+// stays, since that is the part telling you the session is not lost.
+func (m Model) detachMessage() (ctx, msg string) {
+	return detachText(m.attached.Host.Name, m.attached.Persistent(), m.keys.Key(keymap.Pane))
 }
 
-func (m Model) detachSession(reason string) (tea.Model, tea.Cmd) {
+// detachText is what detaching says, and about what. Saying "closed" when the
+// session is still running would be worse than saying nothing, and the name
+// travels separately so a narrow bar keeps the part that says it is not lost.
+func detachText(name string, persistent bool, reattach string) (ctx, msg string) {
+	if persistent {
+		return name, "detached — session still running, " + reattach + " to reattach"
+	}
+	return name, "disconnected"
+}
+
+func (m Model) detachSession(ctx, reason string) (tea.Model, tea.Cmd) {
 	if m.attached != nil {
 		m.recordPaneSession(m.attached)
 		m.attached.Close()
@@ -218,7 +229,7 @@ func (m Model) detachSession(reason string) (tea.Model, tea.Cmd) {
 		m.focus = panelHosts
 	}
 	m.prefixArmed = false
-	m.setStatus(reason)
+	m.setStatusOf(ctx, reason)
 	return m, nil
 }
 
@@ -276,27 +287,63 @@ func (m Model) handlePaneTick() (tea.Model, tea.Cmd) {
 
 // --- rendering ---------------------------------------------------------
 
-func (m Model) sessionTitle() string {
-	name := m.attached.Host.Name
+// sessionTitle names the session and says what to do with it, in a box that is
+// as wide as the frame allows.
+//
+// The name is what gives way when there is not room for both. It is in the
+// host list a few columns to the left, while "ctrl+\ w for the host list" is
+// the way out of a pane that owns every keystroke — truncating the title from
+// the right took that off first, so a host with a long name left no way out
+// on screen at all.
+func (m Model) sessionTitle(w int) string {
+	plain, styled := m.sessionTail()
+	return sessionTitleText(m.attached.Host.Name, plain, styled, w)
+}
+
+// sessionTitleText fits a name beside what follows it, eliding the name and
+// dropping it entirely when there is no room worth having.
+//
+// box gives a title w-5 cells and the name is followed by two spaces, so what
+// is left for the name is whatever the tail does not need. When that is almost
+// nothing the name goes rather than the tail: which host this is has a mark
+// against it in the list two columns to the left, while "ctrl+\ w for the host
+// list" is the way out of a pane that swallows every keystroke, and is written
+// nowhere else on a narrow screen.
+func sessionTitleText(name, plain, styled string, w int) string {
+	avail := w - 5 - ansi.StringWidth(plain) - 2
+	if avail < 4 {
+		return styled
+	}
+	return ansi.Truncate(name, avail, "…") + "  " + styled
+}
+
+// sessionTail is what follows the name, as plain text for measuring and as
+// styled text for drawing.
+func (m Model) sessionTail() (plain, styled string) {
+	bare, lit := scrollIndicator(m.attached)
 	switch {
 	case !m.attached.Alive():
-		return name + "  " + m.attached.Status()
+		return m.attached.Status(), m.attached.Status()
 	case m.prefixArmed:
-		return name + "  " + theme.Fg(theme.Yellow).Render("prefix…") + scrollIndicator(m.attached)
+		return "prefix…" + bare, theme.Fg(theme.Yellow).Render("prefix…") + lit
 	case m.focus == panelSession:
-		return name + "  " + theme.Dim.Render(prefixKey+" w for the host list") + scrollIndicator(m.attached)
+		out := prefixKey + " w for the host list"
+		return out + bare, theme.Dim.Render(out) + lit
 	default:
-		return name + "  " + theme.Fg(theme.Green).Render("connected") + scrollIndicator(m.attached)
+		return "connected" + bare, theme.Fg(theme.Green).Render("connected") + lit
 	}
 }
 
-// scrollIndicator labels a session that is not showing live output.
-func scrollIndicator(p *term.Pane) string {
+// scrollIndicator labels a session that is not showing live output, plainly
+// for measuring and styled for drawing — a title has to be sized before it is
+// coloured.
+func scrollIndicator(p *term.Pane) (plain, styled string) {
 	off, avail := p.ScrollOffset()
 	if off == 0 {
-		return ""
+		return "", ""
 	}
-	return "  " + theme.Fg(theme.Yellow).Render(fmt.Sprintf("scrolled %d/%d", off, avail))
+	s := fmt.Sprintf("scrolled %d/%d", off, avail)
+	return "  " + s, "  " + theme.Fg(theme.Yellow).Render(s)
 }
 
 // sessionCursor puts the real cursor where the remote put it.

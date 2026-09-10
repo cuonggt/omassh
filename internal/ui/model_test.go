@@ -2028,15 +2028,18 @@ func TestARecordThatWillNotReadDoesNotEmptyTheList(t *testing.T) {
 // clipped by it. The mirroring is what reattaching means; the silence about
 // the size is what made it look like a fault.
 func TestAttachingSaysWhenTheSessionIsOpenElsewhere(t *testing.T) {
-	alone := attachedMessage("sandbox", false)
-	shared := attachedMessage("sandbox", true)
+	alone := attachedMessage(false)
+	shared := attachedMessage(true)
 
 	if alone == shared {
 		t.Fatal("a session already open elsewhere reads the same as one that is not")
 	}
+	// The host is no longer in the message itself: it is the status's subject,
+	// which a narrow bar drops so the way back out survives. Neither message
+	// should name it twice over.
 	for _, got := range []string{alone, shared} {
-		if !strings.Contains(got, "sandbox") {
-			t.Errorf("%q does not name the host", got)
+		if strings.Contains(got, "sandbox") {
+			t.Errorf("%q names the host, which the subject already does", got)
 		}
 	}
 	if !strings.Contains(shared, "another window") {

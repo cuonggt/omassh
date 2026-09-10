@@ -1223,3 +1223,88 @@ func TestANarrowTransferStripKeepsTheReason(t *testing.T) {
 		t.Errorf("the name was kept at the reason's expense: %q", narrow)
 	}
 }
+
+// A session owns every keystroke, so the one thing the screen must keep is the
+// way back out. Both places that carry it — the pane's title and the bar —
+// used to lose it to a long host name, leaving nothing on screen to try.
+func TestANarrowSessionKeepsTheWayOut(t *testing.T) {
+	h := newHarness(t)
+	const long = "prod-be-delivery-console-eu-west-1"
+	h.addHost(long, "10.0.0.1")
+	h.selectHost(long)
+
+	// The bar, as attaching sets it.
+	h.m.setStatusOf(long, attachedMessage(false))
+	h.send(tea.WindowSizeMsg{Width: 120, Height: testH})
+	if wide := lastLine(h.screen()); !strings.Contains(wide, long) || !strings.Contains(wide, "for the host list") {
+		t.Errorf("at 120 columns: %q", wide)
+	}
+	h.send(tea.WindowSizeMsg{Width: 64, Height: testH})
+	narrow := lastLine(h.screen())
+	if !strings.Contains(narrow, prefixKey+" w for the host list") {
+		t.Errorf("the way out was cut at 64 columns: %q", narrow)
+	}
+	if strings.Contains(narrow, long) {
+		t.Errorf("the name was kept at its expense: %q", narrow)
+	}
+}
+
+// And the title itself: the name gives way, not the instruction.
+func TestASessionTitleElidesTheNameNotTheWayOut(t *testing.T) {
+	const long = "prod-be-delivery-console-eu-west-1"
+	const plain = "ctrl+\\ w for the host list"
+
+	// A title narrower than name and instruction together, composed by the
+	// function the pane itself uses.
+	got := ansiRE.ReplaceAllString(sessionTitleText(long, plain, plain, 60), "")
+	if !strings.Contains(got, plain) {
+		t.Errorf("the instruction was cut: %q", got)
+	}
+	if !strings.Contains(got, "…") {
+		t.Errorf("the name was not elided though there was no room: %q", got)
+	}
+	if w := ansiWidth(got); w > 60-5 {
+		t.Errorf("the title is %d cells, which box would cut at %d: %q", w, 60-5, got)
+	}
+}
+
+// Narrower still, and the name goes altogether. The list beside the pane marks
+// which host is connected; nothing else on screen says how to get out of it.
+func TestAVeryNarrowSessionTitleKeepsOnlyTheWayOut(t *testing.T) {
+	const plain = "ctrl+\\ w for the host list"
+	got := sessionTitleText("prod-be-delivery-console-eu-west-1", plain, plain, 34)
+
+	if !strings.Contains(got, plain) {
+		t.Errorf("the way out was cut: %q", got)
+	}
+	// Exactly the instruction: not a stub of the name and an ellipsis, which
+	// costs two cells and says nothing.
+	if got != plain {
+		t.Errorf("the title is %q, want only the way out", got)
+	}
+}
+
+// Detaching leaves a session running, and that is the part worth keeping when
+// the bar is short of room — the host it was is in the list with a mark
+// against it, while "still running, t to reattach" is what says the work is
+// not lost.
+func TestDetachingSaysTheSessionSurvives(t *testing.T) {
+	ctx, msg := detachText("prod-be-delivery-console-eu-west-1", true, "t")
+	if ctx != "prod-be-delivery-console-eu-west-1" {
+		t.Errorf("the host is not the subject: %q", ctx)
+	}
+	if strings.Contains(msg, "prod-be") {
+		t.Errorf("the message names the host, which the subject already does: %q", msg)
+	}
+	for _, want := range []string{"still running", "t to reattach"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("%q does not say %q", msg, want)
+		}
+	}
+
+	// Without tmux a session really does end, and must not claim otherwise.
+	_, ephemeral := detachText("box", false, "t")
+	if strings.Contains(ephemeral, "still running") {
+		t.Errorf("an ephemeral session was reported as surviving: %q", ephemeral)
+	}
+}

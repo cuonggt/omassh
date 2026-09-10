@@ -142,7 +142,7 @@ func (m Model) browserBody(content int) string {
 	// A live session takes the main pane; the sidebar stays usable beside it.
 	mainFocused := false
 	if m.attached != nil {
-		title, detail = m.sessionTitle(), m.attached.Render()
+		title, detail = m.sessionTitle(main), m.attached.Render()
 		mainFocused = m.focus == panelSession
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, mainFocused, main, content, detail))

@@ -209,6 +209,11 @@ func (m *Model) setErrOf(ctx string, err error) {
 	m.status, m.statusCtx, m.failed = err.Error(), ctx, true
 }
 
+// setStatusOf is the same for something that went right.
+func (m *Model) setStatusOf(ctx, s string) {
+	m.status, m.statusCtx, m.failed = s, ctx, false
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
