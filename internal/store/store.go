@@ -218,7 +218,8 @@ func unreadable(kind string, keys []string) error {
 
 // PutGroup inserts or updates a group, assigning an id when absent.
 func (s *Store) PutGroup(g Group) (Group, error) {
-	if g.ID == "" {
+	update := g.ID != ""
+	if !update {
 		g.ID = NewID()
 	}
 	// Checked and written in one transaction: a group may not be its own
@@ -227,6 +228,13 @@ func (s *Store) PutGroup(g Group) (Group, error) {
 	// leave a gap for another Omassh to change the tree in between.
 	err := s.write(func(tx *bolt.Tx) error {
 		b := tx.Bucket(bucketGroups)
+		// As for a host: a group deleted in another window must not come back
+		// because this one still had it open. DeleteGroup re-parents what was
+		// inside it before removing it, so what returned was an empty group
+		// wearing the name of one that had held things.
+		if update && b.Get([]byte(g.ID)) == nil {
+			return ErrNoSuchGroup
+		}
 		if err := acyclicIn(b, []Group{g}); err != nil {
 			return err
 		}
@@ -245,21 +253,35 @@ func (s *Store) PutGroup(g Group) (Group, error) {
 }
 
 func (s *Store) PutHost(h Host) (Host, error) {
-	if h.ID == "" {
+	// An id coming in means this is an edit of a record that was read out of
+	// the store; without one it is a new host, and the id is minted here.
+	update := h.ID != ""
+	if !update {
 		h.ID = NewID()
 	}
 	// Checked and written in one transaction, as a group's parent is, and for
 	// the same reason: a loop is not something the resolver can report from
 	// where it finds it.
 	err := s.write(func(tx *bolt.Tx) error {
-		if err := noNewJumpLoop(tx.Bucket(bucketGroups), tx.Bucket(bucketHosts), nil, []Host{h}); err != nil {
+		hb := tx.Bucket(bucketHosts)
+		// Another Omassh may have deleted this host while the form was open,
+		// and writing it back would undo that — silently, and not even
+		// faithfully. DeleteHost takes the host's forwarding rules with it, so
+		// what returned was the host stripped of them, reported as an ordinary
+		// save in the window that did it and invisible in the window that had
+		// done the deleting. PutForward has checked exactly this, in exactly
+		// this way, since a rule could be orphaned by the same race.
+		if update && hb.Get([]byte(h.ID)) == nil {
+			return ErrNoSuchHost
+		}
+		if err := noNewJumpLoop(tx.Bucket(bucketGroups), hb, nil, []Host{h}); err != nil {
 			return err
 		}
 		enc, err := json.Marshal(h)
 		if err != nil {
 			return err
 		}
-		return tx.Bucket(bucketHosts).Put([]byte(h.ID), enc)
+		return hb.Put([]byte(h.ID), enc)
 	})
 	return h, err
 }
@@ -366,8 +388,12 @@ func jumpChain(r Resolver, start Host) ([]string, bool) {
 	return nil, false
 }
 
-// ErrNoSuchHost is why a rule was refused: the host it names is not there.
-var ErrNoSuchHost = errors.New("that host no longer exists")
+// ErrNoSuchHost is why a rule or an edit was refused: the host it is for is
+// not there. ErrNoSuchGroup says the same of a group.
+var (
+	ErrNoSuchHost  = errors.New("that host no longer exists")
+	ErrNoSuchGroup = errors.New("that group no longer exists")
+)
 
 // PutForward inserts or updates a forwarding rule, assigning an id when
 // absent. The id is what the running tunnel is named after, so it is minted

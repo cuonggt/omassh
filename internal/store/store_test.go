@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -311,13 +312,18 @@ func TestPutAllRefusesACycleAndWritesNothing(t *testing.T) {
 // A cycle formed with what is already stored is caught too.
 func TestPutAllSeesTheGroupsAlreadyThere(t *testing.T) {
 	s := openTest(t)
-	if _, err := s.PutGroup(Group{ID: "a", Name: "A"}); err != nil {
+	// The id comes from the store rather than being invented: an id handed to
+	// PutGroup means a record read out of it, and one that names nothing is
+	// how a group deleted in another window would come back.
+	a, err := s.PutGroup(Group{Name: "A"})
+	if err != nil {
 		t.Fatal(err)
 	}
 	// b under a, then a moved under b.
+	a.ParentID = "b"
 	if err := s.PutAll([]Group{
-		{ID: "b", Name: "B", ParentID: "a"},
-		{ID: "a", Name: "A", ParentID: "b"},
+		{ID: "b", Name: "B", ParentID: a.ID},
+		a,
 	}, nil, nil); err == nil {
 		t.Error("a cycle formed against the stored groups was accepted")
 	}
@@ -565,5 +571,74 @@ func TestJumpChainFollowsInheritedJumpHostsAtEveryHop(t *testing.T) {
 	}
 	if got := strings.Join(loop, " → "); got != "bastion → app" {
 		t.Errorf("path = %q, want bastion → app", got)
+	}
+}
+
+// Two Omassh windows share one database, so a host can be deleted in one while
+// the other still has an edit form open on it. Writing it back undid the
+// delete — and not even faithfully: DeleteHost takes the host's forwarding
+// rules with it, so what returned was the host stripped of them, reported in
+// the window that did it as an ordinary "saved".
+func TestSavingAHostDeletedElsewhereDoesNotBringItBack(t *testing.T) {
+	s := openTest(t)
+	h, err := s.PutHost(Host{Name: "delta", Addr: "10.0.0.4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.PutForward(Forward{HostID: h.ID, Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteHost(h.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	h.Addr = "10.4.4.4"
+	if _, err := s.PutHost(h); !errors.Is(err, ErrNoSuchHost) {
+		t.Fatalf("PutHost = %v, want it refused as gone", err)
+	}
+	if hosts, _ := s.Hosts(); len(hosts) != 0 {
+		t.Errorf("the deleted host came back: %+v", hosts)
+	}
+	if fs, _ := s.Forwards(); len(fs) != 0 {
+		t.Errorf("rules came back with it: %+v", fs)
+	}
+}
+
+// The same for a group, which DeleteGroup empties before removing — so what
+// came back was an empty group wearing the name of one that had held things.
+func TestSavingAGroupDeletedElsewhereDoesNotBringItBack(t *testing.T) {
+	s := openTest(t)
+	g, err := s.PutGroup(Group{Name: "Production"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteGroup(g.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	g.User = "deploy"
+	if _, err := s.PutGroup(g); !errors.Is(err, ErrNoSuchGroup) {
+		t.Fatalf("PutGroup = %v, want it refused as gone", err)
+	}
+	if gs, _ := s.Groups(); len(gs) != 0 {
+		t.Errorf("the deleted group came back: %+v", gs)
+	}
+}
+
+// Creating is unaffected: a record with no id is new, and gets one.
+func TestCreatingStillWorksWhenTheStoreIsEmpty(t *testing.T) {
+	s := openTest(t)
+	h, err := s.PutHost(Host{Name: "new", Addr: "10.0.0.1"})
+	if err != nil || h.ID == "" {
+		t.Fatalf("PutHost = %+v, %v", h, err)
+	}
+	g, err := s.PutGroup(Group{Name: "new"})
+	if err != nil || g.ID == "" {
+		t.Fatalf("PutGroup = %+v, %v", g, err)
+	}
+	// And editing what was just created still works.
+	h.Addr = "10.0.0.2"
+	if _, err := s.PutHost(h); err != nil {
+		t.Errorf("editing a host that is there was refused: %v", err)
 	}
 }
