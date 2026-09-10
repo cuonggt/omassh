@@ -2258,3 +2258,52 @@ func TestTheHelpColumnsAreUnchangedByDefault(t *testing.T) {
 		t.Errorf("descriptions start at column %d, want the 20 they always have:\n%s", got, line)
 	}
 }
+
+// Which directory an sftp pane is showing lives at the end of its path. Cut
+// from the right, as a title cuts anything too long, every directory in a deep
+// tree drew the same leading run — so two directories three levels down were
+// the same title, and the title said where the tree began rather than where
+// you were.
+func TestAnSFTPPaneTitleKeepsTheEndOfThePath(t *testing.T) {
+	const deep = "/private/tmp/claude/scratchpad/lab/remote/nested/deep"
+	for _, w := range []int{120, 64, 40} {
+		got := pathTail(deep, w-5-len("local")-2)
+		if !strings.HasSuffix(got, "deep") {
+			t.Errorf("%d columns: title is %q, which does not say which directory this is", w, got)
+		}
+	}
+	// Two siblings under a long shared parent must not draw as one title.
+	avail := 64 - 5 - len("local") - 2
+	a := pathTail("/private/tmp/claude/scratchpad/lab/remote/nested/alpha", avail)
+	b := pathTail("/private/tmp/claude/scratchpad/lab/remote/nested/bravo", avail)
+	if a == b {
+		t.Errorf("two directories draw the same title: %q", a)
+	}
+
+	// And the pane has to actually use it: the helper being right is no good
+	// if the title is still handed to the box whole.
+	h := sftpHarness(t, 2, 2)
+	h.m.panes[1].path = deep
+	title := h.m.paneTitle(1, 40, 60)
+	if !strings.HasSuffix(title, "deep") {
+		t.Errorf("paneTitle = %q, which does not end where the path does", title)
+	}
+	if ansiWidth(title) > 60-5 {
+		t.Errorf("paneTitle is %d wide, more than the box will give it: %q", ansiWidth(title), title)
+	}
+}
+
+// The tail is elided, not overflowed: what comes back is never wider than it
+// was given, or it would push the box's own border off the row.
+func TestAPathTailFitsWhatItIsGiven(t *testing.T) {
+	const p = "/private/tmp/claude/scratchpad/lab/remote/nested/deep"
+	for _, w := range []int{80, 40, 12, 4, 1, 0, -3} {
+		got := pathTail(p, w)
+		if n := ansiWidth(got); n > max(w, 0) {
+			t.Errorf("pathTail(%d) is %d wide: %q", w, n, got)
+		}
+	}
+	if got := pathTail("/short", 40); got != "/short" {
+		t.Errorf("a path that fits was changed: %q", got)
+	}
+}

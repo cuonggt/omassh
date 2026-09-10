@@ -170,7 +170,11 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "c":
 		return m.copySelected()
 	case "m":
-		m.form = singleFieldForm(formMkdir, "New directory in "+p.path, "Name", "docs", "")
+		// The title is fitted here rather than left to the box, so what
+		// survives is the directory you are in and not the root it is under.
+		const lead = "New directory in "
+		m.form = singleFieldForm(formMkdir,
+			lead+pathTail(p.path, m.dialogWidth()-5-ansi.StringWidth(lead)), "Name", "docs", "")
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
 	case "r":
@@ -330,22 +334,31 @@ func (m Model) sftpView(content int) string {
 	body := content - 1 // one row for the transfer strip
 
 	rows := max(body-2, 1) // the box's own borders
-	left := box(m.paneTitle(0, rows), m.paneFocus == 0, leftW, body, m.paneBody(0, leftW-4, rows))
-	right := box(m.paneTitle(1, rows), m.paneFocus == 1, rightW, body, m.paneBody(1, rightW-4, rows))
+	left := box(m.paneTitle(0, rows, leftW), m.paneFocus == 0, leftW, body, m.paneBody(0, leftW-4, rows))
+	right := box(m.paneTitle(1, rows, rightW), m.paneFocus == 1, rightW, body, m.paneBody(1, rightW-4, rows))
 	return lipgloss.JoinHorizontal(lipgloss.Top, left, right) + "\n" + m.transferStrip()
 }
 
-func (m Model) paneTitle(i, rows int) string {
+func (m Model) paneTitle(i, rows, w int) string {
 	p := m.panes[i]
 	// A directory that does not fit says where in it you are, since the list
 	// scrolls and the borders alone no longer show that there is more. It goes
-	// before the path, which is long and gets truncated — putting the position
+	// before the path, which is the part that gives way — putting the position
 	// after it loses the position exactly when there is enough to need one.
-	title := p.fs.Label()
+	//
+	// Measured plainly and drawn styled, since the position is dimmed and a
+	// title has to be sized before it is coloured.
+	head, styled := p.fs.Label(), p.fs.Label()
 	if len(p.entries) > rows {
-		title += theme.Dim.Render(fmt.Sprintf("  %d/%d", p.idx+1, len(p.entries)))
+		pos := fmt.Sprintf("  %d/%d", p.idx+1, len(p.entries))
+		head, styled = head+pos, styled+theme.Dim.Render(pos)
 	}
-	return title + "  " + p.path
+	// box gives a title w-5 cells, and two spaces separate it from the path.
+	avail := w - 5 - ansi.StringWidth(head) - 2
+	if avail < 4 {
+		return styled
+	}
+	return styled + "  " + pathTail(p.path, avail)
 }
 
 func (m Model) paneBody(i, w, rows int) string {

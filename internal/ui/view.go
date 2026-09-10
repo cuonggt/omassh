@@ -66,13 +66,33 @@ func (m Model) render() string {
 	return body + "\n" + m.statusBar()
 }
 
+// dialogWidth is how wide a modal is drawn.
+//
+// Wide enough for a path or a host address, but never edge to edge: the list
+// showing through around it is what makes it read as a dialog. The upper
+// bound is the frame itself, so a narrow terminal shrinks the dialog rather
+// than letting it overhang.
+func (m Model) dialogWidth() int { return clamp(64, 20, m.w-4) }
+
+// pathTail keeps the end of a path when the whole of it will not fit.
+//
+// Which directory this is lives at the end of it. Cut from the right, which is
+// what a title does to anything too long, every directory in a deep tree drew
+// the same leading run of the path — so the title said where the tree began
+// and never where you actually were.
+func pathTail(p string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if n := ansi.StringWidth(p); n > w {
+		return ansi.TruncateLeft(p, n-w+1, "…")
+	}
+	return p
+}
+
 // dialog is the modal drawn over the browser, if one is open.
 func (m Model) dialog(content int) (string, bool) {
-	// Wide enough for a path or a host address, but never edge to edge: the
-	// list showing through around it is what makes it read as a dialog. The
-	// upper bound is the frame itself, so a narrow terminal shrinks the dialog
-	// rather than letting it overhang.
-	w := clamp(64, 20, m.w-4)
+	w := m.dialogWidth()
 
 	switch m.mode {
 	case modeForm:
