@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
@@ -1090,4 +1092,48 @@ func TestAnUnbreakableProblemIsBrokenAndIndented(t *testing.T) {
 			t.Errorf("a continuation line is not indented under the text: %q", l)
 		}
 	}
+}
+
+// The bar is one row and cannot wrap, so something has to give when a message
+// is longer than the terminal. What gives is the subject: which rule it was is
+// on screen already, while why it failed is written nowhere else — cut the
+// other way round, "port 443 is not yours to bind — a…" told you nothing you
+// could act on.
+func TestANarrowStatusKeepsTheReasonAndDropsTheSubject(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	f := h.addForward(host.ID, 443, "db.internal", 5432)
+	h.selectHost("db-01")
+
+	const reason = "port 443 is not yours to bind — a port below 1024 needs root"
+	h.send(forwardDoneMsg{f: f, err: errors.New(reason)})
+
+	// Wide enough for both: the subject is there.
+	h.send(tea.WindowSizeMsg{Width: 120, Height: testH})
+	wide := h.screen()
+	if !strings.Contains(wide, f.Label()) {
+		t.Errorf("at 120 columns the subject was dropped anyway:\n%s", lastLine(wide))
+	}
+	if !strings.Contains(wide, "needs root") {
+		t.Errorf("at 120 columns the reason was cut:\n%s", lastLine(wide))
+	}
+
+	// Too narrow for both: the reason survives whole, the subject goes.
+	h.send(tea.WindowSizeMsg{Width: 64, Height: testH})
+	narrow := lastLine(h.screen())
+	if !strings.Contains(narrow, "needs root") {
+		t.Errorf("the reason was cut at 64 columns: %q", narrow)
+	}
+	if strings.Contains(narrow, "db.internal:5432") {
+		t.Errorf("the subject was kept at the reason's expense: %q", narrow)
+	}
+	if w := ansiWidth(narrow); w > 64 {
+		t.Errorf("the bar is %d cells wide, want at most 64: %q", w, narrow)
+	}
+}
+
+// lastLine is the status bar: the final row of the frame.
+func lastLine(screen string) string {
+	lines := strings.Split(strings.TrimRight(screen, "\n"), "\n")
+	return lines[len(lines)-1]
 }

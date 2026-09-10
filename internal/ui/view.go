@@ -600,7 +600,16 @@ func (m Model) statusBar() string {
 	if m.failed {
 		col = theme.Red
 	}
-	right := theme.Fg(col).Render(m.status) + " "
+	// The subject only if it fits beside the reason. Cut, the prefix ate the
+	// half that says what to do — and named a rule the screen was already
+	// showing.
+	msg := m.status
+	if m.statusCtx != "" {
+		if with := m.statusCtx + ": " + msg; ansi.StringWidth(with)+1 <= m.w {
+			msg = with
+		}
+	}
+	right := theme.Fg(col).Render(msg) + " "
 
 	// The space between the two is reserved before the hints are measured,
 	// not left over after them. Padding the row to full width is not the same

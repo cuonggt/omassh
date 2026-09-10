@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"image/color"
 	"strings"
@@ -247,7 +248,7 @@ func (m Model) handleForwardDone(msg forwardDoneMsg) (tea.Model, tea.Cmd) {
 	m.refreshForwards()
 	switch {
 	case msg.err != nil:
-		m.setErr(fmt.Errorf("%s: %s", msg.f.Label(), m.forwardAdvice(msg.f, msg.err.Error())))
+		m.setErrOf(msg.f.Label(), errors.New(m.forwardAdvice(msg.f, msg.err.Error())))
 	case msg.stopped:
 		m.setStatus("stopped " + msg.f.Label())
 	default:

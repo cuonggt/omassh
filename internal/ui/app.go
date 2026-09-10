@@ -150,7 +150,12 @@ type Model struct {
 	transfer  transferMsg
 
 	status string
-	failed bool
+	// statusCtx names what the status is about — which rule, which host. It
+	// is dropped first when the bar is short of room, the same trade the
+	// hints already make one level out: what it happened to is usually on
+	// screen anyway, while why it happened is written nowhere else.
+	statusCtx string
+	failed    bool
 
 	// ready gates input until the first frame has been sized. Anything the
 	// terminal delivers before then — a buffered newline from the shell that
@@ -191,11 +196,17 @@ func (m *Model) reload() {
 }
 
 func (m *Model) setErr(err error) {
-	m.status, m.failed = err.Error(), true
+	m.status, m.statusCtx, m.failed = err.Error(), "", true
 }
 
 func (m *Model) setStatus(s string) {
-	m.status, m.failed = s, false
+	m.status, m.statusCtx, m.failed = s, "", false
+}
+
+// setErrOf reports a failure along with what it was about, so a narrow bar can
+// keep the reason and let the subject go.
+func (m *Model) setErrOf(ctx string, err error) {
+	m.status, m.statusCtx, m.failed = err.Error(), ctx, true
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
