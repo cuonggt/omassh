@@ -103,6 +103,9 @@ func TestBadConfigIsReported(t *testing.T) {
 		"reserved key":   "keys:\n  connect: ctrl+c\n",
 		"key conflict":   "keys:\n  connect: e\n",
 		"bad duration":   "probe_timeout: soon\n",
+		// Decode reads one document, so a second --- section would set
+		// nothing, as silently as a mistyped key would.
+		"two documents": "theme: nord\n---\ntheme: gruvbox\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -119,6 +122,18 @@ func TestBadConfigIsReported(t *testing.T) {
 				t.Errorf("config not reset to defaults after error: %+v", c)
 			}
 		})
+	}
+}
+
+// Opening with the marker is a plain YAML habit and is still one document —
+// only a second --- starts a second one.
+func TestALeadingDocumentMarkerIsFine(t *testing.T) {
+	c, err := Load(write(t, "---\ntheme: nord\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.Theme != "nord" {
+		t.Errorf("Theme = %q", c.Theme)
 	}
 }
 

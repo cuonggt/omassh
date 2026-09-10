@@ -124,6 +124,31 @@ hosts:
 	}
 }
 
+// Decode reads one document, so the records after a second --- would arrive
+// as nothing at all — a host list split in two would import half of itself
+// and report that half as the whole.
+func TestParseRejectsMoreThanOneDocument(t *testing.T) {
+	raw := []byte("version: 1\nhosts:\n  - name: web\n    addr: 10.0.0.1\n---\nhosts:\n  - name: db\n    addr: 10.0.0.2\n")
+
+	if _, err := Parse(raw); err == nil {
+		t.Fatal("parsed a stream holding two documents")
+	} else if !strings.Contains(err.Error(), "more than one YAML document") {
+		t.Errorf("error does not say what is wrong: %v", err)
+	}
+}
+
+// Opening with the marker is a plain YAML habit and is still one document —
+// only a second --- starts a second one.
+func TestParseAcceptsALeadingDocumentMarker(t *testing.T) {
+	d, err := Parse([]byte("---\nversion: 1\nhosts:\n  - name: web\n    addr: 10.0.0.1\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(d.Hosts) != 1 {
+		t.Fatalf("got %d hosts, want 1", len(d.Hosts))
+	}
+}
+
 // An empty file is empty, not malformed — it decodes to EOF, and the import
 // has a better complaint about it than anything about YAML.
 func TestParseAcceptsADocumentWithNothingInIt(t *testing.T) {
