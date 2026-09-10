@@ -61,18 +61,22 @@ func run(args []string) error {
 	// A subcommand is a bare word. Anything starting with a dash is a flag to
 	// the browser, which is what omassh does when asked for nothing else.
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
-		switch args[0] {
-		case "export":
-			return runExport(args[1:])
-		case "import":
-			return runImport(args[1:])
-		case "import-ssh-config":
-			return runImportSSHConfig(args[1:])
-		default:
+		run, ok := commands[args[0]]
+		if !ok {
 			return fmt.Errorf("unknown command %q — see omassh -h", args[0])
 		}
+		return run(args[1:])
 	}
 	return browse(args)
+}
+
+// commands are the subcommands, each of which takes flags of its own. Both
+// dispatch and the complaint about one written after the flags read this, so
+// neither can learn of a command the other has not.
+var commands = map[string]func([]string) error{
+	"export":            runExport,
+	"import":            runImport,
+	"import-ssh-config": runImportSSHConfig,
 }
 
 func browse(args []string) error {
@@ -97,6 +101,19 @@ func browse(args []string) error {
 	}
 	if err := flag.CommandLine.Parse(args); err != nil {
 		return err
+	}
+	// Anything left over was meant to do something, and nothing here reads it.
+	//
+	// flag stops at the first bare word, so `omassh -db other.db import
+	// hosts.yaml` took the -db, dropped the rest and opened the browser — on
+	// the database that had been asked for, which is exactly what made it look
+	// like it had worked, while the import silently never happened.
+	if flag.NArg() > 0 {
+		arg := flag.Arg(0)
+		if _, ok := commands[arg]; ok {
+			return fmt.Errorf("%s is a command and comes first: omassh %s [flags], not omassh [flags] %s", arg, arg, arg)
+		}
+		return fmt.Errorf("nothing here takes %q — see omassh -h", arg)
 	}
 
 	if *showVer {
