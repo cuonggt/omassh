@@ -34,7 +34,7 @@ func forwardTick() tea.Cmd {
 // forwardDoneMsg reports what became of a start or a stop, which for a start
 // means waiting to see whether ssh stayed up.
 type forwardDoneMsg struct {
-	label   string
+	f       store.Forward
 	stopped bool
 	err     error
 }
@@ -207,19 +207,35 @@ func (m Model) forwardTarget() store.Host {
 // which takes long enough to be worth doing off the interface's own goroutine.
 func startForward(h store.Host, f store.Forward) tea.Cmd {
 	return func() tea.Msg {
-		return forwardDoneMsg{label: f.Label(), err: term.StartForward(f, sshx.ForwardArgs(h, f))}
+		return forwardDoneMsg{f: f, err: term.StartForward(f, sshx.ForwardArgs(h, f))}
 	}
 }
 
 func (m Model) handleForwardDone(msg forwardDoneMsg) (tea.Model, tea.Cmd) {
+	// The rule can go while its tunnel is coming up. Starting takes a second
+	// or so, and a delete inside that window stopped a session that did not
+	// exist yet — so what the start then created belonged to nothing: a tunnel
+	// holding a port, with nothing in the interface able to see or stop it.
+	if msg.err == nil && !msg.stopped {
+		if _, ok := m.d.forwardByID(msg.f.ID); !ok {
+			if err := term.StopForward(msg.f); err != nil {
+				m.setErr(err)
+				return m, nil
+			}
+			m.refreshForwards()
+			m.setStatus("stopped " + msg.f.Label() + " — its rule went while it was starting")
+			return m, nil
+		}
+	}
+
 	m.refreshForwards()
 	switch {
 	case msg.err != nil:
-		m.setErr(fmt.Errorf("%s: %s", msg.label, m.forwardAdvice(msg.err.Error())))
+		m.setErr(fmt.Errorf("%s: %s", msg.f.Label(), m.forwardAdvice(msg.err.Error())))
 	case msg.stopped:
-		m.setStatus("stopped " + msg.label)
+		m.setStatus("stopped " + msg.f.Label())
 	default:
-		m.setStatus(msg.label + " is up")
+		m.setStatus(msg.f.Label() + " is up")
 	}
 	return m, nil
 }

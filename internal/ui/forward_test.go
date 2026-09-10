@@ -768,3 +768,45 @@ func TestAKilledTunnelDrawsAsAFailure(t *testing.T) {
 	h.mustContain("stopped:")
 	h.mustContain("kill")
 }
+
+// Starting takes a second or so, and the rule can be deleted inside that
+// window — the delete stops a session that does not exist yet, and the start
+// then creates one belonging to nothing: a tunnel holding a port with nothing
+// in the interface able to see or stop it.
+func TestATunnelWhoseRuleWentWhileStartingIsStopped(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	f := h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+
+	// The rule goes while the start is in flight.
+	if err := h.store.DeleteForward(f.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.reload()
+
+	// The start now reports success, for a rule that is no longer there.
+	h.send(forwardDoneMsg{f: f})
+
+	if !strings.Contains(h.m.status, "went while it was starting") {
+		t.Errorf("status is %q, want it to say the tunnel was stopped", h.m.status)
+	}
+	if strings.Contains(h.m.status, "is up") {
+		t.Errorf("a tunnel for a deleted rule was reported as up: %q", h.m.status)
+	}
+}
+
+// A start that lands while its rule is still there is reported as usual.
+func TestATunnelThatOutlivesItsStartIsReportedUp(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("db-01", "10.0.0.1")
+	f := h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+	h.press("f")
+
+	h.send(forwardDoneMsg{f: f})
+	if !strings.Contains(h.m.status, "is up") {
+		t.Errorf("status is %q, want it to report the tunnel up", h.m.status)
+	}
+}

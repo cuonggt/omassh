@@ -121,6 +121,17 @@ func (d data) forwardsFor(hostID string) []store.Forward {
 	return out
 }
 
+// forwardByID finds a rule, so an action that was in flight can tell whether
+// what it was about is still there.
+func (d data) forwardByID(id string) (store.Forward, bool) {
+	for _, f := range d.forwards {
+		if f.ID == id {
+			return f, true
+		}
+	}
+	return store.Forward{}, false
+}
+
 // forwardStatus is what tmux says about a rule's tunnel, and whether it said
 // anything at all. A rule nobody has started has no session, which is not the
 // same as one whose tunnel stopped — and the interface says so differently.
