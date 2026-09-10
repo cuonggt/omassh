@@ -449,14 +449,15 @@ func (m Model) forwardDetail() []string {
 	st, known := m.d.forwardStatus(f)
 	switch {
 	case st.Running && forwardStale(m.forwardTarget(), f, st):
-		// Neither half names the rule as the thing that changed: editing the
-		// host moves the tunnel just as surely, and blaming the rule sends
-		// someone to look at the one thing they did not touch. Short enough,
-		// too — an earlier wording ran past the dialog and lost the half that
-		// says what to do.
+		// Nothing here names one thing as the cause. The fingerprint covers the
+		// whole invocation, so a tunnel goes out of date when the rule, the
+		// host, or a group the host inherits from changes — and naming any one
+		// of those sends someone to look at what they did not touch. Short
+		// enough, too: an earlier wording ran past the dialog and lost the half
+		// that says what to do.
 		return []string{
 			theme.Fg(theme.Yellow).Render("running what it was started with"),
-			theme.Dim.Render("↳ the rule or its host has changed since — ↵ restarts it"),
+			theme.Dim.Render("↳ the rule or how it connects has changed — ↵ restarts it"),
 		}
 	case st.Running:
 		return []string{theme.Fg(theme.Green).Render("running") + theme.Dim.Render("  ↵ stops it")}

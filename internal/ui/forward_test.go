@@ -638,3 +638,43 @@ func TestSavingAForwardForADeletedHostIsRefused(t *testing.T) {
 		t.Errorf("an orphan was written: %+v", fs)
 	}
 }
+
+// The fingerprint is of the whole invocation, so a tunnel goes out of date
+// when a group the host inherits from changes, not only the rule or the host.
+// A jump host supplied by a group is the case that matters: the tunnel goes on
+// travelling through a bastion the group no longer names.
+func TestAGroupChangeMakesATunnelStale(t *testing.T) {
+	h := newHarness(t)
+	bastion := h.addHost("bastion", "edge.example.com")
+	g, err := h.store.PutGroup(store.Group{Name: "Prod", ProxyJump: bastion.Name})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.reload()
+	host := h.addGroupedHost("db-01", g.ID)
+	f := h.addForward(host.ID, 5432, "localhost", 5432)
+	h.selectHost("db-01")
+
+	// Running exactly what the rule resolves to today.
+	started := term.ForwardFingerprint(sshx.ForwardArgs(h.m.d.resolver.Resolve(host).Host, f))
+	h.press("f")
+	h.m.d.fwd = map[string]term.ForwardState{
+		term.ForwardSessionName(f): {Running: true, Args: started},
+	}
+	h.mustContain("↵ stops it")
+
+	// The group drops the jump host. Nothing about the rule or the host
+	// changed, but what the tunnel would be started with did.
+	g.ProxyJump = ""
+	if _, err := h.store.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	was := h.m.d.fwd
+	h.reload()
+	h.m.d.fwd = was
+
+	if !forwardStale(h.m.forwardTarget(), f, h.m.d.forwardState(f)) {
+		t.Fatal("a tunnel still going through the group's old bastion was reported as current")
+	}
+	h.mustContain("what it was started with")
+}
