@@ -15,6 +15,7 @@ import (
 	"github.com/cuonggt/omassh/internal/sftpx"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
+	"github.com/cuonggt/omassh/internal/term"
 )
 
 // Enter opens an SSH connection, so anything the terminal delivers before the
@@ -2606,5 +2607,99 @@ func TestTheWheelMovesTheFilePaneUnderThePointer(t *testing.T) {
 	h.wheel(1, testH-statusHeight-1, false)
 	if h.m.panes[0].idx != before {
 		t.Errorf("the wheel over the transfer strip moved the pane to %d", h.m.panes[0].idx)
+	}
+}
+
+// d.live is only as fresh as the last reload, and connecting does not cause
+// one — so the session most likely to be open on a host being deleted, the one
+// being looked at, was exactly the one the delete could not see. It survived,
+// and outlived omassh, holding a connection to a host no longer in the list.
+func TestDeletingTheHostYouAreConnectedToEndsTheSession(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	if !h.m.attachedTo(h.m.attached.Host) {
+		t.Skip("the session ended before the host could be deleted")
+	}
+
+	// The harness connects to a port nothing answers on, so the tmux session
+	// usually ends on its own before this runs. Everything else here holds
+	// either way; only the last assertion needs a live one, so it asks rather
+	// than skipping the rest.
+	host := h.m.attached.Host
+	live := term.HasLiveSession(host)
+
+	h.press("prefix", "w") // back to the list, session still attached
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Fatal("d did not ask")
+	}
+	// The confirmation has to say it, since ending a shell is not undoable.
+	if !strings.Contains(h.m.confirm.detail, "the session on it ends") {
+		t.Errorf("the confirmation says %q", h.m.confirm.detail)
+	}
+
+	h.press("y")
+	if hosts, _ := h.store.Hosts(); len(hosts) != 0 {
+		t.Fatalf("the host was not deleted: %+v", hosts)
+	}
+	// And the pane goes with it: a title naming a host that is not in the list,
+	// over a shell with nothing behind it, is worse than no pane at all.
+	if h.m.attached != nil {
+		t.Error("the session pane outlived the host it was for")
+	}
+	// And the session itself is ended, not merely detached from. It was
+	// surviving the delete and outliving omassh, with no host left to reach it.
+	if live && term.HasLiveSession(host) {
+		t.Error("the session outlived the host it belonged to")
+	}
+}
+
+// A pane whose host is still there has to be left alone: releasing on every
+// confirmation would close the session for an unrelated delete.
+func TestAPaneSurvivesTheDeletionOfSomeOtherHost(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("bystander", "10.0.0.9")
+	h.reload()
+	h.openSession("alpha")
+	if h.m.attached == nil {
+		t.Skip("no pane to keep")
+	}
+
+	h.selectHost("bystander")
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Fatal("d did not ask")
+	}
+	h.press("y")
+
+	if h.m.attached == nil {
+		t.Error("deleting another host closed the session pane")
+	}
+}
+
+// The same release covers a host deleted in another window: the check is by id
+// against what the reload has just read, not against who did the deleting.
+func TestAPaneIsReleasedWhenItsHostGoesInAnotherWindow(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	if h.m.attached == nil {
+		t.Skip("no pane to release")
+	}
+	gone := h.m.attached.Host
+
+	h.m.focus = panelSession // looking at it when it goes
+	if err := h.store.DeleteHost(gone.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.reload()
+	h.m.releaseVanishedSession()
+
+	if h.m.attached != nil {
+		t.Error("the pane was kept for a host the store no longer has")
+	}
+	// The keyboard has to come back with it, or every key goes to a pane that
+	// is not there.
+	if h.m.focus == panelSession {
+		t.Error("focus was left on a pane that is gone")
 	}
 }

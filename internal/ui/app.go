@@ -527,6 +527,7 @@ func (m Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		} else {
 			m.reload()
 		}
+		m.releaseVanishedSession()
 	case "n", "N", "esc", "q":
 		m.confirm, m.mode = nil, m.returnTo
 		m.setStatus("cancelled")
@@ -750,6 +751,16 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 		}
 		extra = append(extra, what+", stopped first if running")
 	}
+	// The pane is asked as well as the last reload's view of things. d.live is
+	// only as fresh as that reload, and connecting does not cause one — so the
+	// session most likely to be open on a host being deleted, the one being
+	// looked at, was exactly the one it could not see. It survived the delete
+	// and outlived omassh, holding an ssh connection to a host no longer in
+	// the list and reachable by nothing that could end it.
+	connected := m.d.hasSession(h) || m.attachedTo(h)
+	if connected {
+		extra = append(extra, "the session on it ends")
+	}
 	detail := "session history is kept"
 	if len(extra) > 0 {
 		detail = strings.Join(extra, "; ") + "; session history is kept"
@@ -758,7 +769,7 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 		prompt: "Delete host " + h.Name + "?",
 		detail: detail,
 		run: func() (string, error) {
-			if m.d.hasSession(h) {
+			if connected {
 				if err := term.KillSession(term.SessionName(h)); err != nil {
 					return "", err
 				}
@@ -771,6 +782,29 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 	}
 	m.returnTo, m.mode = backFor(m.mode), modeConfirm
 	return m, nil
+}
+
+// releaseVanishedSession lets go of a pane whose host is no longer there.
+//
+// Deleting a host ends its session, and the pane went on being drawn over the
+// list afterwards: a title naming a host that was not in it, over a shell with
+// nothing behind it and no way back. The check is by id against what has just
+// been read, so it covers a host deleted in another window as readily as one
+// deleted here.
+func (m *Model) releaseVanishedSession() {
+	if m.attached == nil {
+		return
+	}
+	if _, ok := m.d.hostByID(m.attached.Host.ID); ok {
+		return
+	}
+	m.recordPaneSession(m.attached)
+	m.attached.Close()
+	m.attached = nil
+	if m.focus == panelSession {
+		m.focus = panelHosts
+	}
+	m.prefixArmed, m.scrollArmed = false, false
 }
 
 // vanished explains a save refused because the record is no longer there.
