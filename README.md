@@ -201,8 +201,10 @@ stored, so importing fills in and corrects but never blanks; clearing a field
 is the interface's job. `-n` reports what an import would do and writes
 nothing.
 
-A key the format does not have is named with its line rather than skipped
-past. An import reports the same `2 added, 0 updated` whether or not it
+A key the format does not have is named with its line, in the words of the
+file rather than of the program reading it — `"jump_host" is not something a
+host has — it takes name, addr, port, …`, with the keys read off the format so
+the list offered is the list accepted. An import reports the same `2 added, 0 updated` whether or not it
 understood every line, so `jump_host` where the field is `jump` would
 otherwise leave that host showing `via —` and nothing on screen to say a line
 was dropped — the mistake and the success read identically. More than one YAML

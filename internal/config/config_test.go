@@ -269,22 +269,6 @@ func TestAValueOfTheWrongShapeIsDescribedInWords(t *testing.T) {
 	}
 }
 
-// A shape yaml grows later has to fall back to yaml's own words. Describing it
-// from whichever half of the sentence was understood would produce a confident
-// wrong answer, or half a sentence, in place of something merely technical.
-func TestAComplaintOmasshDoesNotRecogniseIsLeftAlone(t *testing.T) {
-	for _, e := range []string{
-		"line 9: cannot unmarshal !!timestamp into string",
-		"line 9: cannot unmarshal !!str into chan int",
-		"line 9: mapping key \"a\" already defined at line 8",
-		"something yaml has not said before",
-	} {
-		if got := rewrite(e); got != e {
-			t.Errorf("rewrote\n %q\ninto\n %q", e, got)
-		}
-	}
-}
-
 // A duration that will not parse must be described the way the file spells
 // one. time.ParseDuration says `time: invalid duration "soon"`, which puts a
 // Go package name where this file has setting names.

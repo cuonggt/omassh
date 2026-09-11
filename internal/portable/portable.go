@@ -19,10 +19,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/cuonggt/omassh/internal/yamlerr"
 
 	"github.com/cuonggt/omassh/internal/store"
 )
@@ -198,6 +201,66 @@ func (d Document) YAML() ([]byte, error) {
 	return append([]byte(header), body.Bytes()...), nil
 }
 
+// words is what a host list calls its own keys and shapes, for yamlerr to
+// complain in.
+//
+// The field names are read off the structs so the list offered cannot drift
+// from the list accepted: a key added to Host appears in the complaint about a
+// key that is not there.
+var words = yamlerr.Vocabulary{
+	Field: func(name, typ string) string {
+		known := map[string]string{
+			"portable.Document": "a host list",
+			"portable.Host":     "a host",
+			"portable.Group":    "a group",
+			"portable.Forward":  "a forwarding rule",
+		}[typ]
+		if known == "" {
+			return ""
+		}
+		return fmt.Sprintf("%q is not something %s has — it takes %s",
+			name, known, strings.Join(fieldsOf(typ), ", "))
+	},
+	Type: func(typ string) string {
+		return map[string]string{
+			"portable.Document":  "a host list",
+			"portable.Host":      "a host",
+			"portable.Group":     "a group",
+			"portable.Forward":   "a forwarding rule",
+			"[]portable.Host":    "a list of hosts",
+			"[]portable.Group":   "a list of groups",
+			"[]portable.Forward": "a list of forwarding rules",
+			"[]string":           "a list",
+			"string":             "a single value",
+			"int":                "a number",
+		}[typ]
+	},
+}
+
+// fieldsOf is the keys a record takes, in the order they are written.
+func fieldsOf(typ string) []string {
+	var t reflect.Type
+	switch typ {
+	case "portable.Document":
+		t = reflect.TypeOf(Document{})
+	case "portable.Host":
+		t = reflect.TypeOf(Host{})
+	case "portable.Group":
+		t = reflect.TypeOf(Group{})
+	case "portable.Forward":
+		t = reflect.TypeOf(Forward{})
+	default:
+		return nil
+	}
+	out := make([]string, 0, t.NumField())
+	for i := range t.NumField() {
+		if tag, _, _ := strings.Cut(t.Field(i).Tag.Get("yaml"), ","); tag != "" && tag != "-" {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
 // Parse reads a document, rejecting one this version cannot honour.
 func Parse(raw []byte) (Document, error) {
 	// The version comes first, and loosely. A document from a later omassh
@@ -225,7 +288,7 @@ func Parse(raw []byte) (Document, error) {
 	// EOF. The caller has a better complaint about that than anything this
 	// could say about YAML, so leave it to say it.
 	if err := dec.Decode(&d); err != nil && !errors.Is(err, io.EOF) {
-		return Document{}, err
+		return Document{}, yamlerr.InWords(err, words)
 	}
 	// Decode reads one document, and a stream can hold several. Importing the
 	// first and skipping the rest is the same silent half-success as dropping

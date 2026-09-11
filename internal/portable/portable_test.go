@@ -301,3 +301,111 @@ func TestEveryRecordIsAccountedForExactlyOnce(t *testing.T) {
 		t.Errorf("unchanged = %d, want 3 — the group is a record too", second.Unchanged)
 	}
 }
+
+// A host list is written by hand and piped between machines, so what is wrong
+// with one has to be said in the words of the file. yaml says "field jump_host
+// not found in type portable.Host", which names a Go type at whoever typed it
+// and never says what the key should have been.
+func TestAKeyThatIsNotAFieldIsNamedInOmasshsWords(t *testing.T) {
+	cases := map[string]struct {
+		doc  string
+		want []string
+	}{
+		"a host": {
+			"version: 2\nhosts:\n  - name: web\n    addr: 10.0.0.1\n    jump_host: bastion\n",
+			[]string{`line 5: "jump_host" is not something a host has`, "name, addr, port", "jump", "forwards"},
+		},
+		"a group": {
+			"version: 2\ngroups:\n  - name: Prod\n    jumphost: b\n",
+			[]string{`"jumphost" is not something a group has`, "name, parent, user, identity, jump"},
+		},
+		"a forwarding rule": {
+			"version: 2\nhosts:\n  - name: web\n    addr: 1.1.1.1\n    forwards:\n      - kind: local\n        destination: db:5432\n",
+			[]string{`"destination" is not something a forwarding rule has`, "kind, listen, dest"},
+		},
+		"the list itself": {
+			"version: 2\nwhat: 1\n",
+			[]string{`"what" is not something a host list has`, "version, groups, hosts"},
+		},
+		"the wrong shape": {
+			"version: 2\nhosts: not-a-list\n",
+			[]string{"line 2: this should be a list of hosts, not text"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := Parse([]byte(tc.doc))
+			if err == nil {
+				t.Fatal("Parse accepted it")
+			}
+			got := err.Error()
+			for _, w := range tc.want {
+				if !strings.Contains(got, w) {
+					t.Errorf("does not say %q:\n  %s", w, got)
+				}
+			}
+			for _, leak := range []string{"not found in type", "portable.", "!!", "unmarshal"} {
+				if strings.Contains(got, leak) {
+					t.Errorf("leaks %q at the user:\n  %s", leak, got)
+				}
+			}
+		})
+	}
+}
+
+// The keys offered are read off the structs, so a document using every one of
+// them is accepted — a list that drifted would name a key as wrong in the very
+// message meant to help.
+func TestEveryKeyTheComplaintOffersIsAccepted(t *testing.T) {
+	full := `version: 2
+groups:
+  - name: x2
+  - name: x
+    parent: x2
+    user: u
+    identity: i
+    jump: j
+hosts:
+  - name: h
+    addr: a
+    port: 22
+    user: u
+    identity: i
+    jump: j
+    group: x
+    tags: [t]
+    forwards:
+      - kind: local
+        listen: "1"
+        dest: "d:2"
+`
+	if _, err := Parse([]byte(full)); err != nil {
+		t.Errorf("a document using every offered key was refused: %v", err)
+	}
+
+	// And the document above really does use them all, or it proves nothing.
+	for _, typ := range []string{"portable.Document", "portable.Group", "portable.Host", "portable.Forward"} {
+		for _, f := range fieldsOf(typ) {
+			if !strings.Contains(full, f+":") {
+				t.Errorf("%s is offered as a key of %s but never tried here", f, typ)
+			}
+		}
+	}
+}
+
+// A record this vocabulary has no word for falls back to yaml's own wording
+// rather than to half a sentence with the name missing from it. Nothing
+// decoded today reaches that, which is exactly why it is checked here: a
+// struct added later without a word would otherwise garble the complaint
+// instead of leaving it technical.
+func TestARecordWithNoWordForItIsLeftToYaml(t *testing.T) {
+	if got := words.Field("x", "portable.SomethingNew"); got != "" {
+		t.Errorf("Field on an unknown type = %q, want it left alone", got)
+	}
+	if got := words.Type("portable.SomethingNew"); got != "" {
+		t.Errorf("Type on an unknown type = %q, want it left alone", got)
+	}
+	if got := fieldsOf("portable.SomethingNew"); got != nil {
+		t.Errorf("fieldsOf on an unknown type = %v", got)
+	}
+}

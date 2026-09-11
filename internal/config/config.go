@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -16,6 +15,7 @@ import (
 
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/ui/theme"
+	"github.com/cuonggt/omassh/internal/yamlerr"
 )
 
 // Config is the whole of the config file. Where that lives follows
@@ -43,102 +43,32 @@ func DefaultPath() (string, error) {
 	return filepath.Join(dir, "omassh", "config.yaml"), nil
 }
 
-// inWords turns yaml's complaints into omassh's own.
+// words is what this file's settings are called, for yamlerr to complain in.
 //
-// "line 3: field bg not found in type theme.Palette" names a Go type at
-// someone editing a colour scheme by hand, and says nothing about what the
-// name should have been — which for a palette matters, since the keys are
-// text_bright and selected_bg rather than anything guessable. The line number
-// is yaml's and worth keeping; the rest is not.
-func inWords(err error) error {
-	var te *yaml.TypeError
-	if !errors.As(err, &te) {
-		return err
-	}
-	out := make([]string, 0, len(te.Errors))
-	for _, e := range te.Errors {
-		out = append(out, rewrite(e))
-	}
-	return errors.New(strings.Join(out, "; "))
-}
-
-// rewrite turns one of yaml's lines into omassh's own, or leaves it alone.
-//
-// Left alone rather than half-translated: a shape yaml grows later would
-// otherwise be described by whichever half of the sentence was understood,
-// and a confident wrong answer is worse than yaml's own words.
-func rewrite(e string) string {
-	if out, ok := rewriteField(e); ok {
-		return out
-	}
-	if out, ok := rewriteShape(e); ok {
-		return out
-	}
-	return e
-}
-
-// fieldRE matches yaml's complaint about a key a struct does not have.
-var fieldRE = regexp.MustCompile(`^(line \d+: )?field (\S+) not found in type (\S+)$`)
-
-func rewriteField(e string) (string, bool) {
-	m := fieldRE.FindStringSubmatch(e)
-	if m == nil {
-		return "", false
-	}
-	where, name, typ := m[1], m[2], m[3]
-	if strings.HasSuffix(typ, "Palette") {
-		return fmt.Sprintf("%s%q is not a palette colour — they are %s",
-			where, name, strings.Join(theme.PaletteKeys(), ", ")), true
-	}
-	return fmt.Sprintf("%s%q is not a setting", where, name), true
-}
-
-// shapeRE matches yaml's complaint about a value of the wrong shape.
-//
-// The value itself is in there too, backquoted and sometimes cut short to
-// "Connect...", which reads like damage rather than like quoting. The line
-// number says where to look, so the value is dropped.
-var shapeRE = regexp.MustCompile("^(line \\d+: )?cannot unmarshal (!!\\w+)(?: `.*`)? into (.+)$")
-
-// found names what yaml met, and wanted what the setting is. Between them
-// these cover every shape this config file has: the schema is six types wide
-// and fixed, and a type that is not in either is left in yaml's words.
-//
-// No entry for !!null, which never reaches here: an empty value decodes to
-// the zero value at every position, including the whole file, so it is a
-// config that sets nothing rather than one of the wrong shape.
-var found = map[string]string{
-	"!!str":   "text",
-	"!!int":   "a number",
-	"!!float": "a number",
-	"!!bool":  "true or false",
-	"!!seq":   "a list",
-	"!!map":   "a block of key: value lines",
-}
-
-var wanted = map[string]string{
-	"config.Config":            "settings",
-	"theme.Palette":            `a palette of colour: "#rrggbb" lines`,
-	"map[string]theme.Palette": "a palette under each name",
-	"map[string]string":        "a block of key: value lines",
-	"[]string":                 "a list",
-	"string":                   "a single value",
-}
-
-func rewriteShape(e string) (string, bool) {
-	m := shapeRE.FindStringSubmatch(e)
-	if m == nil {
-		return "", false
-	}
-	got, ok := found[m[2]]
-	if !ok {
-		return "", false
-	}
-	want, ok := wanted[m[3]]
-	if !ok {
-		return "", false
-	}
-	return fmt.Sprintf("%sthis should be %s, not %s", m[1], want, got), true
+// yaml says "field bg not found in type theme.Palette", which names a Go type
+// at someone choosing colours and never says what the name should have been —
+// and for a palette that matters, since the keys are text_bright and
+// selected_bg rather than anything guessable.
+var words = yamlerr.Vocabulary{
+	Field: func(name, typ string) string {
+		if strings.HasSuffix(typ, "Palette") {
+			return fmt.Sprintf("%q is not a palette colour — they are %s",
+				name, strings.Join(theme.PaletteKeys(), ", "))
+		}
+		return fmt.Sprintf("%q is not a setting", name)
+	},
+	// The schema is six types wide and fixed; one that is not here is left in
+	// yaml's own words rather than guessed at.
+	Type: func(typ string) string {
+		return map[string]string{
+			"config.Config":            "settings",
+			"theme.Palette":            `a palette of colour: "#rrggbb" lines`,
+			"map[string]theme.Palette": "a palette under each name",
+			"map[string]string":        "a block of key: value lines",
+			"[]string":                 "a list",
+			"string":                   "a single value",
+		}[typ]
+	},
 }
 
 // Load reads path, filling anything unset from the defaults.
@@ -171,7 +101,7 @@ func Load(path string) (Config, error) {
 	// That is a config that sets nothing, which is allowed and is what a
 	// fresh one looks like.
 	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
-		return Default(), fmt.Errorf("%s: %w", path, inWords(err))
+		return Default(), fmt.Errorf("%s: %w", path, yamlerr.InWords(err, words))
 	}
 	// Decode reads one document, and a stream can hold several. A second ---
 	// section would be skipped in exactly the silent way an unknown key would,
