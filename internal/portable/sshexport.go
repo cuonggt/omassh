@@ -143,20 +143,58 @@ func withReachableJumps(keep []store.Host, declared map[string]bool, all []store
 	}
 }
 
+// refusedBySSH is what ssh will not have in a destination, whatever the config
+// says about it.
+//
+// Read off ssh itself rather than guessed at: each of these was written into a
+// Host block and handed back to `ssh -G`, which answered "hostname contains
+// invalid characters" for exactly this set. Most are shell metacharacters, on
+// the reasoning that a destination reaches a ProxyCommand eventually.
+const refusedBySSH = "\"$&'(),;<>\\`{|}"
+
 // usableAlias reports whether a host's name can be an ssh alias at all.
 //
-// ssh refuses a destination with whitespace in it — "hostname contains
-// invalid characters" — however the config quotes it, so an entry under such
-// a name is one nothing could ever use, and writing it unquoted would declare
-// two aliases out of the pieces. A name holding *, ? or ! is worse: it is a
-// pattern rather than a machine, and ssh would apply this host's settings to
-// every alias it happened to match, including hosts omassh knows nothing
-// about.
+// ssh refuses a destination holding any of the above — "hostname contains
+// invalid characters" — however the config quotes it, so an entry under such a
+// name is one nothing could ever use. Whitespace is refused for the same
+// reason, with a second one behind it: written unquoted, a name with a space
+// declares two aliases out of the pieces.
+//
+// A name holding *, ? or ! is worse than unusable: it is a pattern rather than
+// a machine, and ssh would apply this host's settings to every alias it
+// happened to match, including hosts omassh knows nothing about.
+//
+// The rest are names ssh takes and then reads as something other than a name,
+// which is the quietest failure of the three — no complaint from anybody, and
+// a connection to the wrong place or to nowhere:
+//
+//   - @ separates a user from a host, so "we@b" is the host b with the user
+//     we, and the stanza written for it matches nothing. A leading one is a
+//     destination with an empty user, which ssh answers with its usage.
+//   - A leading - is a flag.
+//   - A leading # opens a comment, so the Host line declaring the alias is not
+//     a Host line at all and the settings under it belong to whatever came
+//     before.
+//   - A leading = is the separator in ssh's own Key=Value form, so "Host
+//     =front" declares the alias front.
+//
+// Getting this wrong is quiet in every direction. The name is written into the
+// file, the run reports it as one of the hosts exported, and it is only the
+// first `ssh that-host` that says otherwise — so the check is against what ssh
+// does, and the test that keeps it honest asks ssh rather than this list.
 func usableAlias(name string) bool {
-	if !concrete(name) || strings.ContainsAny(name, `"'\`) {
+	switch {
+	case !concrete(name),
+		strings.ContainsAny(name, refusedBySSH),
+		strings.Contains(name, "@"),
+		strings.HasPrefix(name, "-"),
+		strings.HasPrefix(name, "#"),
+		strings.HasPrefix(name, "="):
 		return false
 	}
-	return strings.IndexFunc(name, unicode.IsSpace) < 0
+	return strings.IndexFunc(name, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	}) < 0
 }
 
 // sshEntry is one host as an ssh config stanza.

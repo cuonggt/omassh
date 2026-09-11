@@ -40,7 +40,7 @@ type Vocabulary struct {
 func InWords(err error, v Vocabulary) error {
 	var te *yaml.TypeError
 	if !errors.As(err, &te) {
-		return err
+		return unreadable(err)
 	}
 	out := make([]string, 0, len(te.Errors))
 	for _, e := range te.Errors {
@@ -109,4 +109,75 @@ func rewriteShape(e string, v Vocabulary) (string, bool) {
 		return "", false
 	}
 	return fmt.Sprintf("%sthis should be %s, not %s", m[1], want, got), true
+}
+
+// A file that is not YAML at all never reached any of the above: yaml reports
+// that from its scanner, as a plain error rather than a *yaml.TypeError, so it
+// was handed straight to the person editing the file with yaml's own prefix
+// still on it — "yaml: line 2: mapping values are not allowed in this context".
+// Which names the library, then a token, then a context, and says nothing
+// about what to change. The type errors beside it had already been put into
+// words; these are what people hit first, because a file that will not parse
+// never gets as far as having the wrong type in it.
+
+// prefix is what yaml puts in front of everything it says.
+const prefix = "yaml: "
+
+// lineRE separates the line yaml is pointing at from the problem it found.
+var lineRE = regexp.MustCompile(`^(line \d+: )(.*)$`)
+
+// unreadable says what a file that will not parse got wrong.
+//
+// The wording is careful about *where*, because yaml's line is not always the
+// line at fault: for a construct left open or an item that does not line up it
+// points at where that construct began, which can be several lines above the
+// mistake. So each sentence below is phrased for the line yaml actually names
+// — "the list starting here", not "this line" — and the ones it cannot be
+// sure of say nothing about position at all.
+//
+// Anything not listed keeps yaml's own words after a plain opening, since a
+// technical hint is better than none and inventing a cause is worse than
+// either.
+func unreadable(err error) error {
+	msg, ok := strings.CutPrefix(err.Error(), prefix)
+	if !ok {
+		return err
+	}
+	where := ""
+	if m := lineRE.FindStringSubmatch(msg); m != nil {
+		where, msg = m[1], m[2]
+	}
+	if said, ok := plainly[msg]; ok {
+		return errors.New(where + said)
+	}
+	return errors.New(where + "not readable as YAML — " + msg)
+}
+
+var plainly = map[string]string{
+	// Pointing at where the list or block began. The line that does not line
+	// up with it is somewhere below.
+	"did not find expected '-' indicator": "an item of the list starting here does not line up with the rest",
+	"did not find expected key":           "something in the block starting here is not a key: value line — check the indentation",
+
+	// Pointing at the line itself, but two ordinary mistakes end up here: a
+	// line indented under a value rather than beside it, and a value with a
+	// colon in it that was never quoted.
+	"mapping values are not allowed in this context": "a key: value line cannot go here — check the indentation, and quote any value with a colon in it",
+	"could not find expected ':'":                    "a key here has no colon after it",
+
+	// A tab where spaces belong, or a value starting with one of the
+	// characters YAML keeps for itself — @ and ` are the ones people hit.
+	"found character that cannot start any token":                  "a character here cannot start a value — quote it, or indent with spaces if it is a tab",
+	"found a tab character that violates indentation":              "a tab is used to indent — YAML indents with spaces",
+	"found a tab character where an indentation space is expected": "a tab is used to indent — YAML indents with spaces",
+
+	// Pointing at where the quote opened.
+	"found unexpected end of stream": "the file ends before something opened here is closed — usually a quote",
+
+	// Pointing at the item, which is not always the line holding the bracket,
+	// so these say only what was left open.
+	"did not find expected ',' or ']'": "a [ list is never closed",
+	"did not find expected ',' or '}'": "a { block is never closed",
+
+	"unknown problem parsing YAML content": "not readable as YAML",
 }

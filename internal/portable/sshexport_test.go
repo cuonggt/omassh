@@ -2,7 +2,9 @@ package portable
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -107,16 +109,22 @@ func TestAnAliasTheFileAlreadyDeclaresIsLeftAlone(t *testing.T) {
 // nothing about. Neither is written, and both say why.
 func TestANameThatCannotBeAnSSHAliasIsNotWritten(t *testing.T) {
 	// Every one of these is refused by ssh as a destination — checked against
-	// ssh itself, which answers "hostname contains invalid characters".
-	hosts := []store.Host{
-		{Name: "my server", Addr: "10.0.0.1"},
-		{Name: "prod-*", Addr: "10.0.0.2"},
-		{Name: "who?", Addr: "10.0.0.3"},
-		{Name: `we"b`, Addr: "10.0.0.5"},
-		{Name: "we'b", Addr: "10.0.0.6"},
-		{Name: `we\b`, Addr: "10.0.0.7"},
-		{Name: "fine", Addr: "10.0.0.4"},
+	// ssh itself, which answers "hostname contains invalid characters" — or is
+	// a pattern rather than a machine. The punctuation half was found the
+	// expensive way: a rule that looked reasonable let a leading dash and a
+	// semicolon through, and both were written into the file and reported as
+	// exported before the first ssh that used them said otherwise.
+	unusable := []string{
+		"my server", "tab\tbed", "prod-*", "who?", "not!this",
+		`we"b`, "we'b", `we\b`, "we`b", "we$b", "we&b", "we;b",
+		"we(b", "we)b", "we,b", "we<b", "we>b", "we{b", "we}b", "we|b",
+		"-dash", "ctrl\x01char", "we@b", "@front", "#front", "=front",
 	}
+	hosts := []store.Host{{Name: "fine", Addr: "10.0.0.99"}}
+	for i, n := range unusable {
+		hosts = append(hosts, store.Host{Name: n, Addr: "10.0.0." + strconv.Itoa(i+1)})
+	}
+
 	p, err := ExportSSHConfig(nil, nil, hosts)
 	if err != nil {
 		t.Fatal(err)
@@ -125,19 +133,76 @@ func TestANameThatCannotBeAnSSHAliasIsNotWritten(t *testing.T) {
 	if len(p.Written) != 1 || p.Written[0] != "fine" {
 		t.Errorf("Written = %v, want only the usable one", p.Written)
 	}
-	for _, bad := range []string{"my server", "prod-*", "who?", `we"b`, "we'b", `we\\b`} {
+	for _, bad := range unusable {
 		if strings.Contains(string(p.Content), bad) {
 			t.Errorf("%q reached the config", bad)
 		}
 	}
-	if len(p.Left) != 6 {
-		t.Fatalf("Left = %+v, want six", p.Left)
+	if len(p.Left) != len(unusable) {
+		t.Fatalf("Left = %+v, want %d", p.Left, len(unusable))
 	}
 	for _, l := range p.Left {
 		if !strings.Contains(l.Why, "ssh alias") {
 			t.Errorf("%s was left out for %q", l.Name, l.Why)
 		}
 	}
+}
+
+// And the other direction, asked of ssh rather than of a list kept here: every
+// name that does reach the file has to be one ssh will take. A rule that is
+// merely plausible is how "-dash" and "semi;colon" got written in the first
+// place, reported as exported, and refused by the first ssh to use them.
+func TestEveryNameWrittenIsOneSshWillTake(t *testing.T) {
+	if _, err := exec.LookPath("ssh"); err != nil {
+		t.Skip("no ssh to ask")
+	}
+	var hosts []store.Host
+	addr := map[string]string{}
+	// Every printable punctuation mark, in the middle of a name and at the
+	// front of one, plus the ordinary shapes people actually use.
+	n := 0
+	for _, c := range `!"#$%&'()*+,-./:;<=>?@[\]^_{|}~` + "`" {
+		for _, name := range []string{"we" + string(c) + "b", string(c) + "front"} {
+			n++
+			a := "10.1." + strconv.Itoa(n/250) + "." + strconv.Itoa(n%250)
+			hosts, addr[name] = append(hosts, store.Host{Name: name, Addr: a}), a
+		}
+	}
+	for _, name := range []string{"plain", "with-dash", "dot.ted", "UPPER", "under_score", "n123"} {
+		n++
+		a := "10.2.0." + strconv.Itoa(n%250)
+		hosts, addr[name] = append(hosts, store.Host{Name: name, Addr: a}), a
+	}
+
+	p, err := ExportSSHConfig(nil, nil, hosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config")
+	if err := os.WriteFile(path, p.Content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(p.Written) < 6 {
+		t.Fatalf("only %d names were written, so this proves little", len(p.Written))
+	}
+	for _, name := range p.Written {
+		// -G resolves the destination and prints the settings without
+		// connecting to anything. -- so that a name is a name, not a flag.
+		out, err := exec.Command("ssh", "-F", path, "-G", "--", name).CombinedOutput()
+		if err != nil {
+			t.Errorf("omassh wrote %q, and ssh will not use it: %s", name, firstLine(out))
+			continue
+		}
+		if want := "hostname " + addr[name]; !strings.Contains(string(out), want) {
+			t.Errorf("ssh resolves %q to something other than %s", name, addr[name])
+		}
+	}
+}
+
+func firstLine(b []byte) string {
+	s, _, _ := strings.Cut(strings.TrimSpace(string(b)), "\n")
+	return s
 }
 
 // The stanza carries what ssh needs and nothing it would ignore. Port 22 is
