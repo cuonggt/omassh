@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -31,6 +32,7 @@ const usage = `omassh — a keyboard-driven SSH client for the terminal.
   omassh export [-o FILE]               write the host list as YAML
   omassh import [-n] [FILE]             merge a YAML host list, stdin if no file
   omassh import-ssh-config [-n] [FILE]  merge ~/.ssh/config
+  omassh export-ssh-config [-n]         write the hosts into ~/.ssh/config
 
 Records match by name, not by the ids the database mints locally, so a list
 exported on one machine merges into another; importing the same list twice
@@ -77,6 +79,7 @@ var commands = map[string]func([]string) error{
 	"export":            runExport,
 	"import":            runImport,
 	"import-ssh-config": runImportSSHConfig,
+	"export-ssh-config": runExportSSHConfig,
 }
 
 func browse(args []string) error {
@@ -295,6 +298,125 @@ func runImportSSHConfig(args []string) error {
 		return nil
 	}
 	return apply(*db, d, *dry)
+}
+
+// runExportSSHConfig writes the host list into an OpenSSH client config.
+//
+// A host kept only in Omassh is reachable by Omassh and nothing else: scp,
+// rsync, git, Ansible and every editor's remote mode read ~/.ssh/config. This
+// is the one thing that writes there, and it writes only between its own
+// markers.
+func runExportSSHConfig(args []string) error {
+	fs, db, err := subcommand("omassh export-ssh-config [-n] [-o FILE]",
+		"Write the host list into an OpenSSH client config, so scp, git and rsync reach the same machines.")
+	if err != nil {
+		return err
+	}
+	dry := fs.Bool("n", false, "report what would change, and write nothing")
+	out := fs.String("o", "", "write to this file instead of ~/.ssh/config")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	path := *out
+	if path == "" {
+		if path, err = portable.DefaultSSHConfig(); err != nil {
+			return err
+		}
+	}
+
+	st, err := store.Open(*db)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	// As with export: a record that will not decode is named rather than
+	// fatal, so the rest can still be written.
+	groups, gerr := st.Groups()
+	hosts, herr := st.Hosts()
+	for _, e := range []error{gerr, herr} {
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
+		}
+	}
+
+	// Written out resolved: ssh config has no notion of a group, so what a
+	// host inherits has to be spelled out on the host itself.
+	r := store.NewResolver(groups, hosts)
+	resolved := make([]store.Host, 0, len(hosts))
+	for _, h := range hosts {
+		resolved = append(resolved, r.Resolve(h).Host)
+	}
+
+	declared, err := portable.DeclaredAliases(path)
+	if err != nil {
+		return err
+	}
+	existing, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	plan := portable.ExportSSHConfig(existing, declared, resolved)
+	for _, n := range plan.Written {
+		fmt.Println("  write  " + n)
+	}
+	for _, l := range plan.Left {
+		fmt.Printf("  keep   %s  — %s\n", l.Name, l.Why)
+	}
+	summary := fmt.Sprintf("%d written, %d left alone", len(plan.Written), len(plan.Left))
+	if *dry {
+		fmt.Println(summary + " — nothing written, drop -n to apply")
+		return nil
+	}
+	if err := writeAtomically(path, plan.Content, 0o600); err != nil {
+		return err
+	}
+	fmt.Printf("%s — %s\n", summary, path)
+	return nil
+}
+
+// writeAtomically replaces a file without ever leaving it half written.
+//
+// ~/.ssh/config is how every machine is reached; a truncated one loses all of
+// them at once. The content goes to a file beside it and is renamed over the
+// top, which is the one operation a filesystem promises is all or nothing, and
+// the mode is the one ssh insists on before it will read a config at all.
+func writeAtomically(path string, data []byte, mode os.FileMode) error {
+	// A link is followed to the file it names. Dotfiles setups commonly
+	// symlink ~/.ssh/config into a repository, and renaming over the link
+	// would replace it with an ordinary file — quietly detaching the config
+	// from the repository that was meant to be tracking it, and leaving the
+	// tracked copy without a word of what was written. Resolving first also
+	// puts the temporary file on the same filesystem as the real one, which
+	// is what makes the rename atomic rather than a copy.
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	f, err := os.CreateTemp(dir, ".omassh-*")
+	if err != nil {
+		return err
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Chmod(mode); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // source names where a document came from, for an error that has to say.

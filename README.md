@@ -242,6 +242,44 @@ Wildcard and `Match` blocks are settings rather than machines, and are not
 imported as hosts. `Include`d files are followed, which is the whole story for
 a config that is one line pointing somewhere else.
 
+`HostName %h.internal` — one block standing in for a whole estate — is
+expanded per alias as ssh expands it, since ssh does that to the *setting* and
+never to the destination it is finally handed. Imported literally, those hosts
+arrived with a `%h` in the address and could not resolve anything.
+
+## Reaching your hosts from everything else
+
+```sh
+omassh export-ssh-config                  # writes ~/.ssh/config, or -o FILE
+omassh export-ssh-config -n               # what it would change, writing nothing
+```
+
+A host kept only in Omassh is reachable by Omassh. `scp`, `rsync`, `git`,
+Ansible and every editor's remote mode read `~/.ssh/config` and know nothing
+about a database, so this writes the list there — after which
+`scp file prod-web:` and `git clone prod-web:repo` reach the same machines by
+the same names, through the same bastions.
+
+Only between its own markers. Everything outside them comes back byte for
+byte, comments and blank lines included, and the file is replaced by a rename
+rather than truncated, since a half-written `~/.ssh/config` is every machine
+at once. Running it twice changes nothing.
+
+The block goes at the **top**, because ssh keeps the first value it finds for
+each setting: below a `Host *` of yours, every exported host would quietly
+take that block's user instead of its own.
+
+An alias your config already declares — in the file or in anything it
+`Include`s — is left exactly as it is and reported, never written over: import
+treats your config as a read-only source, and this keeps that promise from the
+other side. A host whose name ssh could not use as a destination is reported
+the same way rather than written; a name with a space in it is refused by ssh
+however it is quoted, and one holding `*` or `?` would be a pattern governing
+hosts Omassh knows nothing about.
+
+Groups are flattened on the way out, since ssh config has no such thing: what
+a host inherits is written onto the host.
+
 ## Install
 
 ```sh

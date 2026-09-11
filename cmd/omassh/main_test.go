@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -82,5 +83,92 @@ func TestEveryCommandIsInTheUsageText(t *testing.T) {
 		if !strings.Contains(usage, "omassh "+name+" ") {
 			t.Errorf("%q is dispatched but the usage text does not offer it", name)
 		}
+	}
+}
+
+// -n is how you look before the one command that writes to ~/.ssh/config
+// does, so it has to leave the file exactly as it was.
+func TestExportSSHConfigDryRunWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config")
+	const original = "# my own\nHost mine\n    HostName 1.2.3.4\n"
+	if err := os.WriteFile(cfg, []byte(original), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	resetFlags()
+	if err := run([]string{"export-ssh-config", "-db", filepath.Join(dir, "x.db"), "-o", cfg, "-n"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != original {
+		t.Errorf("a dry run changed the file:\n%s", got)
+	}
+}
+
+// And the file it writes is one ssh will agree to read: a config group or
+// world can reach is refused by ssh outright.
+func TestExportSSHConfigWritesAPrivateFile(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "deeper", "config")
+
+	resetFlags()
+	if err := run([]string{"export-ssh-config", "-db", filepath.Join(dir, "x.db"), "-o", cfg}); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := fi.Mode().Perm(); perm != 0o600 {
+		t.Errorf("mode is %o, want 600", perm)
+	}
+}
+
+// A dotfiles setup commonly symlinks ~/.ssh/config into a repository.
+// Renaming over the link replaced it with an ordinary file, detaching the
+// config from the repository meant to be tracking it — and the tracked copy
+// never saw a word of what had been written.
+func TestExportSSHConfigFollowsASymlinkedConfig(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "dotfiles", "ssh_config")
+	link := filepath.Join(dir, "home", "config")
+	for _, d := range []string{filepath.Dir(repo), filepath.Dir(link)} {
+		if err := os.MkdirAll(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const tracked = "# tracked in my dotfiles\nHost mine\n    HostName 1.2.3.4\n"
+	if err := os.WriteFile(repo, []byte(tracked), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(repo, link); err != nil {
+		t.Fatal(err)
+	}
+
+	resetFlags()
+	if err := run([]string{"export-ssh-config", "-db", filepath.Join(dir, "x.db"), "-o", link}); err != nil {
+		t.Fatal(err)
+	}
+
+	fi, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fi.Mode()&os.ModeSymlink == 0 {
+		t.Error("the symlink was replaced by an ordinary file")
+	}
+	body, err := os.ReadFile(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), ">>> omassh") {
+		t.Error("the tracked file never saw what was written")
+	}
+	if !strings.Contains(string(body), "tracked in my dotfiles") {
+		t.Error("the tracked file lost what was already in it")
 	}
 }
