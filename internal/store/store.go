@@ -592,8 +592,25 @@ func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward) error {
 	})
 }
 
-// acyclicIn rejects an incoming set that would leave a group as its own
-// ancestor, given what the bucket already holds.
+// acyclicIn rejects a write that would leave a group as its own ancestor.
+//
+// What is refused is a loop this write would *make*, as it is for a jump host:
+// a database written before any of this was checked has to stay editable, and
+// most of all the group at fault, which is where the loop has to be undone.
+// Refusing on the state of the whole tree meant one bad parent left every
+// group in the store unsavable, including the one that would have mended it.
+//
+// Only the incoming groups are walked, because a new loop has to run through
+// an edge this write added — and the incoming group is also the one whose
+// parent was just chosen. Walking the whole set instead named whichever group
+// the runtime reached first, and everything *below* a loop walks into it: so
+// setting `company`'s parent to its own child `eu-staging` was refused as
+// `group "eu-prod" would be its own ancestor` — a group nobody had touched,
+// about which the sentence was not even true. eu-prod would not be its own
+// ancestor; it would sit under a pair that were.
+//
+// The chain is spelled out for the reason the jump-host loop spells one out:
+// two names and an arrow between them are the whole of the mistake.
 func acyclicIn(b *bolt.Bucket, incoming []Group) error {
 	byID := map[string]Group{}
 	// A record that will not decode is no chain to follow.
@@ -601,19 +618,44 @@ func acyclicIn(b *bolt.Bucket, incoming []Group) error {
 	for _, g := range stored {
 		byID[g.ID] = g
 	}
+	before := map[string]bool{}
+	for _, g := range stored {
+		if ancestryLoop(byID, g) != nil {
+			before[g.ID] = true
+		}
+	}
 	for _, g := range incoming {
 		byID[g.ID] = g
 	}
 
-	for _, g := range byID {
-		seen := map[string]bool{g.ID: true}
-		for id := g.ParentID; id != ""; {
-			if seen[id] {
-				return fmt.Errorf("group %q would be its own ancestor", g.Name)
-			}
-			seen[id] = true
-			id = byID[id].ParentID
+	for _, g := range incoming {
+		if before[g.ID] {
+			continue // already looping, and this write is how it gets fixed
 		}
+		if chain := ancestryLoop(byID, g); chain != nil {
+			return fmt.Errorf("group %q would be its own ancestor: %s", g.Name, strings.Join(chain, " → "))
+		}
+	}
+	return nil
+}
+
+// ancestryLoop is the walk up from g that comes back to something already on
+// the way, or nil where it reaches a root. A parent that is not there is a
+// root, which is what the tree walk makes of one too.
+func ancestryLoop(byID map[string]Group, g Group) []string {
+	seen := map[string]bool{g.ID: true}
+	chain := []string{g.Name}
+	for id := g.ParentID; id != ""; {
+		parent, ok := byID[id]
+		if !ok {
+			return nil
+		}
+		chain = append(chain, parent.Name)
+		if seen[id] {
+			return chain
+		}
+		seen[id] = true
+		id = parent.ParentID
 	}
 	return nil
 }

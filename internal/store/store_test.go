@@ -833,3 +833,125 @@ func TestTwoRecordsCannotShareAName(t *testing.T) {
 		}
 	})
 }
+
+// A loop is reported about the group whose parent was just chosen, and the
+// same store says the same thing every time.
+//
+// Everything below a loop walks into it, so a whole-set check in map order
+// named whichever group the runtime reached first: setting company's parent to
+// its own child was refused as `group "eu-prod" would be its own ancestor` —
+// a group nobody had touched, about which the sentence was not true either.
+func TestAGroupLoopIsReportedAboutTheGroupThatWasEdited(t *testing.T) {
+	s := openTest(t)
+
+	company, err := s.PutGroup(Group{Name: "company"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two children, so there is something below the loop to be named instead.
+	for _, name := range []string{"eu-prod", "eu-staging"} {
+		if _, err := s.PutGroup(Group{Name: name, ParentID: company.ID}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var staging Group
+	groups, err := s.Groups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range groups {
+		if g.Name == "eu-staging" {
+			staging = g
+		}
+	}
+
+	company.ParentID = staging.ID // company → eu-staging → company
+	// Twenty times, because the fault was a map walk: the wrong answer came
+	// back often but not always, and an error that will not say the same thing
+	// twice is one nobody can act on.
+	for i := 0; i < 20; i++ {
+		_, err := s.PutGroup(company)
+		if err == nil {
+			t.Fatal("a group was made its own ancestor")
+		}
+		if !strings.Contains(err.Error(), `"company"`) {
+			t.Fatalf("run %d reported %q, which is not the group that was edited", i, err)
+		}
+		for _, untouched := range []string{"eu-prod"} {
+			if strings.Contains(err.Error(), untouched) {
+				t.Fatalf("run %d sends the reader to %q, which nobody edited: %v", i, untouched, err)
+			}
+		}
+		// And the loop itself, since two names and an arrow are the whole of
+		// the mistake.
+		if !strings.Contains(err.Error(), "company → eu-staging → company") {
+			t.Errorf("err = %q, want it to spell the chain out", err)
+		}
+	}
+}
+
+// A group made its own parent is the simplest loop of all, and still names
+// itself rather than anything under it.
+func TestAGroupCannotBeItsOwnParent(t *testing.T) {
+	s := openTest(t)
+	g, err := s.PutGroup(Group{Name: "solo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.ParentID = g.ID
+	_, err = s.PutGroup(g)
+	if err == nil {
+		t.Fatal("a group became its own parent")
+	}
+	if !strings.Contains(err.Error(), `"solo"`) {
+		t.Errorf("err = %q", err)
+	}
+}
+
+// A parent that is not there is a root, which is what the tree walk makes of
+// one too — not a loop, and not a reason to refuse an unrelated write.
+func TestAMissingParentIsNotALoop(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.PutGroup(Group{Name: "orphan", ParentID: "gone"}); err != nil {
+		t.Errorf("a group whose parent is missing was refused: %v", err)
+	}
+}
+
+// A database written before any of this was checked has to stay editable —
+// most of all the group at fault, which is where the loop has to be undone.
+// The same is true of a host, and has been checked for one since jump loops
+// were; a group loop refused every write in the store, including the one that
+// would have mended it.
+func TestAGroupLoopAlreadyStoredDoesNotBlockUnrelatedEdits(t *testing.T) {
+	s := openTest(t)
+
+	// Written straight into the bucket, the way an older omassh would have.
+	loop := []Group{
+		{ID: "id-zulu", Name: "zulu", ParentID: "id-alpha"},
+		{ID: "id-alpha", Name: "alpha", ParentID: "id-zulu"},
+	}
+	for _, g := range loop {
+		if err := s.put(bucketGroups, g.ID, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := s.PutGroup(Group{Name: "unrelated"}); err != nil {
+		t.Errorf("an unrelated group could not be saved: %v", err)
+	}
+	// A group inside the loop stays editable for anything else about it. This
+	// is the one the guard is for: the parent is left exactly as it was, so a
+	// check on the state of the tree finds the same loop and refuses a write
+	// that did not make it.
+	inside := loop[1]
+	inside.User = "someone"
+	if _, err := s.PutGroup(inside); err != nil {
+		t.Errorf("a group inside the loop could not be edited at all: %v", err)
+	}
+	// And the way out: editing the looping group to break the loop.
+	mended := loop[0]
+	mended.ParentID = ""
+	if _, err := s.PutGroup(mended); err != nil {
+		t.Errorf("the looping group could not be mended: %v", err)
+	}
+}
