@@ -2845,3 +2845,47 @@ func TestADeleteGoesAheadForAHostBelievedConnected(t *testing.T) {
 		t.Errorf("status = %q, want it to say what was done", h.m.status)
 	}
 }
+
+// A pane whose remote has gone owns the keyboard until it is dismissed, and
+// nothing else on screen says how. The key handler said so — and the pane tick
+// repeated a terser version of the same line twenty times a second, so the way
+// out was gone within fifty milliseconds of being written, at any width.
+func TestASessionThatHasEndedKeepsSayingHowToLeaveIt(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	if h.m.attached == nil {
+		t.Skip("no pane")
+	}
+	// The harness connects to a port nothing answers on, so the session ends
+	// on its own; wait for that rather than assume it.
+	deadline := time.Now().Add(5 * time.Second)
+	for h.m.attached.Alive() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if h.m.attached.Alive() {
+		t.Skip("the session outlived the wait")
+	}
+
+	const way = "esc to return to the list"
+
+	h.press("z") // any key that is not esc or enter
+	if !strings.Contains(h.m.status, way) {
+		t.Errorf("after a keystroke the status is %q", h.m.status)
+	}
+	// And which session it is about: a pane can be opened on any host, and the
+	// list behind it is showing whichever row the cursor happens to be on.
+	if !strings.Contains(h.m.status, "alpha") {
+		t.Errorf("the status does not say which session ended: %q", h.m.status)
+	}
+	// And it survives the tick that used to overwrite it.
+	h.send(paneTickMsg{})
+	if !strings.Contains(h.m.status, way) {
+		t.Errorf("the tick replaced it with %q", h.m.status)
+	}
+	// The tick says it even when no key has been pressed at all.
+	h.m.setStatus("something else")
+	h.send(paneTickMsg{})
+	if !strings.Contains(h.m.status, way) {
+		t.Errorf("the tick alone says %q", h.m.status)
+	}
+}

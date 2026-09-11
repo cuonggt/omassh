@@ -128,8 +128,7 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		case "esc", "enter":
 			return m.detachSession(m.attached.Host.Name, m.attached.Status())
 		}
-		m.setStatus(m.attached.Host.Name + " " + m.attached.Status() +
-			" — esc to return to the list")
+		m.setStatus(endedMessage(m.attached))
 		return m, nil
 	}
 	return m.typeIntoSession(msg)
@@ -316,9 +315,21 @@ func (m Model) handlePaneTick() (tea.Model, tea.Cmd) {
 	w, h := m.sessionArea()
 	m.attached.Resize(w, h)
 	if !m.attached.Alive() && m.focus == panelSession {
-		m.setStatus(m.attached.Host.Name + " " + m.attached.Status())
+		m.setStatus(endedMessage(m.attached))
 	}
 	return m, paneTick()
+}
+
+// endedMessage is what a session that has stopped says, and how to leave it.
+//
+// Written in one place because it is written from two, and the tick repeats
+// itself twenty times a second: the key handler's version — the one carrying
+// the way out — was replaced within fifty milliseconds by the tick's terser
+// one, so the line saying esc returns to the list could not be read at any
+// terminal width. A pane whose remote has gone owns the keyboard until it is
+// dismissed, and nothing else on screen says how.
+func endedMessage(p *term.Pane) string {
+	return p.Host.Name + " " + p.Status() + " — esc to return to the list"
 }
 
 // --- rendering ---------------------------------------------------------
