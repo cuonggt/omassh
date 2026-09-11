@@ -719,7 +719,11 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 		}
 		detail := "nothing else is affected"
 		if gs+hs > 0 {
-			detail = fmt.Sprintf("%d group(s) and %d host(s) move to %s — nothing is deleted", gs, hs, into)
+			detail = fmt.Sprintf("%d group%s and %d host%s move to %s — nothing is deleted",
+				gs, plural(gs), hs, plural(hs), into)
+		}
+		if lost := m.inheritanceLost(g.Group); lost != "" {
+			detail += "; " + lost
 		}
 		id := g.ID
 		m.confirm = &confirmation{
@@ -782,6 +786,93 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 	}
 	m.returnTo, m.mode = backFor(m.mode), modeConfirm
 	return m, nil
+}
+
+// inheritanceLost says what the hosts under a group would stop taking from it.
+//
+// "nothing is deleted" is true of the records and misleading about everything
+// else: a group hands its user, key and jump host to every host beneath it
+// that names none of its own, so removing one changes how those hosts are
+// reached. The jump host is the part that matters most — a machine reachable
+// only through a bastion is otherwise dialled at its own address, which on the
+// wrong network is not nothing but something else entirely.
+//
+// Worked out by resolving the hosts twice, against the tree as it stands and
+// as it would be, so what is reported is the difference itself rather than a
+// guess from which fields the group happens to set. A parent that sets the
+// same thing is no loss at all, and this says so by finding nothing.
+func (m Model) inheritanceLost(g store.Group) string {
+	affected := m.d.hostsIn(g.ID)
+	// The hosts are re-parented as well as the tree, and it is those copies
+	// that have to be resolved: handed the original, the resolver follows a
+	// GroupID that no longer names anything and reports every attribute lost.
+	moved := m.hostsWithout(g)
+	after := store.NewResolver(m.groupsWithout(g), moved)
+	byID := make(map[string]store.Host, len(moved))
+	for _, h := range moved {
+		byID[h.ID] = h
+	}
+
+	var jump, user, identity string
+	for _, h := range affected {
+		was, now := m.d.resolver.Resolve(h), after.Resolve(byID[h.ID])
+		if jump == "" && was.ProxyJump != "" && now.ProxyJump == "" {
+			jump = was.ProxyJump
+		}
+		if user == "" && was.User != "" && now.User == "" {
+			user = was.User
+		}
+		if identity == "" && was.Identity != "" && now.Identity == "" {
+			identity = was.Identity
+		}
+	}
+
+	var losses []string
+	if user != "" {
+		losses = append(losses, "the user "+user)
+	}
+	if identity != "" {
+		losses = append(losses, "the key "+identity)
+	}
+
+	var parts []string
+	if jump != "" {
+		parts = append(parts, "stop going through "+jump)
+	}
+	if len(losses) > 0 {
+		parts = append(parts, "lose "+strings.Join(losses, " and "))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "the hosts under it " + strings.Join(parts, ", and ")
+}
+
+// groupsWithout and hostsWithout are the tree as DeleteGroup would leave it:
+// whatever sat under the group moves up to its parent.
+func (m Model) groupsWithout(g store.Group) []store.Group {
+	out := make([]store.Group, 0, len(m.d.groups))
+	for _, other := range m.d.groups {
+		if other.ID == g.ID {
+			continue
+		}
+		if other.ParentID == g.ID {
+			other.ParentID = g.ParentID
+		}
+		out = append(out, other)
+	}
+	return out
+}
+
+func (m Model) hostsWithout(g store.Group) []store.Host {
+	out := make([]store.Host, 0, len(m.d.hosts))
+	for _, h := range m.d.hosts {
+		if h.GroupID == g.ID {
+			h.GroupID = g.ParentID
+		}
+		out = append(out, h)
+	}
+	return out
 }
 
 // releaseVanishedSession lets go of a pane whose host is no longer there.

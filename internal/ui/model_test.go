@@ -2703,3 +2703,114 @@ func TestAPaneIsReleasedWhenItsHostGoesInAnotherWindow(t *testing.T) {
 		t.Error("focus was left on a pane that is gone")
 	}
 }
+
+// "nothing is deleted" is true of the records and misleading about everything
+// else: a group hands its user, key and jump host to the hosts beneath it, so
+// removing one changes how they are reached. A machine that was only reachable
+// through a bastion gets dialled at its own address instead — which on the
+// wrong network is not nothing but something else entirely.
+func TestDeletingAGroupSaysWhatItsHostsStopInheriting(t *testing.T) {
+	h := newHarness(t)
+	g := h.addGroup("Behind", "")
+	g.ProxyJump, g.User, g.Identity = "bastion", "deploy", "~/.ssh/id_prod"
+	if _, err := h.store.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	h.addHost("bastion", "bastion.example.com")
+	h.addGroupedHost("app", g.ID)
+	h.reload()
+
+	h.press("1")
+	h.selectGroup("Behind")
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Fatal("d did not ask")
+	}
+	got := h.m.confirm.detail
+	for _, want := range []string{"stop going through bastion", "lose the user deploy", "and the key ~/.ssh/id_prod"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the confirmation does not say %q:\n  %s", want, got)
+		}
+	}
+}
+
+// A parent that supplies the same thing is no loss, and saying so would be
+// false. The difference is what is reported, not the fields the group sets.
+func TestAGroupWhoseParentSuppliesTheSameThingLosesNothing(t *testing.T) {
+	h := newHarness(t)
+	parent := h.addGroup("Estate", "")
+	parent.ProxyJump = "bastion"
+	if _, err := h.store.PutGroup(parent); err != nil {
+		t.Fatal(err)
+	}
+	child := h.addGroup("Behind", parent.ID)
+	child.ProxyJump = "bastion"
+	if _, err := h.store.PutGroup(child); err != nil {
+		t.Fatal(err)
+	}
+	h.addHost("bastion", "bastion.example.com")
+	h.addGroupedHost("app", child.ID)
+	h.reload()
+
+	h.press("1")
+	h.selectGroup("Behind")
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Fatal("d did not ask")
+	}
+	if strings.Contains(h.m.confirm.detail, "stop going through") {
+		t.Errorf("claimed a loss the parent makes good:\n  %s", h.m.confirm.detail)
+	}
+}
+
+// A group with nothing under it takes nothing away.
+func TestDeletingAnEmptyGroupSaysNothingIsAffected(t *testing.T) {
+	h := newHarness(t)
+	g := h.addGroup("Spare", "")
+	g.ProxyJump = "bastion"
+	if _, err := h.store.PutGroup(g); err != nil {
+		t.Fatal(err)
+	}
+	h.reload()
+
+	h.press("1")
+	h.selectGroup("Spare")
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Fatal("d did not ask")
+	}
+	if strings.Contains(h.m.confirm.detail, "the hosts under it") {
+		t.Errorf("an empty group claimed to take something away:\n  %s", h.m.confirm.detail)
+	}
+}
+
+// A subgroup moves up with everything else, so a host two levels down keeps
+// what the grandparent supplies. Leaving the subgroup pointing at a group that
+// has gone would break its chain and report a loss that never happens.
+func TestDeletingAMiddleGroupKeepsWhatTheGrandparentSupplies(t *testing.T) {
+	h := newHarness(t)
+	estate := h.addGroup("Estate", "")
+	estate.ProxyJump = "bastion"
+	if _, err := h.store.PutGroup(estate); err != nil {
+		t.Fatal(err)
+	}
+	middle := h.addGroup("Middle", estate.ID)
+	nested := h.addGroup("Nested", middle.ID)
+	h.addHost("bastion", "bastion.example.com")
+	h.addGroupedHost("app", nested.ID)
+	h.reload()
+
+	h.press("1")
+	h.selectGroup("Middle")
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Fatal("d did not ask")
+	}
+	if strings.Contains(h.m.confirm.detail, "stop going through") {
+		t.Errorf("claimed a loss the grandparent makes good:\n  %s", h.m.confirm.detail)
+	}
+	// It still says what does happen.
+	if !strings.Contains(h.m.confirm.detail, "move to Estate") {
+		t.Errorf("does not say where things go:\n  %s", h.m.confirm.detail)
+	}
+}

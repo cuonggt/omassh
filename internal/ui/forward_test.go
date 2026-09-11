@@ -923,7 +923,7 @@ func TestALongConfirmationWrapsRatherThanTruncating(t *testing.T) {
 	// to answer, both of which the truncation took.
 	for _, want := range []string{
 		"Delete group capichi-production-singapore-legacy?",
-		"3 host(s) move to",
+		"3 hosts move to",
 		"nothing is deleted",
 	} {
 		if !strings.Contains(got, want) {

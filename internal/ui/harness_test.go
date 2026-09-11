@@ -263,3 +263,17 @@ func (f fakeFS) Open(string) (io.ReadCloser, error)     { return nil, nil }
 func (f fakeFS) Create(string) (io.WriteCloser, error)  { return nil, nil }
 func (f fakeFS) Stat(string) (sftpx.Entry, error)       { return sftpx.Entry{}, nil }
 func (f fakeFS) Label() string                          { return "fake" }
+
+// selectGroup puts the group cursor on a group by name, so a test says which
+// group it means rather than counting rows.
+func (h *harness) selectGroup(name string) {
+	h.t.Helper()
+	for i, g := range h.m.d.tree {
+		if g.Name == name {
+			h.m.groupIdx = i
+			h.m.hostIdx = 0
+			return
+		}
+	}
+	h.t.Fatalf("no group named %q in %v", name, h.m.d.tree)
+}
