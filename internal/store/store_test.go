@@ -760,3 +760,76 @@ func TestALoopWithNoHostBeingSavedIsStillReportedTheSameWay(t *testing.T) {
 		}
 	}
 }
+
+// Names are how records are matched — by import across machines, and by the
+// resolver here, which looks a jump host up by a lowercased name. The document
+// format refuses a list with two of a name in it, so a list edited into that
+// state exported to a file that import would not read back: the one way a host
+// list is meant to leave this machine, closed off by a form that said "saved".
+func TestTwoRecordsCannotShareAName(t *testing.T) {
+	s := openTest(t)
+
+	first, err := s.PutHost(Host{Name: "alpha", Addr: "10.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := s.PutGroup(Group{Name: "prod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("a new host", func(t *testing.T) {
+		_, err := s.PutHost(Host{Name: "alpha", Addr: "10.0.0.2"})
+		if err == nil {
+			t.Fatal("a second host called alpha was saved")
+		}
+		if !strings.Contains(err.Error(), "alpha") || !strings.Contains(err.Error(), "unique") {
+			t.Errorf("err = %q, want it to name the host and say why", err)
+		}
+	})
+
+	t.Run("whatever the case or the spacing", func(t *testing.T) {
+		for _, name := range []string{"ALPHA", "Alpha", "  alpha  "} {
+			if _, err := s.PutHost(Host{Name: name, Addr: "10.0.0.3"}); err == nil {
+				t.Errorf("%q was saved beside alpha, and the resolver knows them apart no better than this does", name)
+			}
+		}
+	})
+
+	t.Run("a new group", func(t *testing.T) {
+		if _, err := s.PutGroup(Group{Name: "prod"}); err == nil {
+			t.Fatal("a second group called prod was saved")
+		}
+	})
+
+	t.Run("renaming one onto another", func(t *testing.T) {
+		other, err := s.PutHost(Host{Name: "beta", Addr: "10.0.0.4"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		other.Name = "alpha"
+		if _, err := s.PutHost(other); err == nil {
+			t.Error("beta was renamed onto alpha")
+		}
+	})
+
+	t.Run("but a record may still be saved as itself", func(t *testing.T) {
+		// The common edit: open a host, change its address, save. Its own name
+		// is in the bucket already, and a check that missed that would refuse
+		// every edit ever made.
+		first.Addr = "10.0.0.99"
+		if _, err := s.PutHost(first); err != nil {
+			t.Errorf("editing a host without renaming it was refused: %v", err)
+		}
+		g.ParentID = ""
+		if _, err := s.PutGroup(g); err != nil {
+			t.Errorf("editing a group without renaming it was refused: %v", err)
+		}
+		hosts, _ := s.Hosts()
+		for _, h := range hosts {
+			if h.ID == first.ID && h.Addr != "10.0.0.99" {
+				t.Errorf("the edit did not land: %+v", h)
+			}
+		}
+	})
+}

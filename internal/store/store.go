@@ -243,6 +243,9 @@ func (s *Store) PutGroup(g Group) (Group, error) {
 		if update && b.Get([]byte(g.ID)) == nil {
 			return ErrNoSuchGroup
 		}
+		if nameTaken(b, g.ID, g.Name) {
+			return fmt.Errorf("another group is already called %q — names are how records are matched, so they have to be unique", strings.TrimSpace(g.Name))
+		}
 		if err := acyclicIn(b, []Group{g}); err != nil {
 			return err
 		}
@@ -290,6 +293,9 @@ func (s *Store) PutHost(h Host) (Host, error) {
 		if h.GroupID != "" && tx.Bucket(bucketGroups).Get([]byte(h.GroupID)) == nil {
 			return ErrNoSuchGroup
 		}
+		if nameTaken(hb, h.ID, h.Name) {
+			return fmt.Errorf("another host is already called %q — names are how records are matched, so they have to be unique", strings.TrimSpace(h.Name))
+		}
 		if err := noNewJumpLoop(tx.Bucket(bucketGroups), hb, nil, []Host{h}); err != nil {
 			return err
 		}
@@ -301,6 +307,39 @@ func (s *Store) PutHost(h Host) (Host, error) {
 	})
 	return h, err
 }
+
+// nameTaken reports whether some other record in b already goes by this name.
+//
+// Names are how records are matched: across machines by import, and inside the
+// store by the resolver, which looks a jump host up by a lowercased name. Two
+// records sharing one are ambiguous to omassh itself, and the document format
+// refuses the pair outright — so a list edited into that state exported to a
+// file that import would not read back, which is the one way a host list is
+// meant to leave this machine. The form that made it said only "saved".
+//
+// Case-insensitively and ignoring the space around it, because that is what
+// everything else means by the same name.
+func nameTaken(b *bolt.Bucket, id, name string) bool {
+	want := foldName(name)
+	taken := false
+	// ForEach cannot fail here: the only error it returns is one this function
+	// gives it, and this one gives none.
+	_ = b.ForEach(func(k, v []byte) error {
+		if taken || string(k) == id {
+			return nil
+		}
+		var rec struct{ Name string }
+		// A record that will not decode is not a name. Reading a bucket
+		// already keeps what decodes rather than failing over one bad entry.
+		if json.Unmarshal(v, &rec) == nil && foldName(rec.Name) == want {
+			taken = true
+		}
+		return nil
+	})
+	return taken
+}
+
+func foldName(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 // noNewJumpLoop rejects a write that would leave a host jumping through
 // itself, by way of the hosts it names or the groups it belongs to.
