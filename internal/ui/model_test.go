@@ -2960,3 +2960,67 @@ func TestAnEndedSessionIsNotDescribedAsARunningOne(t *testing.T) {
 		}
 	})
 }
+
+// A connection ssh never made is not a session. Counted as one, a host that
+// had refused every attempt ever made to it read "last just now · 1 session" —
+// the one line on the screen that answers "have I ever been on this box",
+// answering yes about a machine nothing had ever got into.
+func TestAConnectionSshNeverMadeIsNotASession(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web", "10.0.0.1")
+	key := h.m.d.hosts[0].StatKey()
+
+	failures := []sshx.SessionEndedMsg{{
+		HostName: "web", Key: key, ExitCode: 255, Duration: 200 * time.Millisecond,
+		Detail: "ssh: connect to host 10.0.0.1 port 22: Connection refused",
+	}, {
+		HostName: "web", Key: key, ExitCode: 255, Duration: 300 * time.Millisecond,
+		Detail: "deploy@10.0.0.1: Permission denied (publickey).",
+	}, {
+		HostName: "web", Key: key, Err: errors.New("exec: \"ssh\": executable file not found in $PATH"),
+	}}
+	for _, msg := range failures {
+		h.send(msg)
+		// The bar still says what happened, which is the whole of what there
+		// is to report about an attempt that got nowhere.
+		if h.m.status == "" {
+			t.Errorf("nothing was said about a failure ending %+v", msg)
+		}
+	}
+
+	stats, err := h.store.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, ok := stats[key]; ok {
+		t.Errorf("%d failures recorded %d session(s), last %v", len(failures), st.Count, st.LastSeen)
+	}
+	if !strings.Contains(h.screen(), "never connected") {
+		t.Errorf("the host does not read as never connected:\n%s", h.screen())
+	}
+}
+
+// And an ssh that did reach the host is recorded however the far side ended:
+// a remote command's own non-zero status says nothing about the connection
+// that carried it.
+func TestASessionThatReachedTheHostIsRecordedWhateverItExitedWith(t *testing.T) {
+	for name, code := range map[string]int{"a clean exit": 0, "a failed command": 1, "killed by a signal": 130} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			h.addHost("web", "10.0.0.1")
+			key := h.m.d.hosts[0].StatKey()
+
+			h.send(sshx.SessionEndedMsg{
+				HostName: "web", Key: key, ExitCode: code, Duration: 4 * time.Minute,
+			})
+
+			stats, err := h.store.Stats()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, ok := stats[key]; !ok {
+				t.Errorf("a session that exited %d was not recorded", code)
+			}
+		})
+	}
+}

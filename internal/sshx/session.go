@@ -31,6 +31,15 @@ type SessionEndedMsg struct {
 	Detail string
 }
 
+// NeverConnected reports that ssh gave up rather than reaching the host.
+//
+// 255 is the status OpenSSH exits with for its own failures — a refused
+// connection, a rejected key, a host key that did not match — as distinct from
+// the remote command's status, which is anything else. A remote command can
+// exit 255 of its own accord, and one that does is a session counted as none;
+// that is the cheaper mistake by far, and the rarer.
+func (m SessionEndedMsg) NeverConnected() bool { return m.Err != nil || m.ExitCode == 255 }
+
 // ConnectionFailed is the code ssh exits with when the fault is its own:
 // refused, timed out, rejected, a host key that changed. A remote command
 // exiting non-zero is its own business, and nothing on its stderr says

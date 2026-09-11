@@ -264,10 +264,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, waitTransfer(m.transfers)
 
 	case sshx.SessionEndedMsg:
-		if err := m.st.RecordSession(msg.Key, time.Now()); err != nil {
-			m.setErr(err)
-		} else {
+		// A connection ssh never made is not a session. Counted as one, a host
+		// that had refused every attempt ever made to it read "last just now ·
+		// 1 session" — and that line is the one thing on the screen answering
+		// "have I ever been on this box", answering yes about a machine
+		// nothing had ever got into. Three tries made it "3 sessions".
+		switch {
+		case msg.NeverConnected():
 			m.setStatus(sessionSummary(msg))
+		default:
+			if err := m.st.RecordSession(msg.Key, time.Now()); err != nil {
+				m.setErr(err)
+			} else {
+				m.setStatus(sessionSummary(msg))
+			}
 		}
 		m.reload()
 
