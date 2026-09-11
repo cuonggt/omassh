@@ -135,21 +135,29 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m.typeIntoSession(msg)
 }
 
-// typeIntoSession gives a key to the remote, and says so when that has brought
+// toRemote hands input to the session, and says so when doing that has brought
 // the view back from a scroll.
 //
-// Typing snaps the pane to the bottom, which is what stops a terminal sitting
-// scrolled while your own output goes past. The status bar did not hear about
-// it, so it went on reporting a position the screen had left — offering
-// ctrl+\ G for a live view that was already live, beside a title that had
-// correctly stopped saying so.
-func (m Model) typeIntoSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+// Anything sent to the pane scrolls it to the bottom, which is what stops a
+// terminal sitting scrolled while your own output goes past. The status did
+// not hear about it, so it went on reporting a position the screen had left —
+// offering ctrl+\ G for a live view that was already live, beside a title
+// that had correctly stopped saying so.
+//
+// Every way in goes through here, because there are three of them — typing, a
+// literal prefix, and a paste — and fixing one at a time left the other two
+// doing it.
+func (m Model) toRemote(send func()) (tea.Model, tea.Cmd) {
 	scrolled, _ := m.attached.ScrollOffset()
-	m.attached.SendKey(msg)
+	send()
 	if scrolled > 0 {
 		m.setStatus("live view")
 	}
 	return m, nil
+}
+
+func (m Model) typeIntoSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	return m.toRemote(func() { m.attached.SendKey(msg) })
 }
 
 // sessionCommand arms the prefix, then runs the command that follows it.
@@ -176,7 +184,7 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// Pressed twice: the remote wanted it. Only the pane can deliver it;
 		// from the list there is nothing typing into.
 		if m.focus == panelSession {
-			m.attached.SendKey(msg)
+			return m.typeIntoSession(msg)
 		}
 	case "w", "esc":
 		m.attached.ScrollToBottom()

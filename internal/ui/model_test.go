@@ -2448,3 +2448,20 @@ func TestTypingLeavesTheStatusAloneWhenNothingWasScrolled(t *testing.T) {
 		t.Errorf("status = %q after an ordinary keystroke, want it untouched", h.m.status)
 	}
 }
+
+// A paste reaches the remote the same way typing does, and snaps the view back
+// the same way — so it has to leave the status alone when nothing was
+// scrolled, exactly as typing does.
+func TestPastingLeavesTheStatusAloneWhenNothingWasScrolled(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	if !h.m.attached.Alive() {
+		t.Skip("the session ended before anything could be pasted into it")
+	}
+
+	h.m.setStatus("something worth reading")
+	h.send(tea.PasteMsg{Content: "some text"})
+	if h.m.status != "something worth reading" {
+		t.Errorf("status = %q after a paste, want it untouched", h.m.status)
+	}
+}

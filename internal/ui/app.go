@@ -312,8 +312,7 @@ func (m Model) handlePaste(text string) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case m.focus == panelSession && m.attached != nil && m.attached.Alive():
 		// A paste into a terminal is just input, newlines and all.
-		m.attached.SendText(text)
-		return m, nil
+		return m.toRemote(func() { m.attached.SendText(text) })
 	}
 	return m, nil
 }
