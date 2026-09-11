@@ -326,12 +326,43 @@ func noNewJumpLoop(gb, hb *bolt.Bucket, groups []Group, hosts []Host) error {
 
 	before := loopingHosts(storedGroups, storedHosts)
 	after := loopingHosts(mergedGroups(storedGroups, groups), mergedHosts(storedHosts, hosts))
-	for id, loop := range after {
+	for _, id := range reportOrder(after, hosts) {
 		if _, already := before[id]; !already {
+			loop := after[id]
 			return fmt.Errorf("host %q would jump through itself: %s", loop[0], strings.Join(loop, " → "))
 		}
 	}
 	return nil
+}
+
+// reportOrder decides which host on a loop to complain about.
+//
+// One the write actually names comes first, because that is the record whose
+// jump host was just chosen — the loop runs through two hosts or more, and
+// naming the other one sends someone to look at a record they had not touched.
+// Anything else follows by id, since a map is walked in no order at all: the
+// same mistake came back as either host about half the time, and an error that
+// will not say the same thing twice is one nobody can act on.
+func reportOrder(loops map[string][]string, incoming []Host) []string {
+	named := map[string]bool{}
+	out := make([]string, 0, len(loops))
+	for _, h := range incoming {
+		if _, ok := loops[h.ID]; ok && !named[h.ID] {
+			named[h.ID] = true
+			out = append(out, h.ID)
+		}
+	}
+	rest := make([]string, 0, len(loops))
+	for id := range loops {
+		if !named[id] {
+			rest = append(rest, id)
+		}
+	}
+	// By name rather than by id: an id is minted at random, so ordering by one
+	// settles a single database without settling anything a person could
+	// predict, and two machines holding the same hosts would disagree.
+	sort.Slice(rest, func(i, j int) bool { return loops[rest[i]][0] < loops[rest[j]][0] })
+	return append(out, rest...)
 }
 
 // mergedGroups and mergedHosts are what a bucket holds with an incoming set

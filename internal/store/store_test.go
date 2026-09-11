@@ -699,3 +699,64 @@ func TestAFileThatCannotBeOpenedIsNamedOnce(t *testing.T) {
 		t.Errorf("Open of a text file = %v", err)
 	}
 }
+
+// A loop runs through two hosts or more, and the map holding them is walked in
+// no order at all: the same edit came back naming either host about half the
+// time. An error that will not say the same thing twice is one nobody can act
+// on — and the useful half of it is the record whose jump host was just
+// chosen, not the one that was already there.
+func TestTheLoopIsReportedAgainstTheHostBeingSaved(t *testing.T) {
+	// Named so that the host being saved is the *later* of the two
+	// alphabetically: settling the order alone would name the other one, and
+	// this has to show that the record the user touched is what wins.
+	for range 20 {
+		s := openTest(t)
+		zulu, err := s.PutHost(Host{Name: "zulu", Addr: "10.0.0.1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.PutHost(Host{Name: "alpha", Addr: "10.0.0.2", ProxyJump: "zulu"}); err != nil {
+			t.Fatal(err)
+		}
+
+		// Editing zulu is what closes the loop, so zulu is what it is about.
+		zulu.ProxyJump = "alpha"
+		_, err = s.PutHost(zulu)
+		if err == nil {
+			t.Fatal("the loop was accepted")
+		}
+		const want = `host "zulu" would jump through itself: zulu → alpha → zulu`
+		if err.Error() != want {
+			t.Fatalf("got  %s\nwant %s", err, want)
+		}
+	}
+}
+
+// A loop made by editing a group names no host in particular, so the order
+// falls back to something settled rather than to whatever the map yields.
+func TestALoopWithNoHostBeingSavedIsStillReportedTheSameWay(t *testing.T) {
+	var first string
+	for i := range 20 {
+		s := openTest(t)
+		g, err := s.PutGroup(Group{Name: "edge"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Two hosts in the group, each of which the group's jump host reaches.
+		for _, n := range []string{"aaa", "bbb"} {
+			if _, err := s.PutHost(Host{Name: n, Addr: "10.0.0.1", GroupID: g.ID}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		g.ProxyJump = "aaa" // aaa is in edge, so aaa jumps through itself
+		_, err = s.PutGroup(g)
+		if err == nil {
+			t.Fatal("the loop was accepted")
+		}
+		if i == 0 {
+			first = err.Error()
+		} else if err.Error() != first {
+			t.Fatalf("run %d said\n  %s\nbut the first said\n  %s", i, err, first)
+		}
+	}
+}
