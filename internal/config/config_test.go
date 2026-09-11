@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
@@ -308,6 +309,36 @@ func TestAProbeTimeoutOfZeroOrLessIsRefused(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "longer than zero") {
 			t.Errorf("probe_timeout: %s says %v", v, err)
+		}
+	}
+}
+
+// The two lists nobody can guess — what the actions are called and what the
+// palette colours are called — have to be in the example, because it is the
+// only place they are written for someone about to write the file. It used to
+// say "run omassh -print-config to see every action name", printed by omassh
+// -print-config, which listed none of them.
+func TestTheExampleListsTheNamesNobodyCanGuess(t *testing.T) {
+	body := Example("/tmp/omassh/config.yaml")
+
+	for _, name := range keymap.Names() {
+		if !strings.Contains(body, name) {
+			t.Errorf("the example does not name the action %q", name)
+		}
+	}
+	for _, name := range theme.PaletteKeys() {
+		if !strings.Contains(body, name) {
+			t.Errorf("the example does not name the palette colour %q", name)
+		}
+	}
+	// And it does not send the reader to the command that produced it.
+	if strings.Contains(body, "-print-config to see") {
+		t.Error("the example still points at itself for the list it now carries")
+	}
+	// Every line is still a comment or a setting, and none runs off the edge.
+	for _, line := range strings.Split(body, "\n") {
+		if len(line) > 80 {
+			t.Errorf("a line is %d columns wide: %q", len(line), line)
 		}
 	}
 }

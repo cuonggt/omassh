@@ -177,7 +177,35 @@ func (c Config) ProbeDuration() (time.Duration, error) {
 // Example is a documented starting point, written by -print-config. It takes
 // the path so the output names the file the user should actually write, which
 // differs by platform.
-func Example(path string) string { return "# " + path + "\n" + exampleBody }
+//
+// The two lists people cannot guess — what the actions are called, and what
+// the palette colours are called — are spliced in from the same places the
+// errors about them read from, so the example cannot come to describe a
+// program this one is not. It used to say "run omassh -print-config to see
+// every action name", printed by omassh -print-config, which listed none: the
+// one instruction in the file sent you to where you already were, for
+// something that was not there.
+func Example(path string) string {
+	return "# " + path + "\n" + fmt.Sprintf(exampleBody,
+		commentList(theme.PaletteKeys()), commentList(keymap.Names()))
+}
+
+// commentList sets a long list of names out as comment lines, wrapped so the
+// file stays readable in a narrow editor.
+func commentList(names []string) string {
+	const width = 74
+	var b strings.Builder
+	line := "#  "
+	for _, n := range names {
+		if len(line)+1+len(n)+1 > width && line != "#  " {
+			b.WriteString(line + "\n")
+			line = "#  "
+		}
+		line += " " + n
+	}
+	b.WriteString(line)
+	return b.String()
+}
 
 const exampleBody = `# Every setting is optional; delete anything you do not want to change.
 
@@ -185,13 +213,16 @@ const exampleBody = `# Every setting is optional; delete anything you do not wan
 theme: tokyonight
 
 # Define your own palette. Omitted colours fall back to the default.
+# The colours are:
+%s
 # themes:
 #   mine:
 #     accent: "#ff8800"
 #     border: "#444444"
 
 # Rebind any action. Arrow keys and ctrl+c are reserved and always work.
-# Run omassh -print-config to see every action name.
+# The actions are:
+%s
 # keys:
 #   connect: o
 #   search: f
