@@ -615,6 +615,14 @@ func (m Model) statusBar() string {
 				hint("w", "host list") + sep() + hint("d", "detach") + sep() +
 				hint("X", "end") + sep() + hint("k/j", "scroll") +
 				sep() + hint("G", "live")
+		case m.focus == panelSession && m.attached != nil && !m.attached.Alive():
+			// The remote is gone, so neither of the live hints is true any
+			// more: there is nothing to detach from and nothing for a key to
+			// go to. What still works is the way out and a look back through
+			// what the session said before it ended — which is usually the
+			// reason anyone is still looking at it.
+			hints = hint("esc", "back to the list") + sep() +
+				hint(prefixKey+" k/j", "scroll back")
 		case m.focus == panelSession:
 			hints = hint(prefixKey+" w", "host list") + sep() +
 				hint(prefixKey+" d", "detach") + sep() +

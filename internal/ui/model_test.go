@@ -2889,3 +2889,74 @@ func TestASessionThatHasEndedKeepsSayingHowToLeaveIt(t *testing.T) {
 		t.Errorf("the tick alone says %q", h.m.status)
 	}
 }
+
+// waitForEnd runs the model until the attached session has stopped, which the
+// harness arranges by connecting to a port nothing answers on.
+func (h *harness) waitForEnd() {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for h.m.attached.Alive() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if h.m.attached.Alive() {
+		h.t.Skip("the session outlived the wait")
+	}
+}
+
+// A session whose remote has gone is still on screen, and three places went on
+// describing it as one that is running. Each of them is read at the moment
+// someone is working out what happened, and each said the opposite of what the
+// rest of the screen showed.
+func TestAnEndedSessionIsNotDescribedAsARunningOne(t *testing.T) {
+	t.Run("the footer offers what still works", func(t *testing.T) {
+		h := newHarness(t)
+		h.openSession("alpha")
+		h.waitForEnd()
+
+		got := h.screen()
+		// Neither hint survives its session: there is nothing to detach from,
+		// and no remote for a key to go to.
+		for _, gone := range []string{"goes to the remote", "detach"} {
+			if strings.Contains(got, gone) {
+				t.Errorf("the footer still offers %q for a session that has ended:\n%s", gone, lastLine(got))
+			}
+		}
+		if !strings.Contains(got, "back to the list") {
+			t.Errorf("the footer does not say the way out:\n%s", lastLine(got))
+		}
+	})
+
+	t.Run("the host list is not told the host is still connected", func(t *testing.T) {
+		h := newHarness(t)
+		h.openSession("alpha")
+		h.waitForEnd()
+
+		h.press("prefix", "w")
+		// "still" reassures that leaving the pane did not end the session.
+		// Said about one already over, it contradicted the row it put the
+		// cursor back on, which carries no mark because that follows Alive().
+		if strings.Contains(h.m.status, "still connected") {
+			t.Errorf("status = %q, for a session that has ended", h.m.status)
+		}
+		if !strings.Contains(h.m.status, "alpha") {
+			t.Errorf("status = %q, want it to say which session", h.m.status)
+		}
+	})
+
+	t.Run("detaching does not promise a session to come back to", func(t *testing.T) {
+		h := newHarness(t)
+		h.openSession("alpha")
+		h.waitForEnd()
+
+		h.press("prefix", "d")
+		// Persistent says the session was started in tmux, not that it is
+		// still there — the remote's exit takes the tmux session with it, so
+		// this promised a reattach to a server that was no longer running.
+		if strings.Contains(h.m.status, "still running") {
+			t.Errorf("status = %q, about a session that has ended", h.m.status)
+		}
+		if strings.Contains(h.m.status, "to reattach") {
+			t.Errorf("status = %q, offering to reattach to nothing", h.m.status)
+		}
+	})
+}

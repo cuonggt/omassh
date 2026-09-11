@@ -188,7 +188,15 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "w", "esc":
 		m.attached.ScrollToBottom()
 		m.focus = panelHosts
-		m.setStatus("host list — " + m.attached.Host.Name + " still connected")
+		// "still" is a reassurance about a session that is still running —
+		// leaving the pane does not end it. Said about one whose remote had
+		// gone, it contradicted the list it was putting you back in: the host
+		// there carries no mark, because that follows Alive() as this did not.
+		if m.attached.Alive() {
+			m.setStatus("host list — " + m.attached.Host.Name + " still connected")
+		} else {
+			m.setStatus("host list — " + m.attached.Host.Name + " " + m.attached.Status())
+		}
 	case "d":
 		return m.detachSession(m.detachMessage())
 	case "X":
@@ -240,6 +248,15 @@ func (m *Model) scrollAttached(d int) {
 // separately: on a narrow bar the name goes and "still running, t to reattach"
 // stays, since that is the part telling you the session is not lost.
 func (m Model) detachMessage() (ctx, msg string) {
+	// Persistent says the session was started in tmux, not that it is still
+	// there: the field is set when the pane opens and the remote's exit takes
+	// the tmux session with it. So detaching from a session whose shell had
+	// exited promised "still running, t to reattach", about a tmux server that
+	// was no longer running at all — and t would have started a new session
+	// rather than reattaching to the one just described.
+	if !m.attached.Alive() {
+		return m.attached.Host.Name, m.attached.Status()
+	}
 	return detachText(m.attached.Host.Name, m.attached.Persistent(), m.keys.Key(keymap.Pane))
 }
 
