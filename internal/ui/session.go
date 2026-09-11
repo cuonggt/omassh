@@ -132,7 +132,23 @@ func (m Model) handleSessionKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			" — esc to return to the list")
 		return m, nil
 	}
+	return m.typeIntoSession(msg)
+}
+
+// typeIntoSession gives a key to the remote, and says so when that has brought
+// the view back from a scroll.
+//
+// Typing snaps the pane to the bottom, which is what stops a terminal sitting
+// scrolled while your own output goes past. The status bar did not hear about
+// it, so it went on reporting a position the screen had left — offering
+// ctrl+\ G for a live view that was already live, beside a title that had
+// correctly stopped saying so.
+func (m Model) typeIntoSession(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	scrolled, _ := m.attached.ScrollOffset()
 	m.attached.SendKey(msg)
+	if scrolled > 0 {
+		m.setStatus("live view")
+	}
 	return m, nil
 }
 
@@ -150,7 +166,10 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.prefixArmed = true
 		return m, nil
 	}
-	m.prefixArmed = false
+	// Whether the prefix was pressed or re-armed by a scroll, which decides
+	// what an unrecognised key means.
+	fromScroll := m.scrollArmed
+	m.prefixArmed, m.scrollArmed = false, false
 
 	switch msg.String() {
 	case prefixKey:
@@ -169,10 +188,10 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.killSession()
 	case "k", "up", "pgup":
 		m.scrollAttached(-1)
-		m.prefixArmed = true // stay armed so repeated presses page through
+		m.prefixArmed, m.scrollArmed = true, true // so repeated presses page
 	case "j", "down", "pgdown":
 		m.scrollAttached(1)
-		m.prefixArmed = true
+		m.prefixArmed, m.scrollArmed = true, true
 	case "G", "end":
 		m.attached.ScrollToBottom()
 		m.setStatus("live view")
@@ -180,6 +199,15 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// ctrl+l belongs to the remote shell while a session has focus, so
 		// the redraw lives behind the prefix instead.
 		return m, tea.ClearScreen
+	default:
+		// Armed by a scroll rather than pressed, so this is the next thing
+		// someone typed, not a command. Dropping it cost the first letter of
+		// whatever followed a look back through the output — `echo` arriving
+		// as `cho` — for a prefix nobody had pressed. From the host list there
+		// is nothing being typed into, so it is still dropped there.
+		if fromScroll && m.focus == panelSession {
+			return m.typeIntoSession(msg)
+		}
 	}
 	return m, nil
 }

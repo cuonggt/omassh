@@ -137,6 +137,11 @@ type Model struct {
 
 	runCancel context.CancelFunc
 
+	// scrollArmed records that the prefix was re-armed by a scroll rather
+	// than pressed, so a key that is not a scroll command is what someone
+	// meant to type rather than a command to drop.
+	scrollArmed bool
+
 	// attached is the live session in the main pane, nil when there is none.
 	attached    *term.Pane
 	prefixArmed bool

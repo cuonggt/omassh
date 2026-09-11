@@ -2392,3 +2392,59 @@ func TestAHostWhoseGroupWentIsStillListed(t *testing.T) {
 		t.Errorf("selectedHost = %+v, %v — the host cannot be reached", got, ok)
 	}
 }
+
+// After paging back the prefix stays armed so k repeats — but the next key is
+// usually the next command, and dropping it cost its first letter: `echo`
+// arrived at the shell as `cho`, for a prefix nobody had pressed.
+func TestTheKeyAfterPagingBackIsTypedRatherThanEaten(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+
+	h.press("prefix", "k")
+	if !h.m.prefixArmed || !h.m.scrollArmed {
+		t.Fatal("paging back did not leave the prefix armed for another page")
+	}
+	// A scroll command still pages, and stays armed for the next one.
+	h.press("j")
+	if !h.m.scrollArmed {
+		t.Error("a second scroll key disarmed the prefix")
+	}
+	// Anything else is what someone meant to type.
+	h.press("e")
+	if h.m.prefixArmed || h.m.scrollArmed {
+		t.Error("an ordinary key left the prefix armed")
+	}
+}
+
+// A prefix the user actually pressed keeps its old meaning: an unknown
+// command does nothing rather than typing itself into the remote.
+func TestAnUnknownCommandAfterAPressedPrefixIsStillDropped(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+
+	h.press("prefix")
+	if !h.m.prefixArmed || h.m.scrollArmed {
+		t.Fatal("pressing the prefix should not look like a scroll")
+	}
+	h.press("z")
+	if h.m.prefixArmed {
+		t.Error("the prefix stayed armed after an unknown command")
+	}
+}
+
+// Typing snaps a scrolled pane back to the bottom, and the status says so.
+// It must not say so on every other keystroke, or a message worth reading is
+// wiped by the next letter typed at the remote.
+func TestTypingLeavesTheStatusAloneWhenNothingWasScrolled(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	if !h.m.attached.Alive() {
+		t.Skip("the session ended before anything could be typed at it")
+	}
+
+	h.m.setStatus("something worth reading")
+	h.press("x")
+	if h.m.status != "something worth reading" {
+		t.Errorf("status = %q after an ordinary keystroke, want it untouched", h.m.status)
+	}
+}
