@@ -18,6 +18,7 @@ import/export for moving the list between machines or starting from
 |---|---|
 | `j`/`k`, `tab`, `1`/`2` | move and switch panel |
 | click | select a group, host or file, or focus the session pane |
+| scroll | move through whichever list is under the pointer |
 | double click | in sftp, enter the directory under the pointer |
 | `enter` | connect — `ssh` takes the whole terminal, exit returns here |
 | `/` | fuzzy search every host by name, address or tag |

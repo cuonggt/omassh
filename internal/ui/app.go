@@ -287,6 +287,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.handleMouseClick(msg.Mouse())
+
+	case tea.MouseWheelMsg:
+		if !m.ready {
+			return m, nil
+		}
+		return m.handleMouseWheel(msg.Mouse())
 	}
 	return m, nil
 }

@@ -82,6 +82,70 @@ func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// handleMouseWheel moves the selection in whatever list is under the pointer.
+//
+// Asking for the mouse takes the wheel away from the terminal, which would
+// otherwise have scrolled its own scrollback — so a wheel nobody handles is
+// worse than no mouse at all: the gesture stops doing the thing it used to do
+// and does not start doing anything else. The lists it lands on are windowed
+// and have somewhere to go.
+//
+// It focuses the list it moves, as a click does. An unfocused list draws no
+// selection at all, so the cursor would otherwise travel invisibly and the
+// window would scroll under a highlight that was not there.
+func (m Model) handleMouseWheel(e tea.Mouse) (tea.Model, tea.Cmd) {
+	var step int
+	switch e.Button {
+	case tea.MouseWheelUp:
+		step = -1
+	case tea.MouseWheelDown:
+		step = 1
+	default:
+		return m, nil // a sideways wheel has nothing to move here
+	}
+
+	if m.mode == modeSFTP {
+		return m.wheelFilePane(e, step)
+	}
+	if m.mode != modeBrowse && m.mode != modeFilter {
+		return m, nil // a dialog owns the screen, as it does for a click
+	}
+	l := m.layout()
+	if e.Y < 0 || e.Y >= l.content || e.X >= l.side || m.w < minWidth || l.content < minHeight {
+		return m, nil
+	}
+
+	if e.Y < l.groupsH {
+		m.focus = panelGroups
+		m.groupIdx = clamp(m.groupIdx+step, 0, max(len(m.d.tree)-1, 0))
+		m.hostIdx = 0
+	} else {
+		m.focus = panelHosts
+		m.hostIdx = clamp(m.hostIdx+step, 0, max(len(m.visibleHosts())-1, 0))
+	}
+	return m, nil
+}
+
+// wheelFilePane moves the selection in the file pane under the pointer.
+func (m Model) wheelFilePane(e tea.Mouse, step int) (tea.Model, tea.Cmd) {
+	content := m.h - statusHeight
+	body := content - 1 // the transfer strip, which is not a list
+	if m.w < minWidth || content < minHeight || e.Y < 0 || e.Y >= body {
+		return m, nil
+	}
+	pane := 0
+	if e.X >= m.w/2 {
+		pane = 1
+	}
+	p := &m.panes[pane]
+	if len(p.entries) == 0 {
+		return m, nil
+	}
+	m.paneFocus = pane
+	p.idx = clamp(p.idx+step, 0, len(p.entries)-1)
+	return m, nil
+}
+
 // rowIndex maps a screen row to a list index, given the box's top row and
 // height and the entry the visible window starts at. It reports false for the
 // borders and for empty space past the end of the list, so clicking those

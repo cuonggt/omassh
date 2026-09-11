@@ -975,6 +975,13 @@ func TestClickSelectsAHost(t *testing.T) {
 	h.addHost("bravo", "10.0.0.2")
 	h.addHost("charlie", "10.0.0.3")
 
+	// From the other panel, or the assertion below passes on the focus the
+	// model already starts with rather than on anything the click did.
+	h.press("1")
+	if h.m.focus != panelGroups {
+		t.Fatal("1 did not focus the groups panel")
+	}
+
 	l := h.m.layout()
 	h.click(2, l.groupsH+1+2) // third host row
 
@@ -2463,5 +2470,141 @@ func TestPastingLeavesTheStatusAloneWhenNothingWasScrolled(t *testing.T) {
 	h.send(tea.PasteMsg{Content: "some text"})
 	if h.m.status != "something worth reading" {
 		t.Errorf("status = %q after a paste, want it untouched", h.m.status)
+	}
+}
+
+// wheel sends one notch at a screen cell.
+func (h *harness) wheel(x, y int, up bool) {
+	h.t.Helper()
+	b := tea.MouseWheelDown
+	if up {
+		b = tea.MouseWheelUp
+	}
+	h.send(tea.MouseWheelMsg{X: x, Y: y, Button: b})
+}
+
+// Asking for the mouse takes the wheel away from the terminal, so a wheel
+// nobody handles is worse than no mouse at all: the gesture stops scrolling
+// the scrollback and starts doing nothing whatever.
+func TestTheWheelMovesTheListUnderThePointer(t *testing.T) {
+	h := newHarness(t)
+	for i := range 30 {
+		h.addHost(fmt.Sprintf("host-%02d", i), "10.0.0.1")
+	}
+	h.reload()
+	h.press("2")
+	l := h.m.layout()
+
+	// Over the hosts box.
+	start := h.m.hostIdx
+	h.wheel(1, l.groupsH+2, false)
+	if h.m.hostIdx != start+1 {
+		t.Errorf("hostIdx = %d after a notch down, want %d", h.m.hostIdx, start+1)
+	}
+	h.wheel(1, l.groupsH+2, true)
+	if h.m.hostIdx != start {
+		t.Errorf("hostIdx = %d after a notch back up, want %d", h.m.hostIdx, start)
+	}
+
+	// It focuses what it moves: an unfocused list draws no selection, so the
+	// cursor would travel invisibly.
+	h.press("1")
+	h.wheel(1, l.groupsH+2, false)
+	if h.m.focus != panelHosts {
+		t.Error("the wheel moved the host list without focusing it")
+	}
+
+	// Over the groups box.
+	h.wheel(1, 1, false)
+	if h.m.focus != panelGroups {
+		t.Error("the wheel over the groups box did not focus it")
+	}
+}
+
+// It stops at the ends rather than running off them.
+func TestTheWheelStopsAtTheEndsOfTheList(t *testing.T) {
+	h := newHarness(t)
+	for i := range 5 {
+		h.addHost(fmt.Sprintf("host-%02d", i), "10.0.0.1")
+	}
+	h.reload()
+	h.press("2")
+	l := h.m.layout()
+	y := l.groupsH + 2
+
+	for range 20 {
+		h.wheel(1, y, true)
+	}
+	if h.m.hostIdx != 0 {
+		t.Errorf("hostIdx = %d at the top, want 0", h.m.hostIdx)
+	}
+	for range 20 {
+		h.wheel(1, y, false)
+	}
+	if want := len(h.m.visibleHosts()) - 1; h.m.hostIdx != want {
+		t.Errorf("hostIdx = %d at the bottom, want %d", h.m.hostIdx, want)
+	}
+}
+
+// The main pane and the status bar are not lists, and a dialog owns the
+// screen — the wheel leaves all of them alone, as a click does.
+func TestTheWheelLeavesAloneWhatIsNotAList(t *testing.T) {
+	h := newHarness(t)
+	for i := range 30 {
+		h.addHost(fmt.Sprintf("host-%02d", i), "10.0.0.1")
+	}
+	h.reload()
+	h.press("2")
+	l := h.m.layout()
+	h.m.hostIdx = 3
+
+	for _, spot := range []struct {
+		name string
+		x, y int
+	}{
+		{"the main pane", l.side + 2, l.groupsH + 2},
+		{"the status bar", 1, l.content},
+	} {
+		h.wheel(spot.x, spot.y, false)
+		if h.m.hostIdx != 3 {
+			t.Errorf("the wheel over %s moved the selection to %d", spot.name, h.m.hostIdx)
+			h.m.hostIdx = 3
+		}
+	}
+
+	h.press("n") // a form owns the screen
+	if h.m.mode != modeForm {
+		t.Fatal("n did not open a form")
+	}
+	h.wheel(1, l.groupsH+2, false)
+	if h.m.hostIdx != 3 {
+		t.Errorf("the wheel reached the list behind a dialog: %d", h.m.hostIdx)
+	}
+}
+
+// In the file browser the wheel moves the pane under the pointer, and focuses
+// it, the same as a click there.
+func TestTheWheelMovesTheFilePaneUnderThePointer(t *testing.T) {
+	h := sftpHarness(t, 6, 6)
+	h.m.paneFocus = 0
+
+	// The right-hand pane.
+	h.wheel(testW-4, 2, false)
+	if h.m.paneFocus != 1 {
+		t.Errorf("paneFocus = %d after wheeling the right pane, want 1", h.m.paneFocus)
+	}
+	if h.m.panes[1].idx != 1 {
+		t.Errorf("right pane idx = %d, want 1", h.m.panes[1].idx)
+	}
+	// The left-hand one.
+	h.wheel(1, 2, false)
+	if h.m.paneFocus != 0 || h.m.panes[0].idx != 1 {
+		t.Errorf("left pane: focus=%d idx=%d, want 0 and 1", h.m.paneFocus, h.m.panes[0].idx)
+	}
+	// The transfer strip is not a list.
+	before := h.m.panes[0].idx
+	h.wheel(1, testH-statusHeight-1, false)
+	if h.m.panes[0].idx != before {
+		t.Errorf("the wheel over the transfer strip moved the pane to %d", h.m.panes[0].idx)
 	}
 }
