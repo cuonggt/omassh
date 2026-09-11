@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -204,5 +205,36 @@ func TestExportSSHConfigDryRunLeavesNoScratchFiles(t *testing.T) {
 		if !names[e.Name()] && e.Name() != "x.db" {
 			t.Errorf("a dry run left %q beside the config", e.Name())
 		}
+	}
+}
+
+// ssh keeps the first value it is given for an option and ignores the rest, so
+// the order these are combined in is the precedence. An -o typed on the
+// command line has to outrank the same option in the config file; appending it
+// after meant `-o ConnectTimeout=5` against a config asking for 30 resolved to
+// 30, while the command omassh displayed carried both.
+func TestACommandLineOptionOutranksTheConfigFile(t *testing.T) {
+	got := globalSSHOptions(
+		[]string{"ConnectTimeout=5"},
+		[]string{"ConnectTimeout=30", "ServerAliveInterval=99"},
+	)
+	want := []string{"ConnectTimeout=5", "ConnectTimeout=30", "ServerAliveInterval=99"}
+	if !slices.Equal(got, want) {
+		t.Errorf("globalSSHOptions = %v, want %v", got, want)
+	}
+
+	// Neither source is dropped: an option only the config sets still applies.
+	if !slices.Contains(got, "ServerAliveInterval=99") {
+		t.Error("a config-only option was lost")
+	}
+	// And it does not write through the caller's slice. Given spare capacity —
+	// which the repeatable -o flag builds up as it collects values — appending
+	// straight onto it would hand back the same array.
+	cmd := make([]string, 1, 4)
+	cmd[0] = "A=1"
+	out := globalSSHOptions(cmd, []string{"B=2"})
+	out[0] = "changed"
+	if cmd[0] != "A=1" {
+		t.Errorf("the caller's slice was written through: %v", cmd)
 	}
 }

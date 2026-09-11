@@ -54,9 +54,20 @@ func Build(h store.Host, extra ...string) []string {
 
 // SubsystemArgs builds the argv for invoking a remote subsystem, such as
 // "sftp". ssh places the subsystem name where a remote command would go.
-func SubsystemArgs(h store.Host, subsystem string, opts ...string) []string {
+//
+// fixed are the settings the caller cannot let anything override, so they go
+// ahead of everything — including the -o options given to omassh itself,
+// since ssh keeps the first value it sees. BatchMode is one: the child's
+// stdin carries the protocol, so a password prompt is one nobody can answer,
+// and a single `-o BatchMode=no` on omassh's own command line was enough to
+// leave an sftp connection waiting at one. A forward has guarded the same
+// thing the same way since it could be broken the same way.
+//
+// opts are preferences, and go where Build puts them, after the -o options —
+// so LogLevel can still be raised for a look at what ssh is doing.
+func SubsystemArgs(h store.Host, subsystem string, fixed, opts []string) []string {
 	extra := append([]string{"-s"}, opts...)
-	return append(Build(h, extra...), subsystem)
+	return append(append(append([]string{}, fixed...), Build(h, extra...)...), subsystem)
 }
 
 // proxyCommand is the command ssh runs to reach a host through a jump host.

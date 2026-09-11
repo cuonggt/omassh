@@ -182,3 +182,28 @@ func TestAHopOnTheDefaultPortIsStillWrittenOut(t *testing.T) {
 		t.Errorf("Build() = %q, want the destination port spelled out", got)
 	}
 }
+
+// ssh keeps the first value it is given for an option, so anything that must
+// not be overridden has to come before the -o settings omassh was started
+// with. BatchMode is one of those for a subsystem: the child's stdin carries
+// the protocol, so a password prompt is one nobody can answer — and a single
+// `-o BatchMode=no` was enough to leave an sftp connection waiting at one.
+func TestASubsystemsFixedOptionsOutrankTheCommandLine(t *testing.T) {
+	SetGlobalOptions([]string{"BatchMode=no", "LogLevel=DEBUG"})
+	defer SetGlobalOptions(nil)
+
+	got := strings.Join(SubsystemArgs(store.Host{Name: "web", Addr: "10.0.0.1"}, "sftp",
+		[]string{"-o", "BatchMode=yes"},
+		[]string{"-o", "LogLevel=ERROR"}), " ")
+
+	if i, j := strings.Index(got, "BatchMode=yes"), strings.Index(got, "BatchMode=no"); i < 0 || j < 0 || i > j {
+		t.Errorf("BatchMode=yes must come first:\n  %s", got)
+	}
+	// A preference stays a preference: LogLevel can still be raised.
+	if i, j := strings.Index(got, "LogLevel=DEBUG"), strings.Index(got, "LogLevel=ERROR"); i < 0 || j < 0 || i > j {
+		t.Errorf("LogLevel=DEBUG from the command line should still win:\n  %s", got)
+	}
+	if !strings.HasSuffix(got, "10.0.0.1 sftp") {
+		t.Errorf("the subsystem must follow the target:\n  %s", got)
+	}
+}

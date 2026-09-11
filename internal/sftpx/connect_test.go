@@ -4,6 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/cuonggt/omassh/internal/sshx"
+	"github.com/cuonggt/omassh/internal/store"
 )
 
 // ssh's half of a refusal is long — "cuonggt@10.0.0.1: Permission denied
@@ -39,5 +42,25 @@ func TestOnlyTheLastLineOfSshsOutputIsTheReason(t *testing.T) {
 	}
 	if !strings.Contains(got, "Permission denied") {
 		t.Errorf("the reason was lost: %q", got)
+	}
+}
+
+// BatchMode is what stops an sftp connection stopping at a prompt nobody can
+// answer: the child's stdin is carrying the protocol. ssh keeps the first
+// value it is given, so a single `-o BatchMode=no` handed to omassh itself
+// was enough to undo it — the same way a forward could be undone before that
+// was guarded.
+func TestSFTPForcesBatchModeBeyondTheReachOfAnOption(t *testing.T) {
+	sshx.SetGlobalOptions([]string{"BatchMode=no", "LogLevel=DEBUG"})
+	defer sshx.SetGlobalOptions(nil)
+
+	got := strings.Join(connectArgs(store.Host{Name: "web", Addr: "10.0.0.1"}, nil), " ")
+	yes, no := strings.Index(got, "BatchMode=yes"), strings.Index(got, "BatchMode=no")
+	if yes < 0 || no < 0 || yes > no {
+		t.Errorf("BatchMode=yes has to come first:\n  %s", got)
+	}
+	// A preference stays a preference.
+	if d, e := strings.Index(got, "LogLevel=DEBUG"), strings.Index(got, "LogLevel=ERROR"); d < 0 || e < 0 || d > e {
+		t.Errorf("LogLevel should still be raisable from the command line:\n  %s", got)
 	}
 }

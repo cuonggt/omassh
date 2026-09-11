@@ -35,14 +35,27 @@ type Session struct {
 	closeOnce sync.Once
 }
 
+// connectArgs is the ssh invocation that carries an sftp session.
+//
+// BatchMode is handed over as a setting nothing may override, not as one more
+// -o among the rest: ssh keeps the first value it sees, so a single
+// `-o BatchMode=no` given to omassh itself would otherwise put this
+// connection at a password prompt that nobody can answer — the child's stdin
+// is carrying the protocol. LogLevel is a preference and stays one, so it can
+// still be raised to watch what ssh is doing.
+func connectArgs(h store.Host, opts []string) []string {
+	return sshx.SubsystemArgs(h, "sftp",
+		[]string{"-o", "BatchMode=yes"},
+		append([]string{"-o", "LogLevel=ERROR"}, opts...))
+}
+
 // Connect opens an SFTP session to h.
 //
 // BatchMode is forced on: the child's stdin carries the SFTP protocol, so ssh
 // has nowhere to prompt for a passphrase, and failing immediately with a clear
 // message beats hanging on a prompt no one can see.
 func Connect(h store.Host, opts ...string) (*Session, error) {
-	args := sshx.SubsystemArgs(h, "sftp",
-		append([]string{"-o", "BatchMode=yes", "-o", "LogLevel=ERROR"}, opts...)...)
+	args := connectArgs(h, opts)
 	cmd := exec.Command("ssh", args...)
 
 	stdin, err := cmd.StdinPipe()

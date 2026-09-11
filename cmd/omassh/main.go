@@ -148,8 +148,7 @@ func browse(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Command-line options come last so they win over the config file.
-	sshx.SetGlobalOptions(append(append([]string{}, cfg.SSHOptions...), sshOpts...))
+	sshx.SetGlobalOptions(globalSSHOptions(sshOpts, cfg.SSHOptions))
 
 	st, err := store.Open(*dbPath)
 	if err != nil {
@@ -171,6 +170,18 @@ func browse(args []string) error {
 		m.Close()
 	}
 	return err
+}
+
+// globalSSHOptions is what every connection carries, in the order that decides
+// which value wins.
+//
+// ssh keeps the first value it is given for an option and ignores the rest, so
+// order here is precedence. The command line goes first: `-o ConnectTimeout=5`
+// has to outrank a config file asking for 30, and putting it after meant the
+// file quietly won — while the command omassh displayed carried both, reading
+// as though the last one applied.
+func globalSSHOptions(cmdLine, fromConfig []string) []string {
+	return append(append([]string{}, cmdLine...), fromConfig...)
 }
 
 // --- export and import -------------------------------------------------
