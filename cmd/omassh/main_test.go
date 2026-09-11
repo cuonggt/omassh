@@ -172,3 +172,37 @@ func TestExportSSHConfigFollowsASymlinkedConfig(t *testing.T) {
 		t.Error("the tracked file lost what was already in it")
 	}
 }
+
+// -n promises to write nothing, and that has to include scratch files.
+// Scanning the config for the aliases it declares once wrote a copy of it
+// beside the original — in ~/.ssh, and during a dry run.
+func TestExportSSHConfigDryRunLeavesNoScratchFiles(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config")
+	if err := os.WriteFile(cfg, []byte("Host mine\n    HostName 1.2.3.4\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resetFlags()
+	if err := run([]string{"export-ssh-config", "-db", filepath.Join(dir, "x.db"), "-o", cfg, "-n"}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The database is made by opening the store; nothing else may appear.
+	names := map[string]bool{}
+	for _, e := range before {
+		names[e.Name()] = true
+	}
+	for _, e := range after {
+		if !names[e.Name()] && e.Name() != "x.db" {
+			t.Errorf("a dry run left %q beside the config", e.Name())
+		}
+	}
+}

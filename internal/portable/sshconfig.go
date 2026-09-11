@@ -170,7 +170,15 @@ func expandIncludes(path, base string, depth int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return expandIncludesIn(raw, base, depth)
+}
 
+// expandIncludesIn is the same splicing for text already in hand.
+//
+// Scanning a config for the aliases it declares does not want a copy of it
+// written next to the original: ~/.ssh is not somewhere to leave scratch
+// files, and a dry run that promises to write nothing has to mean it.
+func expandIncludesIn(raw []byte, base string, depth int) ([]byte, error) {
 	var out strings.Builder
 	for _, line := range strings.Split(string(raw), "\n") {
 		args, ok := includeDirective(line)

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -358,7 +359,10 @@ func runExportSSHConfig(args []string) error {
 		return err
 	}
 
-	plan := portable.ExportSSHConfig(existing, declared, resolved)
+	plan, err := portable.ExportSSHConfig(existing, declared, resolved)
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
 	for _, n := range plan.Written {
 		fmt.Println("  write  " + n)
 	}
@@ -400,6 +404,14 @@ func writeAtomically(path string, data []byte, mode os.FileMode) error {
 	}
 	f, err := os.CreateTemp(dir, ".omassh-*")
 	if err != nil {
+		// The temporary file is omassh's own business. Named at the user, it
+		// is a filename they have never seen, standing in for the directory
+		// they actually asked about — so the directory is named instead, and
+		// the reason kept as the system gave it.
+		var pe *os.PathError
+		if errors.As(err, &pe) {
+			return fmt.Errorf("%s: %w", dir, pe.Err)
+		}
 		return err
 	}
 	tmp := f.Name()

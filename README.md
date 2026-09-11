@@ -263,7 +263,12 @@ the same names, through the same bastions.
 Only between its own markers. Everything outside them comes back byte for
 byte, comments and blank lines included, and the file is replaced by a rename
 rather than truncated, since a half-written `~/.ssh/config` is every machine
-at once. Running it twice changes nothing.
+at once. A symlinked config — the usual way a dotfiles repository keeps one —
+is followed rather than replaced. Running it twice changes nothing.
+
+Markers that do not pair up stop the whole thing, naming the line. A start
+marker whose end had been deleted would otherwise read as if the rest of the
+file were Omassh's, and there is no getting a `~/.ssh/config` back from that.
 
 The block goes at the **top**, because ssh keeps the first value it finds for
 each setting: below a `Host *` of yours, every exported host would quietly
@@ -272,7 +277,8 @@ take that block's user instead of its own.
 An alias your config already declares — in the file or in anything it
 `Include`s — is left exactly as it is and reported, never written over: import
 treats your config as a read-only source, and this keeps that promise from the
-other side. A host whose name ssh could not use as a destination is reported
+other side. So is a host whose jump host will not be in the file, since writing
+it without one would dial a machine meant to sit behind a bastion. A host whose name ssh could not use as a destination is reported
 the same way rather than written; a name with a space in it is refused by ssh
 however it is quoted, and one holding `*` or `?` would be a pattern governing
 hosts Omassh knows nothing about.

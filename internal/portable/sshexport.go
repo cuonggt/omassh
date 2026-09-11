@@ -60,12 +60,17 @@ type LeftOut struct {
 // goes above it, so writing one would silently take that host over. Import
 // treats a config as a read-only source; this keeps the same promise from the
 // other side.
-func ExportSSHConfig(existing []byte, declared map[string]bool, hosts []store.Host) SSHConfigPlan {
+func ExportSSHConfig(existing []byte, declared map[string]bool, hosts []store.Host) (SSHConfigPlan, error) {
+	body, err := stripBlock(string(existing))
+	if err != nil {
+		return SSHConfigPlan{}, err
+	}
+
 	sorted := append([]store.Host(nil), hosts...)
 	sort.Slice(sorted, func(i, j int) bool { return less(sorted[i].Name, sorted[j].Name) })
 
 	var p SSHConfigPlan
-	var entries []string
+	keep := make([]store.Host, 0, len(sorted))
 	for _, h := range sorted {
 		switch {
 		case !usableAlias(h.Name):
@@ -73,21 +78,69 @@ func ExportSSHConfig(existing []byte, declared map[string]bool, hosts []store.Ho
 		case declared[key(h.Name)]:
 			p.Left = append(p.Left, LeftOut{h.Name, "your own config already defines it"})
 		default:
-			entries = append(entries, sshEntry(h))
-			p.Written = append(p.Written, h.Name)
+			keep = append(keep, h)
 		}
+	}
+	keep, p.Left = withReachableJumps(keep, declared, hosts, p.Left)
+
+	var entries []string
+	for _, h := range keep {
+		entries = append(entries, sshEntry(h))
+		p.Written = append(p.Written, h.Name)
 	}
 
 	p.Block = blockStart + "\n" + blockHeader + "\n\n" +
 		strings.Join(entries, "\n") + "\n" + blockEnd + "\n"
 
-	body := strings.TrimLeft(stripBlock(string(existing)), "\n")
 	out := p.Block
-	if body != "" {
+	if body = strings.TrimLeft(body, "\n"); body != "" {
 		out += "\n" + body
 	}
 	p.Content = []byte(out)
-	return p
+	return p, nil
+}
+
+// withReachableJumps drops hosts whose jump host will not be in the file.
+//
+// A ProxyJump naming one of your hosts is only worth writing if that host is
+// written too. One left out for a name ssh cannot use took its dependants
+// with it into a config that referred to an alias nothing declared — and the
+// alternative, writing the host without its ProxyJump, is far worse: it would
+// dial the address directly, which for a machine behind a bastion is either
+// nothing at all or, on the wrong network, something else entirely.
+//
+// A jump host that is none of yours — `ops@edge.example.com` — is left where
+// it is, exactly as import leaves it, because it is ssh's to make sense of.
+// So is one your own config declares.
+//
+// Repeated until it settles, since dropping a host can strand the hosts that
+// jump through it.
+func withReachableJumps(keep []store.Host, declared map[string]bool, all []store.Host, left []LeftOut) ([]store.Host, []LeftOut) {
+	ours := make(map[string]bool, len(all))
+	for _, h := range all {
+		ours[key(h.Name)] = true
+	}
+	for {
+		here := make(map[string]bool, len(keep))
+		for _, h := range keep {
+			here[key(h.Name)] = true
+		}
+		var out []store.Host
+		dropped := false
+		for _, h := range keep {
+			j := key(strings.TrimSpace(h.ProxyJump))
+			if j == "" || !ours[j] || here[j] || declared[j] {
+				out = append(out, h)
+				continue
+			}
+			left = append(left, LeftOut{h.Name, "its jump host " + strconv.Quote(h.ProxyJump) + " is not in the file"})
+			dropped = true
+		}
+		keep = out
+		if !dropped {
+			return keep, left
+		}
+	}
 }
 
 // usableAlias reports whether a host's name can be an ssh alias at all.
@@ -149,22 +202,37 @@ func sshValue(s string) string {
 // come back byte for byte, comments, blank lines, indentation and all, and a
 // config file is one of the few things on a machine that is worse to reformat
 // than to leave alone.
-func stripBlock(s string) string {
+//
+// Markers that do not pair up are refused rather than interpreted. A start
+// whose end had been deleted — by hand, by a truncation, by a merge going
+// wrong — meant everything after it read as omassh's, so the whole of the
+// rest of the file was dropped and the export reported a clean write. There
+// is no recovering a ~/.ssh/config from that, so it is not guessed at.
+func stripBlock(s string) (string, error) {
 	lines := strings.Split(s, "\n")
 	var out []string
-	inside := false
-	for _, l := range lines {
+	start := 0
+	for i, l := range lines {
 		t := strings.TrimSpace(l)
 		switch {
 		case t == blockStart:
-			inside = true
+			if start != 0 {
+				return "", fmt.Errorf("line %d: a second %s before the first one ends", i+1, blockStart)
+			}
+			start = i + 1
 		case t == blockEnd:
-			inside = false
-		case !inside:
+			if start == 0 {
+				return "", fmt.Errorf("line %d: %s with no %s above it", i+1, blockEnd, blockStart)
+			}
+			start = 0
+		case start == 0:
 			out = append(out, l)
 		}
 	}
-	return strings.Join(out, "\n")
+	if start != 0 {
+		return "", fmt.Errorf("line %d: %s is never closed by %s", start, blockStart, blockEnd)
+	}
+	return strings.Join(out, "\n"), nil
 }
 
 // DeclaredAliases lists the concrete aliases a config file already defines for
@@ -181,20 +249,12 @@ func DeclaredAliases(path string) (map[string]bool, error) {
 	}
 	// The block is stripped first so a second export does not see its own
 	// hosts as the file's and refuse to write any of them.
-	stripped := stripBlock(string(raw))
-
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".omassh-scan-*")
+	stripped, err := stripBlock(string(raw))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.WriteString(stripped); err != nil {
-		tmp.Close()
-		return nil, err
-	}
-	tmp.Close()
 
-	expanded, err := expandIncludes(tmp.Name(), filepath.Dir(path), 0)
+	expanded, err := expandIncludesIn([]byte(stripped), filepath.Dir(path), 0)
 	if err != nil {
 		return nil, err
 	}

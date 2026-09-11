@@ -22,7 +22,10 @@ func hostsFixture() []store.Host {
 // port instead of their own, and nothing on screen would say so.
 func TestTheBlockIsWrittenAboveTheRestOfTheFile(t *testing.T) {
 	existing := "Host *\n    User someone-else\n"
-	p := ExportSSHConfig([]byte(existing), nil, hostsFixture())
+	p, err := ExportSSHConfig([]byte(existing), nil, hostsFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
 	got := string(p.Content)
 
 	if !strings.HasPrefix(got, blockStart) {
@@ -43,7 +46,10 @@ func TestTheBlockIsWrittenAboveTheRestOfTheFile(t *testing.T) {
 // one of the few things on a machine worse to reformat than to leave alone.
 func TestWhatTheUserWroteSurvivesByteForByte(t *testing.T) {
 	existing := "# my own notes\n\nHost *\n\tServerAliveInterval 60   # trailing comment\n\n\n# end\n"
-	p := ExportSSHConfig([]byte(existing), nil, hostsFixture())
+	p, err := ExportSSHConfig([]byte(existing), nil, hostsFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	_, tail, ok := strings.Cut(string(p.Content), blockEnd+"\n")
 	if !ok {
@@ -57,8 +63,14 @@ func TestWhatTheUserWroteSurvivesByteForByte(t *testing.T) {
 // Running it twice must change nothing, or every export shows up as a diff in
 // whatever keeps the file.
 func TestExportingTwiceChangesNothing(t *testing.T) {
-	first := ExportSSHConfig([]byte("Host *\n    User me\n"), nil, hostsFixture())
-	second := ExportSSHConfig(first.Content, nil, hostsFixture())
+	first, err := ExportSSHConfig([]byte("Host *\n    User me\n"), nil, hostsFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := ExportSSHConfig(first.Content, nil, hostsFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(first.Content) != string(second.Content) {
 		t.Errorf("a second export differs:\n--- first ---\n%s\n--- second ---\n%s", first.Content, second.Content)
 	}
@@ -71,7 +83,10 @@ func TestExportingTwiceChangesNothing(t *testing.T) {
 // writing one would silently take over an entry ssh has been using.
 func TestAnAliasTheFileAlreadyDeclaresIsLeftAlone(t *testing.T) {
 	declared := map[string]bool{"bastion": true}
-	p := ExportSSHConfig(nil, declared, hostsFixture())
+	p, err := ExportSSHConfig(nil, declared, hostsFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if strings.Contains(string(p.Content), "bastion.example.com") {
 		t.Error("omassh wrote over an alias the file declares itself")
@@ -102,7 +117,10 @@ func TestANameThatCannotBeAnSSHAliasIsNotWritten(t *testing.T) {
 		{Name: `we\b`, Addr: "10.0.0.7"},
 		{Name: "fine", Addr: "10.0.0.4"},
 	}
-	p := ExportSSHConfig(nil, nil, hosts)
+	p, err := ExportSSHConfig(nil, nil, hosts)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	if len(p.Written) != 1 || p.Written[0] != "fine" {
 		t.Errorf("Written = %v, want only the usable one", p.Written)
@@ -148,7 +166,11 @@ func TestTheStanzaSaysOnlyWhatSshNeeds(t *testing.T) {
 // export into nothing produces just the block.
 func TestStripBlockLeavesAStrangerAlone(t *testing.T) {
 	s := "Host a\n    HostName 1.2.3.4\n"
-	if got := stripBlock(s); got != s {
+	got, err := stripBlock(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != s {
 		t.Errorf("stripBlock changed a file with no block: %q", got)
 	}
 }
@@ -157,7 +179,10 @@ func TestStripBlockLeavesAStrangerAlone(t *testing.T) {
 // would find every host already declared and write none of them.
 func TestDeclaredAliasesIgnoresOmasshsOwnBlock(t *testing.T) {
 	dir := t.TempDir()
-	p := ExportSSHConfig([]byte("Host mine\n    HostName 10.0.0.1\n"), nil, hostsFixture())
+	p, err := ExportSSHConfig([]byte("Host mine\n    HostName 10.0.0.1\n"), nil, hostsFixture())
+	if err != nil {
+		t.Fatal(err)
+	}
 	path := filepath.Join(dir, "config")
 	if err := os.WriteFile(path, p.Content, 0o600); err != nil {
 		t.Fatal(err)
@@ -201,5 +226,75 @@ func TestDeclaredAliasesOfAMissingFile(t *testing.T) {
 	got, err := DeclaredAliases(filepath.Join(t.TempDir(), "absent"))
 	if err != nil || len(got) != 0 {
 		t.Errorf("DeclaredAliases = %v, %v", got, err)
+	}
+}
+
+// A start marker whose end had been deleted — by hand, by a truncation, by a
+// merge going wrong — meant everything after it read as omassh's, so the rest
+// of the file was dropped and the export reported a clean write. There is no
+// getting a ~/.ssh/config back from that.
+func TestAnUnclosedBlockIsRefusedRatherThanSwallowingTheFile(t *testing.T) {
+	cases := map[string]string{
+		"never closed":      blockStart + "\nHost stale\n\nHost precious\n    HostName 10.0.0.1\n",
+		"end with no start": "Host precious\n    HostName 10.0.0.1\n" + blockEnd + "\n",
+		"opened twice":      blockStart + "\nHost a\n" + blockStart + "\nHost b\n" + blockEnd + "\n",
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := stripBlock(body); err == nil {
+				t.Fatal("accepted a file whose markers do not pair up")
+			}
+			_, err := ExportSSHConfig([]byte(body), nil, hostsFixture())
+			if err == nil {
+				t.Fatal("the export went ahead anyway")
+			}
+			// The line number is the whole of what makes it fixable.
+			if !strings.Contains(err.Error(), "line ") {
+				t.Errorf("the error does not say where: %v", err)
+			}
+		})
+	}
+}
+
+// A ProxyJump naming one of your hosts is only worth writing if that host is
+// written too. Left out for a name ssh cannot use, it took its dependants into
+// a config referring to an alias nothing declared — and dropping the ProxyJump
+// instead would be worse, dialling a machine meant to sit behind a bastion.
+func TestAHostWhoseJumpHostIsNotInTheFileIsLeftOut(t *testing.T) {
+	hosts := []store.Host{
+		{Name: "my bastion", Addr: "bastion.example.com"}, // unusable as an alias
+		{Name: "behind-it", Addr: "10.0.0.5", ProxyJump: "my bastion"},
+		{Name: "further", Addr: "10.0.0.6", ProxyJump: "behind-it"}, // stranded in turn
+		{Name: "yours", Addr: "10.0.0.7", ProxyJump: "declared-by-you"},
+		{Name: "outside", Addr: "10.0.0.8", ProxyJump: "ops@edge.example.com"},
+	}
+	p, err := ExportSSHConfig(nil, map[string]bool{"declared-by-you": true}, hosts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// A jump host your own config declares, and one that is no host of yours
+	// at all, are both ssh's to resolve and stay.
+	want := map[string]bool{"yours": true, "outside": true}
+	if len(p.Written) != len(want) {
+		t.Fatalf("Written = %v, want %v", p.Written, want)
+	}
+	for _, n := range p.Written {
+		if !want[n] {
+			t.Errorf("%q was written though its jump host is not in the file", n)
+		}
+	}
+	// And the chain behind the unusable name goes with it, one hop at a time.
+	reasons := map[string]string{}
+	for _, l := range p.Left {
+		reasons[l.Name] = l.Why
+	}
+	for _, n := range []string{"behind-it", "further"} {
+		if !strings.Contains(reasons[n], "jump host") {
+			t.Errorf("%s was left out for %q", n, reasons[n])
+		}
+	}
+	if !strings.Contains(string(p.Content), "ProxyJump ops@edge.example.com") {
+		t.Error("an ssh destination as a jump host was not written")
 	}
 }
