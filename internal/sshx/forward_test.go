@@ -218,3 +218,23 @@ func TestListenAvailableExplainsWhatTheKernelSaid(t *testing.T) {
 		})
 	}
 }
+
+// A hop is reached by an ssh of its own, and options given to the outer one do
+// not reach it. BatchMode has to, or the prompt it exists to refuse simply
+// moves one connection further in: a bastion asking for a passphrase left that
+// inner ssh waiting inside a detached pane, with the tunnel reading as running
+// and carrying nothing — the very failure the outer BatchMode prevents.
+func TestAForwardsLoadBearingOptionsReachEveryHop(t *testing.T) {
+	hopA := store.Host{Name: "edge", Addr: "10.0.0.1", User: "ops", Port: 2222}
+	hopB := store.Host{Name: "inner", Addr: "10.0.0.2", User: "ops", Jump: &hopA}
+	h := store.Host{Addr: "10.0.1.14", User: "admin", Jump: &hopB}
+	f := store.Forward{Kind: store.ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432}
+
+	got := strings.Join(ForwardArgs(h, f), " ")
+
+	// One per ssh in the chain: the tunnel itself and both hops. A hop behind
+	// a hop is the same failure one level deeper, so it is counted too.
+	if n := strings.Count(got, "BatchMode=yes"); n != 3 {
+		t.Errorf("BatchMode reaches %d of the 3 ssh invocations:\n  %s", n, got)
+	}
+}

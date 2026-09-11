@@ -33,6 +33,11 @@ import (
 // pane, and the interface reported it as up — a tunnel binding nothing, with
 // nobody there to answer.
 //
+// They go through BuildWith rather than in front of Build, so they reach the
+// jump host's own ssh as well. Given only to the outer one, a tunnel through a
+// bastion that asked for a passphrase stopped at the hop instead — the same
+// prompt in the same detached pane, one connection further in.
+//
 // The keepalives are a preference, and follow the global settings so that
 // someone who has tuned their own still gets them.
 func ForwardArgs(h store.Host, f store.Forward) []string {
@@ -40,12 +45,12 @@ func ForwardArgs(h store.Host, f store.Forward) []string {
 		"-o", "BatchMode=yes",
 		"-o", "ExitOnForwardFailure=yes",
 	}
-	return append(fixed, Build(h,
+	return BuildWith(fixed, h,
 		"-N",
 		"-o", "ServerAliveInterval=30",
 		"-o", "ServerAliveCountMax=3",
 		f.Flag(), f.Spec(),
-	)...)
+	)
 }
 
 // ListenAvailable reports whether the near end of a rule can be bound.

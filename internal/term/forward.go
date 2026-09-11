@@ -225,6 +225,7 @@ func ForwardReason(name string) string {
 		return ""
 	}
 	lines := strings.Split(string(out), "\n")
+	var lastResort string
 	for i := len(lines) - 1; i >= 0; i-- {
 		line := strings.TrimSpace(lines[i])
 		// tmux writes its own notice into a pane it is keeping. That the
@@ -233,10 +234,33 @@ func ForwardReason(name string) string {
 		if line == "" || strings.HasPrefix(line, "Pane is dead") {
 			continue
 		}
+		if aboutTheProxy(line) {
+			if lastResort == "" {
+				lastResort = line
+			}
+			continue
+		}
 		return line
 	}
-	return ""
+	return lastResort
 }
+
+// aboutTheProxy is ssh noticing that its ProxyCommand went quiet, which is
+// never why anything failed.
+//
+// A tunnel through a jump host is two sshs, and it is the inner one that
+// writes the cause — a refused key, a changed host key, a hop that is not
+// listening — into the same pane. ssh then adds a line of its own about the
+// pipe closing, so the *last* line of a tunnel that died at the hop named
+// nothing at all: "UNKNOWN port 65535" is ssh's placeholder for a connection
+// with no socket behind it. What it replaced was "Permission denied", one
+// line up — the line that would have said to add the key.
+//
+// Only that placeholder form is skipped. "Connection closed by 10.0.0.5 port
+// 22" is a host hanging up, which is a cause and says whose. And if the
+// placeholder is all there is, it is still reported: an unhelpful sentence
+// beats an empty one.
+func aboutTheProxy(line string) bool { return strings.Contains(line, "UNKNOWN port 65535") }
 
 // forwardFailure is what to say about a tunnel that did not stay up: what ssh
 // wrote, since that names the cause, and failing that how it ended.

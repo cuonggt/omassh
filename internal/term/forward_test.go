@@ -502,3 +502,121 @@ func mustStates(t *testing.T) map[string]term.ForwardState {
 	}
 	return states
 }
+
+// A tunnel through a jump host is two sshs, and the one that fails at the hop
+// is the inner one. ssh's own last word is about the pipe to it closing —
+// "Connection closed by UNKNOWN port 65535", a placeholder for a connection
+// with no socket behind it — and reading the pane bottom-up stopped there. So
+// a tunnel that died because the bastion refused the key said only that
+// something closed, while the line above it said "Permission denied" and the
+// interface knew to answer that one with "ssh-add the key first".
+func TestAForwardThatDiedAtTheHopSaysWhatTheHopSaid(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed")
+	}
+	killServer(t)
+	forwardOptions(t)
+
+	jump := forwardingHost(t, false) // the hop refuses the key
+	h := forwardingHost(t, true)     // the host itself would have been fine
+	h.Jump = &jump
+	f := store.Forward{
+		ID: "fwd-hop", HostID: h.ID, Kind: store.ForwardLocal,
+		ListenPort: freePort(t), Dest: "127.0.0.1", DestPort: 80,
+	}
+	t.Cleanup(func() { term.StopForward(f) })
+
+	err := term.StartForward(f, sshx.ForwardArgs(h, f))
+	if err == nil {
+		t.Fatal("a tunnel whose hop refused the key reported success")
+	}
+	if strings.Contains(err.Error(), "UNKNOWN port 65535") {
+		t.Errorf("the failure is reported as ssh's placeholder for no connection: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Permission denied") {
+		t.Errorf("the reason is not what the hop said: %v", err)
+	}
+}
+
+// stagePane puts chosen text on a pane, so what ForwardReason makes of it can
+// be checked line by line. Every line below was copied from a real ssh in a
+// real pane; what is staged is only which of them are present, which is the
+// part that decides what the interface says.
+func stagePane(t *testing.T, id string, lines ...string) string {
+	t.Helper()
+	f := store.Forward{ID: id}
+	name := term.ForwardSessionName(f)
+	t.Cleanup(func() { term.StopForward(f) })
+
+	script := ""
+	for _, l := range lines {
+		script += "echo " + singleQuoted(l) + "; "
+	}
+	// Still running while it is read, so remain-on-exit is not part of this.
+	script += "sleep 30"
+	if out, err := exec.Command("tmux", "-L", os.Getenv(term.SocketEnv),
+		"new-session", "-d", "-s", name, "sh", "-c", script).CombinedOutput(); err != nil {
+		t.Fatalf("staging a pane: %v: %s", err, out)
+	}
+
+	last := lines[len(lines)-1]
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		out, err := exec.Command("tmux", "-L", os.Getenv(term.SocketEnv),
+			"capture-pane", "-p", "-J", "-S", "-", "-t", name).Output()
+		if err == nil && strings.Contains(string(out), last) {
+			return name
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("the staged text never appeared in the pane")
+	return ""
+}
+
+func singleQuoted(s string) string { return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'" }
+
+// Which line of a dead tunnel's pane is the reason. ssh's last word is not
+// always the one that says anything, and the wrong pick is the difference
+// between "ssh-add the key first" and a sentence naming nothing.
+func TestTheReasonIsTheLineThatSaysSomething(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed")
+	}
+	killServer(t)
+
+	for _, tc := range []struct {
+		name  string
+		lines []string
+		want  string
+	}{{
+		// The hop refused the key and ssh added a line about the pipe to it
+		// closing. "UNKNOWN port 65535" is ssh's placeholder for a connection
+		// with no socket behind it, so it names nothing and nobody can act on
+		// it; the line above is the one the interface answers with advice.
+		name:  "past the placeholder to the cause",
+		lines: []string{"ops@10.0.0.1: Permission denied (publickey).", "Connection closed by UNKNOWN port 65535"},
+		want:  "Permission denied",
+	}, {
+		// A real address is a real peer hanging up. That is a cause, and it
+		// says whose — so it stays, even with an earlier line to fall back to.
+		name: "a real peer's hangup is kept",
+		lines: []string{
+			"Warning: Permanently added '[10.0.0.5]:22' (ED25519) to the list of known hosts.",
+			"Connection closed by 10.0.0.5 port 22",
+		},
+		want: "Connection closed by 10.0.0.5 port 22",
+	}, {
+		// Nothing said why, and an unhelpful sentence still beats an empty
+		// one: with no reason at all the interface says only "stopped:".
+		name:  "the placeholder alone is still reported",
+		lines: []string{"Connection closed by UNKNOWN port 65535"},
+		want:  "Connection closed by UNKNOWN port 65535",
+	}} {
+		t.Run(tc.name, func(t *testing.T) {
+			name := stagePane(t, "reason-"+strconv.Itoa(len(tc.lines))+"-"+strings.ReplaceAll(tc.name, " ", ""), tc.lines...)
+			if got := term.ForwardReason(name); !strings.Contains(got, tc.want) {
+				t.Errorf("ForwardReason = %q, want the line with %q\n  pane was %q", got, tc.want, tc.lines)
+			}
+		})
+	}
+}

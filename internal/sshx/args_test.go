@@ -166,7 +166,7 @@ func TestEachHopInAChainReachesTheNextOne(t *testing.T) {
 		t.Errorf("an address is still left for ssh to substitute:\n  %s", got)
 	}
 	// And it is hopA's own leg of the chain that reaches hopB, quoting and all.
-	inner := shellQuote("ProxyCommand=" + proxyCommand(hopA, forwardTarget(hopB)))
+	inner := shellQuote("ProxyCommand=" + proxyCommand(nil, hopA, forwardTarget(hopB)))
 	if !strings.Contains(got, inner) {
 		t.Errorf("hopA's leg is not the one pointed at hopB:\n  %s", got)
 	}
@@ -205,5 +205,20 @@ func TestASubsystemsFixedOptionsOutrankTheCommandLine(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "10.0.0.1 sftp") {
 		t.Errorf("the subsystem must follow the target:\n  %s", got)
+	}
+}
+
+// The same for a subsystem, and for the same reason: the child's stdin carries
+// the SFTP protocol, so a prompt anywhere along the route is one nobody can
+// answer. Forced only on the outer ssh, a browse of a host behind a bastion
+// hung with no way to see why.
+func TestASubsystemsFixedOptionsReachEveryHop(t *testing.T) {
+	jump := store.Host{Name: "bastion", Addr: "10.0.0.1", User: "ops"}
+	h := store.Host{Name: "web", Addr: "10.0.0.9", Jump: &jump}
+
+	got := strings.Join(SubsystemArgs(h, "sftp", []string{"-o", "BatchMode=yes"}, nil), " ")
+
+	if n := strings.Count(got, "BatchMode=yes"); n != 2 {
+		t.Errorf("BatchMode reaches %d of the 2 ssh invocations:\n  %s", n, got)
 	}
 }

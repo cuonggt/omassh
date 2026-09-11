@@ -24,8 +24,21 @@ var globalOptions []string
 // SetGlobalOptions installs -o settings for every connection Omassh makes.
 func SetGlobalOptions(opts []string) { globalOptions = append([]string(nil), opts...) }
 
-func Build(h store.Host, extra ...string) []string {
-	args := make([]string, 0, 10+2*len(globalOptions)+len(extra))
+func Build(h store.Host, extra ...string) []string { return BuildWith(nil, h, extra...) }
+
+// BuildWith is Build with options that have to hold at every hop.
+//
+// A jump host is reached by an ssh of its own, nested in the ProxyCommand, and
+// options given to the outer one do not reach it. That is right for most
+// things and wrong for the few that make a connection unattended: a forward
+// and an sftp session force BatchMode because nobody is watching, and the hop
+// was left able to stop at a passphrase prompt inside a detached session —
+// holding a tunnel that reported itself running while carrying nothing.
+//
+// Carried down every level, so a hop behind a hop is covered too.
+func BuildWith(fixed []string, h store.Host, extra ...string) []string {
+	args := make([]string, 0, len(fixed)+10+2*len(globalOptions)+len(extra))
+	args = append(args, fixed...)
 	for _, o := range globalOptions {
 		args = append(args, "-o", o)
 	}
@@ -42,7 +55,7 @@ func Build(h store.Host, extra ...string) []string {
 		// and options would be dropped. Spelling the inner connection out is
 		// what ssh does internally anyway, and it composes: a hop behind
 		// another hop carries its own ProxyCommand.
-		args = append(args, "-o", "ProxyCommand="+proxyCommand(*h.Jump, forwardTarget(h)))
+		args = append(args, "-o", "ProxyCommand="+proxyCommand(fixed, *h.Jump, forwardTarget(h)))
 	case h.ProxyJump != "":
 		// Not one of our hosts, so it is already an ssh destination.
 		args = append(args, "-J", h.ProxyJump)
@@ -67,7 +80,7 @@ func Build(h store.Host, extra ...string) []string {
 // so LogLevel can still be raised for a look at what ssh is doing.
 func SubsystemArgs(h store.Host, subsystem string, fixed, opts []string) []string {
 	extra := append([]string{"-s"}, opts...)
-	return append(append(append([]string{}, fixed...), Build(h, extra...)...), subsystem)
+	return append(BuildWith(fixed, h, extra...), subsystem)
 }
 
 // proxyCommand is the command ssh runs to reach a host through a jump host.
@@ -96,8 +109,8 @@ func forwardTarget(h store.Host) string {
 
 // proxyCommand is the ssh invocation that opens a channel through jump to
 // dest, for use as another connection's ProxyCommand.
-func proxyCommand(jump store.Host, dest string) string {
-	inner := append([]string{"ssh"}, Build(jump, "-W", dest)...)
+func proxyCommand(fixed []string, jump store.Host, dest string) string {
+	inner := append([]string{"ssh"}, BuildWith(fixed, jump, "-W", dest)...)
 	quoted := make([]string, len(inner))
 	for i, a := range inner {
 		quoted[i] = shellQuote(a)
