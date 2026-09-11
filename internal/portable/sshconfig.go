@@ -109,7 +109,7 @@ func FromSSHConfig(path string) (Document, error) {
 			Name:     a,
 			Addr:     hostName(get("HostName"), a),
 			User:     get("User"),
-			Identity: get("IdentityFile"),
+			Identity: identityFor(cfg, a, get("IdentityFile")),
 			Jump:     get("ProxyJump"),
 		}
 		// `Host myserver` with no HostName means connect to the literal name,
@@ -128,6 +128,58 @@ func FromSSHConfig(path string) (Document, error) {
 		d.Hosts = append(d.Hosts, h)
 	}
 	return d, nil
+}
+
+// identityFor is the key this host should be reached with.
+//
+// IdentityFile is one of the few settings ssh accumulates rather than decides.
+// Every other one here is first-wins, which is ssh's rule and what `get`
+// implements — but ask ssh about a host declared under both `Host *` and its
+// own name and it lists both keys, and tries them in turn until one is
+// accepted.
+//
+// Omassh keeps one key per host, so it has to choose, and taking the first was
+// wrong in the layout people actually write: with `Host *` at the top of the
+// file, every host came in holding the catch-all key and the key written under
+// its own name was dropped. ssh would have offered that one second and got in
+// with it; omassh passes what it stored, so a host the config reaches perfectly
+// well became one that answers "Permission denied (publickey)".
+//
+// So a key written under the host's own name wins over one from a pattern that
+// merely covers it, and first-wins decides between equals. Nothing is lost the
+// other way round: -i adds to what ssh would try anyway, so the catch-all key
+// is still offered if the agent or the default names hold it.
+func identityFor(cfg *sshcfg.Config, alias, firstWins string) string {
+	for _, h := range cfg.Hosts {
+		if isMatchBlock(h) || !namesOutright(h, alias) {
+			continue
+		}
+		for _, n := range h.Nodes {
+			if kv, ok := n.(*sshcfg.KV); ok && strings.EqualFold(kv.Key, "IdentityFile") {
+				if v := strings.TrimSpace(kv.Value); v != "" {
+					return v
+				}
+			}
+		}
+	}
+	return firstWins
+}
+
+// namesOutright reports whether a block names this host rather than matching it
+// as one of a class. `Host web1 web2` names both; `Host web*` names neither.
+//
+// Case-insensitively, which ssh is not — `ssh upper` does not match `Host
+// UPPER` — but which the list above already is: aliases are collected through
+// key(), so two blocks differing only in case are one host here before this is
+// ever asked, and the two of them disagreeing about a key is not a question
+// worth having a second answer for.
+func namesOutright(h *sshcfg.Host, alias string) bool {
+	for _, p := range h.Patterns {
+		if s := p.String(); concrete(s) && key(s) == key(alias) {
+			return true
+		}
+	}
+	return false
 }
 
 // isMatchBlock reports whether a block came from a Match directive rather than

@@ -195,3 +195,89 @@ Host web1 web2
 		}
 	}
 }
+
+// IdentityFile is the one setting here ssh accumulates rather than decides:
+// a host under both `Host *` and its own block gets both keys offered, in file
+// order, until one is accepted. Omassh keeps one, and taking the first meant a
+// config written the usual way — catch-all at the top — handed every host the
+// generic key and lost the one under its own name. Against a server that only
+// accepts the specific key, ssh connected and omassh could not.
+func TestAKeyWrittenForAHostBeatsTheCatchAllOne(t *testing.T) {
+	dir := t.TempDir()
+	for _, order := range []struct{ name, body string }{{
+		"catch-all first", `
+Host *
+  IdentityFile ~/.ssh/id_generic
+
+Host bastion
+  HostName edge.example.com
+  IdentityFile ~/.ssh/id_bastion
+`}, {
+		"catch-all last", `
+Host bastion
+  HostName edge.example.com
+  IdentityFile ~/.ssh/id_bastion
+
+Host *
+  IdentityFile ~/.ssh/id_generic
+`}} {
+		t.Run(order.name, func(t *testing.T) {
+			doc, err := FromSSHConfig(write(t, dir, "config", order.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(doc.Hosts) != 1 {
+				t.Fatalf("Hosts = %+v, want just the one named outright", doc.Hosts)
+			}
+			if got := doc.Hosts[0].Identity; got != "~/.ssh/id_bastion" {
+				t.Errorf("identity = %q, want the key written under the host's own name", got)
+			}
+		})
+	}
+}
+
+// A host with no key of its own still takes the one the pattern covering it
+// gives, because that is the key ssh would use for it.
+func TestAHostWithNoKeyOfItsOwnTakesThePatternsKey(t *testing.T) {
+	dir := t.TempDir()
+	doc, err := FromSSHConfig(write(t, dir, "config", `
+Host *
+  IdentityFile ~/.ssh/id_generic
+
+Host plain
+  HostName plain.example.com
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Hosts[0].Identity; got != "~/.ssh/id_generic" {
+		t.Errorf("identity = %q, want the one the pattern gives it", got)
+	}
+}
+
+// And a key from a Match block is left where it is. Match is evaluated at
+// connection time against things a host list cannot know — the local user, the
+// network, the output of a command — so a key behind one is not this host's
+// key, it is this host's key under conditions nobody here can check.
+func TestAKeyBehindAMatchBlockIsNotTakenAsTheHostsOwn(t *testing.T) {
+	dir := t.TempDir()
+	doc, err := FromSSHConfig(write(t, dir, "config", `
+Host *
+  IdentityFile ~/.ssh/id_generic
+
+Host prod-db
+  HostName db.example.com
+
+Match host prod-db exec "test -f /tmp/on-call"
+  IdentityFile ~/.ssh/id_oncall
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(doc.Hosts) != 1 || doc.Hosts[0].Name != "prod-db" {
+		t.Fatalf("Hosts = %+v, want only prod-db", doc.Hosts)
+	}
+	if got := doc.Hosts[0].Identity; got != "~/.ssh/id_generic" {
+		t.Errorf("identity = %q, want the unconditional one", got)
+	}
+}
