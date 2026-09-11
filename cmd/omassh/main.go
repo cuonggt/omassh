@@ -2,18 +2,17 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/cuonggt/omassh/internal/config"
 	"github.com/cuonggt/omassh/internal/portable"
+	"github.com/cuonggt/omassh/internal/safefile"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui"
@@ -385,61 +384,11 @@ func runExportSSHConfig(args []string) error {
 		fmt.Println(summary + " — nothing written, drop -n to apply")
 		return nil
 	}
-	if err := writeAtomically(path, plan.Content, 0o600); err != nil {
+	if err := safefile.Replace(path, plan.Content, 0o600); err != nil {
 		return err
 	}
 	fmt.Printf("%s — %s\n", summary, path)
 	return nil
-}
-
-// writeAtomically replaces a file without ever leaving it half written.
-//
-// ~/.ssh/config is how every machine is reached; a truncated one loses all of
-// them at once. The content goes to a file beside it and is renamed over the
-// top, which is the one operation a filesystem promises is all or nothing, and
-// the mode is the one ssh insists on before it will read a config at all.
-func writeAtomically(path string, data []byte, mode os.FileMode) error {
-	// A link is followed to the file it names. Dotfiles setups commonly
-	// symlink ~/.ssh/config into a repository, and renaming over the link
-	// would replace it with an ordinary file — quietly detaching the config
-	// from the repository that was meant to be tracking it, and leaving the
-	// tracked copy without a word of what was written. Resolving first also
-	// puts the temporary file on the same filesystem as the real one, which
-	// is what makes the rename atomic rather than a copy.
-	if real, err := filepath.EvalSymlinks(path); err == nil {
-		path = real
-	}
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, ".omassh-*")
-	if err != nil {
-		// The temporary file is omassh's own business. Named at the user, it
-		// is a filename they have never seen, standing in for the directory
-		// they actually asked about — so the directory is named instead, and
-		// the reason kept as the system gave it.
-		var pe *os.PathError
-		if errors.As(err, &pe) {
-			return fmt.Errorf("%s: %w", dir, pe.Err)
-		}
-		return err
-	}
-	tmp := f.Name()
-	defer os.Remove(tmp)
-
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Chmod(mode); err != nil {
-		f.Close()
-		return err
-	}
-	if err := f.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }
 
 // source names where a document came from, for an error that has to say.

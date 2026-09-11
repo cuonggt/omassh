@@ -2640,7 +2640,7 @@ func TestDeletingTheHostYouAreConnectedToEndsTheSession(t *testing.T) {
 
 	h.press("y")
 	if hosts, _ := h.store.Hosts(); len(hosts) != 0 {
-		t.Fatalf("the host was not deleted: %+v", hosts)
+		t.Fatalf("the host was not deleted: %+v (status: %q)", hosts, h.m.status)
 	}
 	// And the pane goes with it: a title naming a host that is not in the list,
 	// over a shell with nothing behind it, is worse than no pane at all.
@@ -2812,5 +2812,36 @@ func TestDeletingAMiddleGroupKeepsWhatTheGrandparentSupplies(t *testing.T) {
 	// It still says what does happen.
 	if !strings.Contains(h.m.confirm.detail, "move to Estate") {
 		t.Errorf("does not say where things go:\n  %s", h.m.confirm.detail)
+	}
+}
+
+// The delete goes through for a host believed to have a live session, and says
+// what it did.
+//
+// It does not reach the case it was written beside — a KillSession that
+// actually fails — because nothing here can make tmux fail on demand: a
+// session that is not there is success, which is the only outcome available.
+// That the delete survives such a failure is verified by hand, not here.
+func TestADeleteGoesAheadForAHostBelievedConnected(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("alpha", "10.0.0.1")
+	h.reload()
+	h.selectHost("alpha")
+
+	// A session omassh believes is live but tmux cannot be asked about: the
+	// name is one KillSession refuses outright.
+	h.m.d.live[term.SessionName(host)] = true
+
+	h.press("d")
+	if h.m.mode != modeConfirm {
+		t.Fatal("d did not ask")
+	}
+	h.press("y")
+
+	if hosts, _ := h.store.Hosts(); len(hosts) != 0 {
+		t.Errorf("the host survived: %+v (status %q)", hosts, h.m.status)
+	}
+	if !strings.Contains(h.m.status, "deleted alpha") {
+		t.Errorf("status = %q, want it to say what was done", h.m.status)
 	}
 }

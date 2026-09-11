@@ -210,3 +210,39 @@ probe_timeout: 5s
 		t.Errorf("the palette does not resolve: %v", err)
 	}
 }
+
+// Whatever is written beside the setting is the reader's own note about it,
+// and rewriting the line took it away — for a file otherwise left alone.
+func TestChangingTheThemeKeepsTheNoteBesideIt(t *testing.T) {
+	cases := []struct{ before, want string }{
+		{"theme: tokyonight   # I like this one", "theme: nord   # I like this one"},
+		{"theme: tokyonight\t# tabbed", "theme: nord\t# tabbed"},
+		{"theme: tokyonight", "theme: nord"},
+		// A # inside quotes is part of the value, not a note about it — even
+		// with the whitespace before it that would otherwise open one.
+		{`theme: "a #b"`, "theme: nord"},
+		// And one with no whitespace before it opens nothing, quoted or not.
+		{"theme: nord#x", "theme: nord"},
+	}
+	for _, c := range cases {
+		dir := t.TempDir()
+		p := filepath.Join(dir, "config.yaml")
+		if err := os.WriteFile(p, []byte(c.before+"\nprobe_timeout: 3s\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := SetTheme(p, "nord"); err != nil {
+			t.Fatal(err)
+		}
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := strings.SplitN(string(raw), "\n", 2)[0]
+		if got != c.want {
+			t.Errorf("from %q\n got %q\nwant %q", c.before, got, c.want)
+		}
+		if !strings.Contains(string(raw), "probe_timeout: 3s") {
+			t.Errorf("from %q: the rest of the file was lost:\n%s", c.before, raw)
+		}
+	}
+}

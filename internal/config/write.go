@@ -3,9 +3,10 @@ package config
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/cuonggt/omassh/internal/safefile"
 )
 
 // SetTheme records a theme name in the config file, leaving the rest of it
@@ -34,7 +35,10 @@ func SetTheme(path, name string) error {
 	lines := strings.Split(string(raw), "\n")
 	for i, l := range lines {
 		if themeKey.MatchString(l) {
-			lines[i] = line
+			// Whatever was written beside the setting is the reader's own note
+			// about it — "gruvbox  # easiest on this monitor" — and rewriting
+			// the line took it away, for a file otherwise left alone.
+			lines[i] = line + trailingComment(l)
 			return replace(path, strings.Join(lines, "\n"))
 		}
 	}
@@ -49,28 +53,43 @@ func SetTheme(path, name string) error {
 // the word.
 var themeKey = regexp.MustCompile(`^theme[ \t]*:`)
 
+// trailingComment is the comment at the end of a line, with the whitespace
+// that sets it off, or nothing.
+//
+// A # only opens one where it follows whitespace and sits outside quotes, so
+// `theme: "a#b"` has no comment while `theme: nord  # my favourite` is all
+// comment from the spaces on.
+func trailingComment(s string) string {
+	var inSingle, inDouble bool
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '#':
+			if inSingle || inDouble || i == 0 {
+				continue
+			}
+			if s[i-1] != ' ' && s[i-1] != '\t' {
+				continue
+			}
+			j := i
+			for j > 0 && (s[j-1] == ' ' || s[j-1] == '\t') {
+				j--
+			}
+			return s[j:]
+		}
+	}
+	return ""
+}
+
 // replace writes the file through a rename, so an interrupted write leaves the
 // old config in place rather than half of a new one.
 func replace(path, body string) error {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, ".omassh-config-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-
-	if _, err := tmp.WriteString(body); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return safefile.Replace(path, []byte(body), 0o600)
 }

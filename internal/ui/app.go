@@ -773,15 +773,27 @@ func (m Model) askDelete() (tea.Model, tea.Cmd) {
 		prompt: "Delete host " + h.Name + "?",
 		detail: detail,
 		run: func() (string, error) {
+			// Whatever is running is stopped first, but neither a session nor a
+			// tunnel that will not end is allowed to stop the delete. The
+			// record is what was asked for, and abandoning it halfway leaves
+			// someone unable to remove a host at all because tmux was unhappy
+			// for a moment — with the delete reported as having failed while
+			// the session it was complaining about had ended anyway. What went
+			// wrong is said instead, beside what was done.
+			var notes []string
 			if connected {
 				if err := term.KillSession(term.SessionName(h)); err != nil {
-					return "", err
+					notes = append(notes, "its session could not be ended: "+err.Error())
 				}
 			}
 			if err := m.stopForwardsFor(h.ID); err != nil {
-				return "", err
+				notes = append(notes, "a tunnel could not be stopped: "+err.Error())
 			}
-			return "deleted " + h.Name, m.st.DeleteHost(h.ID)
+			status := "deleted " + h.Name
+			if len(notes) > 0 {
+				status += " — " + strings.Join(notes, "; ")
+			}
+			return status, m.st.DeleteHost(h.ID)
 		},
 	}
 	m.returnTo, m.mode = backFor(m.mode), modeConfirm
