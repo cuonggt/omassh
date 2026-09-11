@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -161,7 +163,9 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.setStatus("refreshed")
 
 	case "enter":
-		p.enterSelected()
+		if _, why := p.enterSelected(); why != "" {
+			m.setStatus(why)
+		}
 	case "backspace", "-":
 		p.path = p.fs.Parent(p.path)
 		p.idx = 0
@@ -174,7 +178,7 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// survives is the directory you are in and not the root it is under.
 		const lead = "New directory in "
 		m.form = singleFieldForm(formMkdir,
-			lead+pathTail(p.path, m.dialogWidth()-5-ansi.StringWidth(lead)), "Name", "docs", "")
+			lead+pathTail(fromRemote(p.path), m.dialogWidth()-5-ansi.StringWidth(lead)), "Name", "docs", "")
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
 	case "r":
@@ -182,7 +186,7 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		m.form = singleFieldForm(formRename, "Rename "+e.Name, "Name", "the new name", e.Name)
+		m.form = singleFieldForm(formRename, "Rename "+fromRemote(e.Name), "Name", "the new name", e.Name)
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
 	case "M":
@@ -190,7 +194,7 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if !ok {
 			return m, nil
 		}
-		m.form = singleFieldForm(formChmod, "Permissions for "+e.Name, "Mode", "octal, like 644",
+		m.form = singleFieldForm(formChmod, "Permissions for "+fromRemote(e.Name), "Mode", "octal, like 644",
 			fmt.Sprintf("%o", e.Mode.Perm()))
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
@@ -234,14 +238,14 @@ func (m Model) copySelected() (tea.Model, tea.Cmd) {
 			}
 			last = time.Now()
 			select {
-			case ch <- transferMsg{name: e.Name, done: done, total: total, dst: dstPane}:
+			case ch <- transferMsg{name: fromRemote(e.Name), done: done, total: total, dst: dstPane}:
 			default:
 			}
 		})
-		ch <- transferMsg{name: e.Name, err: err, finished: true, total: e.Size, done: e.Size, dst: dstPane}
+		ch <- transferMsg{name: fromRemote(e.Name), err: err, finished: true, total: e.Size, done: e.Size, dst: dstPane}
 	}()
 
-	m.setStatus("copying " + e.Name + " → " + dstFS.Label())
+	m.setStatus("copying " + fromRemote(e.Name) + " → " + dstFS.Label())
 	return m, nil
 }
 
@@ -258,9 +262,9 @@ func (m Model) askDeleteFile() (tea.Model, tea.Cmd) {
 		detail = "the directory and everything in it — this cannot be undone"
 	}
 	m.confirm = &confirmation{
-		prompt: "Delete " + e.Name + " on " + fs.Label() + "?",
+		prompt: "Delete " + fromRemote(e.Name) + " on " + fs.Label() + "?",
 		detail: detail,
-		run:    func() (string, error) { return "deleted " + e.Name, fs.Remove(full) },
+		run:    func() (string, error) { return "deleted " + fromRemote(e.Name), fs.Remove(full) },
 	}
 	m.returnTo, m.mode = backFor(m.mode), modeConfirm
 	return m, nil
@@ -360,7 +364,7 @@ func (m Model) paneTitle(i, rows, w int) string {
 	if avail < 4 {
 		return styled
 	}
-	return styled + "  " + pathTail(p.path, avail)
+	return styled + "  " + pathTail(fromRemote(p.path), avail)
 }
 
 func (m Model) paneBody(i, w, rows int) string {
@@ -381,7 +385,7 @@ func (m Model) paneBody(i, w, rows int) string {
 	lines := make([]string, 0, end-start)
 	for j, e := range p.entries[start:end] {
 		j += start
-		name := e.Name
+		name := fromRemote(e.Name)
 		if e.IsDir {
 			name += "/"
 		}
@@ -478,14 +482,81 @@ func listWindow(idx, n, rows int) (start, end int) {
 }
 
 // enterSelected descends into the highlighted entry when it is a directory.
-// Shared by ↵ and by a double click, so the two cannot drift apart.
-func (p *filePane) enterSelected() bool {
-	e, ok := p.selected()
-	if !ok || !e.IsDir {
-		return false
+// Shared by ↵ and by a double click, so the two cannot drift apart. why is
+// what to say when it could not, and is empty when there is nothing to say.
+//
+// A symlink is not a directory as far as a listing is concerned. Both
+// os.ReadDir and the sftp server report what lstat says, so /tmp, /etc, /var
+// and /home — every one of them a symlink on macOS — sat among the files with
+// a size beside them, and pressing ↵ on one did nothing whatsoever: no
+// descent, no message, nothing to suggest it was not simply broken. Navigating
+// from / to anywhere they lead was impossible.
+//
+// Following one costs a stat, so it happens here, on the single entry someone
+// asked about, rather than on every row of every listing — which for a remote
+// directory of any size is a round trip each.
+func (p *filePane) enterSelected() (ok bool, why string) {
+	e, sel := p.selected()
+	if !sel {
+		return false, ""
+	}
+	if !e.IsDir {
+		if e.Mode&os.ModeSymlink == 0 {
+			return false, "" // an ordinary file; ↵ is not what opens it
+		}
+		target, err := p.fs.Stat(p.fs.Join(p.path, e.Name))
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			// Naming the link rather than repeating "no such file", which
+			// would be said about a name that is plainly there on the screen.
+			return false, fromRemote(e.Name) + " points at something that is not there"
+		case err != nil:
+			return false, "cannot follow " + fromRemote(e.Name) + ": " + bareError(err)
+		case !target.IsDir:
+			return false, "" // a link to a file is a file
+		}
 	}
 	p.path = p.fs.Join(p.path, e.Name)
 	p.idx = 0
 	p.reload()
-	return true
+	return true, ""
+}
+
+// bareError is what went wrong without the path Go wraps around it. The name
+// is already in the sentence, and saying it twice pushes the half that matters
+// off the end of the bar.
+func bareError(err error) string {
+	var pe *os.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	return err.Error()
+}
+
+// fromRemote is text omassh did not write, made safe to draw.
+//
+// A filename comes from the far side, and a name is not a message. One holding
+// an escape sequence went straight into the interface: the row took its colour
+// from the file rather than from the theme, and a name carrying a cursor move
+// or an erase had the terminal act on it in the middle of a redraw. Widths were
+// never the problem — ansi.StringWidth ignores escapes, so the frame held while
+// the terminal did as the remote asked.
+//
+// What escape-stripping leaves behind is the bare control characters, and each
+// of those breaks the row its own way: a newline splits it in two, a tab shifts
+// the size column off its alignment, a carriage return draws the end of the row
+// over the start of it, and a bell simply rings. Every one becomes a question
+// mark — what ls does with a byte it cannot print — which keeps the name
+// recognisable and its width honest.
+//
+// The true name is what every operation uses, so a file can still be opened,
+// copied or deleted by a name nothing can safely print. This is for the passive
+// surfaces, where merely listing a directory is enough to be drawn into.
+func fromRemote(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '?'
+		}
+		return r
+	}, ansi.Strip(s))
 }

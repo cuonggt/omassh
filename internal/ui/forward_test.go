@@ -3,10 +3,15 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/cuonggt/omassh/internal/sftpx"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
@@ -1307,4 +1312,145 @@ func TestDetachingSaysTheSessionSurvives(t *testing.T) {
 	if strings.Contains(ephemeral, "still running") {
 		t.Errorf("an ephemeral session was reported as surviving: %q", ephemeral)
 	}
+}
+
+// A filename comes from the far side, and a name is not a message. Drawn as it
+// came, one holding an escape sequence coloured the interface from the file
+// rather than from the theme, and one holding a cursor move or an erase had
+// the terminal act on it in the middle of a redraw — for nothing more than
+// opening a directory and looking at it.
+func TestANameFromTheFarSideIsDrawnAsTextNotAsInstructions(t *testing.T) {
+	dir := t.TempDir()
+	names := []string{
+		"aaa\x1b[31mRED\x1b[0m.txt",    // takes over the row's colour
+		"bbb\x1b[2K\x1b[1;1Hmoved.txt", // erases the line and homes the cursor
+		"ccc\x1b]0;retitled\x07.txt",   // renames the terminal window
+		"ddd\nsplit.txt",               // two rows out of one
+		"eee\ttabbed.txt",              // shifts the size column
+		"fff\rover.txt",                // draws the end over the start
+		"ggg\x07bell.txt",              // rings
+		"ordinary.txt",
+	}
+	for _, n := range names {
+		if err := os.WriteFile(filepath.Join(dir, n), []byte("x"), 0o600); err != nil {
+			t.Skipf("this filesystem will not hold %q: %v", n, err)
+		}
+	}
+
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: sftpx.Local{}, path: dir}, {fs: fakeFS{}}}
+	h.m.panes[0].reload()
+	if len(h.m.panes[0].entries) != len(names) {
+		t.Fatalf("listed %d of %d names", len(h.m.panes[0].entries), len(names))
+	}
+
+	const w = 60
+	body := h.m.paneBody(0, w, len(names)+2)
+
+	// One row per file: a newline in a name split one row into two, and the
+	// second had no border on its end.
+	rows := strings.Split(body, "\n")
+	if len(rows) != len(names) {
+		t.Fatalf("%d names drew %d rows", len(names), len(rows))
+	}
+	// Nothing the file said reaches the terminal, and every row is the same
+	// width as the rest, so the size column stays in its place. The first is
+	// the one under the cursor, which is drawn to the full width on purpose.
+	want := ansi.StringWidth(rows[1])
+	for _, r := range rows[1:] {
+		for _, seq := range []string{"\x1b[31m", "\x1b[2K", "\x1b[1;1H", "\x1b]0;", "\t", "\r", "\x07"} {
+			if strings.Contains(r, seq) {
+				t.Errorf("a drawn row still carries %q from a filename: %q", seq, r)
+			}
+		}
+		if got := ansi.StringWidth(r); got != want {
+			t.Errorf("a row is %d cells wide where the rest are %d: %q", got, want, r)
+		}
+	}
+	// And the names are still readable, rather than blanked out.
+	for _, want := range []string{"aaaRED.txt", "ddd?split.txt", "eee?tabbed.txt", "ordinary.txt"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the listing does not show %q", want)
+		}
+	}
+}
+
+// A listing reports what lstat says, so a symlink is never a directory in it —
+// and /tmp, /etc, /var and /home are all symlinks on macOS. Pressing ↵ on one
+// did nothing whatsoever: no descent, no message, nothing to say it was not
+// simply broken, and no way from / to anywhere they lead.
+func TestASymlinkToADirectoryOpensLikeOne(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, "real"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "real", "inside.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "afile.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range []struct{ target, name string }{
+		{"real", "to-dir"}, {"afile.txt", "to-file"}, {"nowhere", "to-nothing"},
+	} {
+		if err := os.Symlink(l.target, filepath.Join(dir, l.name)); err != nil {
+			t.Skipf("no symlinks here: %v", err)
+		}
+	}
+
+	at := func(name string) *filePane {
+		p := &filePane{fs: sftpx.Local{}, path: dir}
+		p.reload()
+		for i, e := range p.entries {
+			if e.Name == name {
+				p.idx = i
+				return p
+			}
+		}
+		t.Fatalf("%q is not in the listing", name)
+		return nil
+	}
+
+	t.Run("to a directory", func(t *testing.T) {
+		p := at("to-dir")
+		ok, why := p.enterSelected()
+		if !ok {
+			t.Fatalf("↵ did not open it: %q", why)
+		}
+		if p.path != filepath.Join(dir, "to-dir") {
+			t.Errorf("path = %q", p.path)
+		}
+		if len(p.entries) != 1 || p.entries[0].Name != "inside.txt" {
+			t.Errorf("entries = %+v, want what the link points at", p.entries)
+		}
+	})
+
+	t.Run("to a file", func(t *testing.T) {
+		p := at("to-file")
+		// A link to a file is a file: ↵ is not what opens one, and there is
+		// nothing to say about it.
+		if ok, why := p.enterSelected(); ok || why != "" {
+			t.Errorf("enterSelected() = %v, %q", ok, why)
+		}
+		if p.path != dir {
+			t.Errorf("it moved to %q", p.path)
+		}
+	})
+
+	t.Run("to nothing", func(t *testing.T) {
+		p := at("to-nothing")
+		ok, why := p.enterSelected()
+		if ok {
+			t.Fatal("it descended into a broken link")
+		}
+		// Silence is what this looked like before, and silence is what made
+		// the whole thing read as broken.
+		if !strings.Contains(why, "to-nothing") {
+			t.Errorf("why = %q, want it to name the link", why)
+		}
+		if strings.Contains(why, "no such file") {
+			t.Errorf("why = %q, said about a name that is plainly on the screen", why)
+		}
+	})
 }

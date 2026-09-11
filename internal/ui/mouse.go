@@ -194,7 +194,9 @@ func (m Model) clickFilePane(e tea.Mouse) (tea.Model, tea.Cmd) {
 	m.paneFocus = i
 	m.panes[i].idx = j
 	if double {
-		m.panes[i].enterSelected()
+		if _, why := m.panes[i].enterSelected(); why != "" {
+			m.setStatus(why)
+		}
 	}
 	return m, nil
 }
