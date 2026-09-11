@@ -3,6 +3,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -666,5 +667,35 @@ func TestAHostCannotBeFiledUnderAGroupThatHasGone(t *testing.T) {
 	// Without a group it is fine, and that is where such a host belongs.
 	if _, err := s.PutHost(Host{Name: "web", Addr: "10.0.0.9"}); err != nil {
 		t.Errorf("an ungrouped host was refused: %v", err)
+	}
+}
+
+// bolt hands the os error back exactly as it came, and it already names the
+// file and what was attempted. Wrapping it whole said both twice — and the
+// path is long enough on its own to fill a line.
+func TestAFileThatCannotBeOpenedIsNamedOnce(t *testing.T) {
+	dir := t.TempDir()
+	asDir := filepath.Join(dir, "omassh.db")
+	if err := os.Mkdir(asDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Open(asDir)
+	if err == nil {
+		t.Fatal("opening a directory as a database succeeded")
+	}
+	if n := strings.Count(err.Error(), asDir); n != 1 {
+		t.Errorf("the path appears %d times: %v", n, err)
+	}
+	if !strings.Contains(err.Error(), "is a directory") {
+		t.Errorf("the reason was lost: %v", err)
+	}
+
+	// A reason bolt gives in its own words still comes through whole.
+	notADB := filepath.Join(dir, "text.db")
+	if err := os.WriteFile(notADB, []byte("this is not a database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(notADB); err == nil || !strings.Contains(err.Error(), "invalid database") {
+		t.Errorf("Open of a text file = %v", err)
 	}
 }

@@ -90,6 +90,14 @@ func (s *Store) with(fn func(*bolt.DB) error) error {
 		if errors.Is(err, bolt.ErrTimeout) {
 			return fmt.Errorf("%s is busy — another omassh has been writing to it for over %s", s.path, lockWait)
 		}
+		// bolt hands back the os error exactly as it came, and that already
+		// names the file and what was attempted — so wrapping it whole said
+		// both twice: "open …/omassh.db: open …/omassh.db: is a directory",
+		// with the path long enough on its own to fill a line.
+		var pe *os.PathError
+		if errors.As(err, &pe) {
+			return fmt.Errorf("open %s: %w", s.path, pe.Err)
+		}
 		return fmt.Errorf("open %s: %w", s.path, err)
 	}
 	defer db.Close()
