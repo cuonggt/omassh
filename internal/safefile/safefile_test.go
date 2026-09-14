@@ -100,3 +100,53 @@ func TestAnUnwritableDirectoryIsNamedRatherThanTheScratchFile(t *testing.T) {
 		t.Errorf("does not name the directory: %v", err)
 	}
 }
+
+// The mode a caller gives is for a file being created. One that is already
+// there keeps what it has: a config written by hand at 644 came back 600, and
+// one deliberately left read-only came back writable — neither of which omassh
+// was asked to do. It was asked to write the contents.
+func TestAnExistingFileKeepsItsPermissions(t *testing.T) {
+	dir := t.TempDir()
+	for _, mode := range []os.FileMode{0o644, 0o444, 0o600, 0o640} {
+		t.Run(mode.String(), func(t *testing.T) {
+			path := filepath.Join(dir, "cfg-"+mode.String())
+			if err := os.WriteFile(path, []byte("old"), mode); err != nil {
+				t.Fatal(err)
+			}
+			// Written on purpose, because WriteFile leaves umask in it.
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := Replace(path, []byte("new"), 0o600); err != nil {
+				t.Fatalf("Replace: %v", err)
+			}
+
+			fi, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := fi.Mode().Perm(); got != mode {
+				t.Errorf("the file is now %v, and was %v", got, mode)
+			}
+			if got, _ := os.ReadFile(path); string(got) != "new" {
+				t.Errorf("the contents are %q", got)
+			}
+		})
+	}
+}
+
+// A file that is not there yet is born with the mode the caller asked for.
+func TestANewFileIsCreatedWithTheModeGiven(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "new.yaml")
+	if err := Replace(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := fi.Mode().Perm(); got != 0o600 {
+		t.Errorf("a new file is %v, want 0600", got)
+	}
+}
