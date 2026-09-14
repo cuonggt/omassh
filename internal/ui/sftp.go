@@ -222,31 +222,59 @@ func (m Model) copySelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	start := m.copier(e, src, dst)
+
+	// A name already taken on the other side is asked about, because a copy
+	// over a file destroys it as surely as deleting it does — and this was the
+	// one way to lose a file here without being told. The two operations
+	// beside it refuse a collision outright ("exists.txt is already there"),
+	// and deleting asks; only the copy went ahead and said "copied 16B".
+	//
+	// Asked rather than refused: replacing what is there is very often the
+	// point, and refusing would mean deleting first, which leaves a moment
+	// with neither the old file nor the new one.
+	if _, err := dst.fs.Stat(dst.fs.Join(dst.path, e.Name)); err == nil {
+		m.confirm = &confirmation{
+			prompt: "Replace " + fromRemote(e.Name) + " on " + dst.fs.Label() + "?",
+			detail: "what is there now is overwritten — this cannot be undone",
+			run:    func() (string, error) { return start(), nil },
+		}
+		m.returnTo, m.mode = backFor(m.mode), modeConfirm
+		return m, nil
+	}
+
+	m.setStatus(start())
+	return m, nil
+}
+
+// copier starts one transfer and says what it is doing, so the same work can
+// be kicked off from here or from behind a confirmation.
+func (m Model) copier(e sftpx.Entry, src, dst *filePane) func() string {
 	srcPath := src.fs.Join(src.path, e.Name)
 	dstPath := dst.fs.Join(dst.path, e.Name)
 	srcFS, dstFS := src.fs, dst.fs
 	dstPane := 1 - m.paneFocus
 	ch := m.transfers
 
-	go func() {
-		last := time.Now()
-		err := sftpx.Copy(dstFS, dstPath, srcFS, srcPath, func(done, total int64) {
-			// Throttle: a fast local copy would otherwise flood the UI with
-			// more messages than it can render.
-			if time.Since(last) < 100*time.Millisecond {
-				return
-			}
-			last = time.Now()
-			select {
-			case ch <- transferMsg{name: fromRemote(e.Name), done: done, total: total, dst: dstPane}:
-			default:
-			}
-		})
-		ch <- transferMsg{name: fromRemote(e.Name), err: err, finished: true, total: e.Size, done: e.Size, dst: dstPane}
-	}()
-
-	m.setStatus("copying " + fromRemote(e.Name) + " → " + dstFS.Label())
-	return m, nil
+	return func() string {
+		go func() {
+			last := time.Now()
+			err := sftpx.Copy(dstFS, dstPath, srcFS, srcPath, func(done, total int64) {
+				// Throttle: a fast local copy would otherwise flood the UI
+				// with more messages than it can render.
+				if time.Since(last) < 100*time.Millisecond {
+					return
+				}
+				last = time.Now()
+				select {
+				case ch <- transferMsg{name: fromRemote(e.Name), done: done, total: total, dst: dstPane}:
+				default:
+				}
+			})
+			ch <- transferMsg{name: fromRemote(e.Name), err: err, finished: true, total: e.Size, done: e.Size, dst: dstPane}
+		}()
+		return "copying " + fromRemote(e.Name) + " → " + dstFS.Label()
+	}
 }
 
 func (m Model) askDeleteFile() (tea.Model, tea.Cmd) {

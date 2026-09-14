@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -1489,4 +1490,97 @@ func TestARuleForAVanishedHostExplainsItself(t *testing.T) {
 	if fs, _ := h.store.Forwards(); len(fs) != 0 {
 		t.Errorf("the rule was written for a host that is gone: %+v", fs)
 	}
+}
+
+// A copy over a file destroys it as surely as deleting it does, and this was
+// the one way to lose a file in the browser without being told: mkdir and
+// rename both refuse a name already taken — "exists.txt is already there" —
+// and deleting asks; only the copy went ahead, and said "copied 16B".
+//
+// Asked rather than refused, because replacing what is there is very often the
+// point, and refusing would mean deleting first — which leaves a moment with
+// neither the old file nor the new one.
+func TestACopyOverAFileAsksFirst(t *testing.T) {
+	dir := t.TempDir()
+	from, to := filepath.Join(dir, "from"), filepath.Join(dir, "to")
+	for _, d := range []string{from, to} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(from, "report.csv"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(to, "report.csv"), []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: sftpx.Local{}, path: from}, {fs: sftpx.Local{}, path: to}}
+	h.m.panes[0].reload()
+	h.m.panes[1].reload()
+	h.m.paneFocus = 0
+
+	h.press("c")
+	if h.m.mode != modeConfirm {
+		t.Fatalf("mode = %v, want a confirmation before a file is overwritten", h.m.mode)
+	}
+	if got := h.m.confirm.prompt; !strings.Contains(got, "report.csv") {
+		t.Errorf("prompt = %q, want it to name the file", got)
+	}
+
+	// Saying no leaves what was there.
+	h.press("n")
+	if got, _ := os.ReadFile(filepath.Join(to, "report.csv")); string(got) != "old" {
+		t.Errorf("the file is now %q; nothing was agreed to", got)
+	}
+
+	// Saying yes replaces it.
+	h.press("c")
+	h.press("y")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, _ := os.ReadFile(filepath.Join(to, "report.csv")); string(got) == "new" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	got, _ := os.ReadFile(filepath.Join(to, "report.csv"))
+	t.Errorf("after agreeing, the file is still %q", got)
+}
+
+// A name that is free is copied without a question, which is the ordinary case
+// and must not grow a keystroke.
+func TestACopyToAFreeNameIsNotInterrupted(t *testing.T) {
+	dir := t.TempDir()
+	from, to := filepath.Join(dir, "from"), filepath.Join(dir, "to")
+	for _, d := range []string{from, to} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(from, "report.csv"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: sftpx.Local{}, path: from}, {fs: sftpx.Local{}, path: to}}
+	h.m.panes[0].reload()
+	h.m.panes[1].reload()
+	h.m.paneFocus = 0
+
+	h.press("c")
+	if h.m.mode != modeSFTP {
+		t.Fatalf("mode = %v, want the copy to have started", h.m.mode)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, _ := os.ReadFile(filepath.Join(to, "report.csv")); string(got) == "new" {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Error("the file never arrived")
 }
