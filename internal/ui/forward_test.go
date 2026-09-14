@@ -1454,3 +1454,39 @@ func TestASymlinkToADirectoryOpensLikeOne(t *testing.T) {
 		}
 	})
 }
+
+// A rule saved for a host another window has deleted is refused, and says so
+// the way the host and group forms do. The store states the fact — "that host
+// no longer exists" — and left bare it reads as though the rule had named a
+// host that was never there, about one that is still on the list behind the
+// form.
+func TestARuleForAVanishedHostExplainsItself(t *testing.T) {
+	h := newHarness(t)
+	host := h.addHost("delta", "10.0.0.4")
+	h.selectHost("delta")
+	h.press("f") // the forwards dialog
+	h.press("n") // a new rule
+	if h.m.mode != modeForm {
+		t.Fatalf("n did not open the rule form (mode %v)", h.m.mode)
+	}
+	h.press("tab")
+	h.type_("15999")
+	h.press("tab")
+	h.type_("127.0.0.1:80")
+
+	// The other window, deleting it out from under this one.
+	if err := h.store.DeleteHost(host.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	h.press("enter")
+	if h.m.mode != modeForm {
+		t.Error("the form closed, so what was typed went nowhere")
+	}
+	if got := h.m.form.problem; !strings.Contains(got, "deleted in another window") {
+		t.Errorf("the form says %q, which does not explain the refusal", got)
+	}
+	if fs, _ := h.store.Forwards(); len(fs) != 0 {
+		t.Errorf("the rule was written for a host that is gone: %+v", fs)
+	}
+}

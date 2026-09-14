@@ -350,7 +350,12 @@ func (m Model) saveForwardForm() (tea.Model, tea.Cmd) {
 		}
 	}
 	if _, err := m.st.PutForward(fwd); err != nil {
-		f.problem = err.Error()
+		// Through the same words the host and group forms use. The store
+		// states the fact — "that host no longer exists" — and the form is
+		// what knows the rest: the host was in the list when this opened, so
+		// something else has removed it since. Said bare, it reads as though
+		// the rule had named a host that was never there.
+		f.problem = vanished(err, "host")
 		return m, nil
 	}
 
