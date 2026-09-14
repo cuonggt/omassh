@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"image/color"
 	"os"
 	"strconv"
 	"strings"
@@ -74,6 +75,10 @@ type transferMsg struct {
 	dir     bool
 	files   int
 	skipped int
+	// stopped marks a transfer called off from here rather than one that
+	// broke. It is not an error and must not read as one: nothing went wrong,
+	// somebody changed their mind.
+	stopped bool
 }
 
 func connectSFTP(h store.Host) tea.Cmd {
@@ -121,6 +126,10 @@ func (m Model) sftpConnected(msg sftpConnectedMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) closeSFTP() (tea.Model, tea.Cmd) {
+	// Called off rather than left to discover the connection has gone: on the
+	// way out the session closes under it either way, and a copy that is told
+	// says "stopped" instead of reporting whatever the broken pipe looked like.
+	m.copying.stop()
 	if m.sftpSess != nil {
 		m.sftpSess.Close()
 		m.sftpSess = nil
@@ -158,7 +167,16 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+c":
 		m.sftpSess.Close()
 		return m, tea.Quit
-	case "esc", "q":
+	case "esc":
+		// A transfer in flight is what esc calls off; leaving is the second
+		// press. Closing the browser was the only way to stop a copy before
+		// this, and it did it by pulling the connection out from under one —
+		// reported as a transfer that had broken, which is not what happened.
+		if m.copying.stop() {
+			return m, nil
+		}
+		return m.closeSFTP()
+	case "q":
 		return m.closeSFTP()
 	case "tab", "shift+tab", "h", "l", "left", "right":
 		m.paneFocus = 1 - m.paneFocus
@@ -284,8 +302,10 @@ func (m Model) copier(e sftpx.Entry, src, dst *filePane) func() string {
 	srcFS, dstFS := src.fs, dst.fs
 	dstPane := 1 - m.paneFocus
 	ch := m.transfers
+	run := m.copying
 
 	return func() string {
+		ctx := run.begin()
 		go func() {
 			last := time.Now()
 			// What is actually being moved, which is not always what the row
@@ -294,7 +314,7 @@ func (m Model) copier(e sftpx.Entry, src, dst *filePane) func() string {
 			// names. So 3MB went across and the strip finished by announcing
 			// "copied 90B", having counted its way up to 3MB first.
 			moved := e.Size
-			err := sftpx.Copy(context.Background(), dstFS, dstPath, srcFS, srcPath, func(done, total int64) {
+			err := sftpx.Copy(ctx, dstFS, dstPath, srcFS, srcPath, func(done, total int64) {
 				moved = total
 				// Throttle: a fast local copy would otherwise flood the UI
 				// with more messages than it can render.
@@ -307,7 +327,16 @@ func (m Model) copier(e sftpx.Entry, src, dst *filePane) func() string {
 				default:
 				}
 			})
-			ch <- transferMsg{name: fromRemote(e.Name), err: err, finished: true, total: moved, done: moved, dst: dstPane}
+			done := transferMsg{name: fromRemote(e.Name), finished: true, total: moved, done: moved, dst: dstPane}
+			// Being called off is not a failure, and the error carrying it must
+			// not reach the bar: the whole of what happened is that somebody
+			// pressed esc, and the part file is already gone.
+			if errors.Is(err, context.Canceled) {
+				done.stopped = true
+			} else {
+				done.err = err
+			}
+			ch <- done
 		}()
 		return "copying " + fromRemote(e.Name) + " → " + dstFS.Label()
 	}
@@ -354,12 +383,14 @@ func (m Model) dirCopier(e sftpx.Entry, src, dst *filePane) func() string {
 	srcFS, dstFS := src.fs, dst.fs
 	dstPane := 1 - m.paneFocus
 	ch := m.transfers
+	run := m.copying
 	name := fromRemote(e.Name)
 
 	return func() string {
+		ctx := run.begin()
 		go func() {
 			last := time.Now()
-			res, err := sftpx.CopyDir(context.Background(), dstFS, dstPath, srcFS, srcPath, func(rel string, done, total int64) {
+			res, err := sftpx.CopyDir(ctx, dstFS, dstPath, srcFS, srcPath, func(rel string, done, total int64) {
 				// Throttled like a single file's, and for the same reason: a
 				// tree of small files reports far faster than anything can draw.
 				if time.Since(last) < 100*time.Millisecond {
@@ -371,18 +402,26 @@ func (m Model) dirCopier(e sftpx.Entry, src, dst *filePane) func() string {
 				default:
 				}
 			})
-			// Where it stopped, when it stopped early. The walk hands the name
-			// back rather than writing it into the error precisely so that it
-			// can be made safe to draw here, where remote text always is.
-			subject := name
-			if res.Failed != "" {
-				subject = name + "/" + fromRemote(res.Failed)
-			}
-			ch <- transferMsg{
-				name: subject, err: err, finished: true, dir: true,
+			done := transferMsg{
+				name: name, finished: true, dir: true,
 				files: res.Files, skipped: res.Skipped,
 				done: res.Bytes, total: res.Bytes, dst: dstPane,
 			}
+			switch {
+			case errors.Is(err, context.Canceled):
+				// What it had already moved is the useful half of this, and it
+				// is in the counts above: a tree is not put back.
+				done.stopped = true
+			case err != nil:
+				done.err = err
+				// Where it stopped. The walk hands the name back rather than
+				// writing it into the error precisely so it can be made safe to
+				// draw here, where remote text always is.
+				if res.Failed != "" {
+					done.name = name + "/" + fromRemote(res.Failed)
+				}
+			}
+			ch <- done
 		}()
 		return "copying " + name + " → " + dstFS.Label()
 	}
@@ -631,28 +670,52 @@ func (m Model) transferStrip() string {
 			msg = with
 		}
 		return theme.Fg(theme.Red).Render(" " + ansi.Truncate(msg, m.w-1, "…"))
+	case t.stopped && t.dir:
+		// What it moved before it was called off, because a tree is not put
+		// back: those files are on the far side and saying so is the only way
+		// anyone would know.
+		return stripLine(m.w, theme.Yellow, fmt.Sprintf("%s — stopped after %d file%s, %s",
+			t.name, t.files, plural(t.files), humanSize(t.total)))
+	case t.stopped:
+		// One file goes back to how it was: the part file is removed and the
+		// destination never touched, so there is nothing to account for.
+		return stripLine(m.w, theme.Yellow, t.name+" — stopped, nothing moved")
 	case t.finished && t.dir:
 		// By the count, because that is what a tree is measured in; the size is
 		// kept beside it because "copied 400 files" alone says nothing about
 		// whether the long wait moved a manual or a film archive.
-		msg := fmt.Sprintf(" %s — copied %d file%s, %s", t.name, t.files, plural(t.files), humanSize(t.total))
+		msg := fmt.Sprintf("%s — copied %d file%s, %s", t.name, t.files, plural(t.files), humanSize(t.total))
 		if t.skipped > 0 {
 			// Never silently: the ones stepped over are links to directories,
 			// which this cannot write, and a copy that quietly left something
 			// behind is the copy nobody checks until it matters.
 			msg += fmt.Sprintf(", %d skipped", t.skipped)
 		}
-		return theme.Fg(theme.Green).Render(msg)
+		return stripLine(m.w, theme.Green, msg)
 	case t.finished:
-		return theme.Fg(theme.Green).Render(fmt.Sprintf(" %s — copied %s", t.name, humanSize(t.total)))
+		return stripLine(m.w, theme.Green, fmt.Sprintf("%s — copied %s", t.name, humanSize(t.total)))
 	default:
 		pct := 0
 		if t.total > 0 {
 			pct = int(t.done * 100 / t.total)
 		}
-		return theme.Fg(theme.Yellow).Render(fmt.Sprintf(" %s — %d%% (%s of %s)",
+		// How to stop it rides on this row rather than joining the key list,
+		// which this row has replaced for as long as the copy runs — the one
+		// moment the key matters is the one moment the list is not on screen.
+		return stripLine(m.w, theme.Yellow, fmt.Sprintf("%s — %d%% (%s of %s)  ·  esc stops it",
 			t.name, pct, humanSize(t.done), humanSize(t.total)))
 	}
+}
+
+// stripLine draws one row of the transfer strip, inside the frame.
+//
+// Through ansi, like everything else drawn to a width: a name in a deep tree —
+// project/src/deep/blob.bin — is easily wider than a narrow terminal, and a
+// row that overruns does not simply get clipped. It wraps, taking a second
+// line the layout has not allowed for and pushing the status bar off the
+// bottom of the screen.
+func stripLine(w int, c color.Color, text string) string {
+	return theme.Fg(c).Render(" " + ansi.Truncate(text, max(w-1, 1), "…"))
 }
 
 func humanSize(n int64) string {

@@ -1458,6 +1458,104 @@ func TestAFinishedDirectoryCopySaysWhatItSteppedOver(t *testing.T) {
 	h.mustContain(", 2 skipped")
 }
 
+// esc stops a transfer rather than leaving, and leaves on the second press.
+//
+// Closing the browser was the only way to stop a copy before this, and it did
+// it by pulling the connection out from under one — which arrived as a
+// transfer that had broken, rather than as the one thing that had happened.
+func TestEscStopsATransferBeforeItClosesTheBrowser(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+	h.m.copying.begin() // a transfer is in flight
+
+	h.press("esc")
+	if h.m.mode != modeSFTP {
+		t.Fatalf("mode = %v, want the browser still open", h.m.mode)
+	}
+	if h.m.copying.cancel != nil {
+		t.Error("the transfer was not called off")
+	}
+
+	// Nothing left to stop, so the next press leaves.
+	h.press("esc")
+	if h.m.mode != modeBrowse {
+		t.Errorf("mode = %v, want the browser closed by the second press", h.m.mode)
+	}
+}
+
+// With nothing running, esc still leaves on the first press.
+func TestEscWithNoTransferClosesTheBrowserAtOnce(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+
+	h.press("esc")
+	if h.m.mode != modeBrowse {
+		t.Errorf("mode = %v, want the browser closed", h.m.mode)
+	}
+}
+
+// q leaves outright, taking any transfer with it rather than letting it
+// discover the connection has gone.
+func TestQClosesTheBrowserAndCallsOffATransfer(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+	h.m.copying.begin()
+
+	h.press("q")
+	if h.m.mode != modeBrowse {
+		t.Errorf("mode = %v, want the browser closed", h.m.mode)
+	}
+	if h.m.copying.cancel != nil {
+		t.Error("the transfer was left to find out for itself")
+	}
+}
+
+// A transfer that was called off says so, and does not read as a failure.
+func TestAStoppedTransferDoesNotReadAsAFailure(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+
+	h.send(transferMsg{name: "big.iso", finished: true, stopped: true, total: 4096})
+	h.mustContain("big.iso — stopped, nothing moved")
+	if h.m.failed {
+		t.Error("being called off was recorded as a failure")
+	}
+
+	// A tree keeps what it had already moved, because nothing puts it back.
+	h.send(transferMsg{name: "docs", finished: true, stopped: true, dir: true, files: 7, total: 2048})
+	h.mustContain("docs — stopped after 7 files,")
+}
+
+// While a copy runs, the row that replaced the key list says how to stop it —
+// the one moment the key matters is the one moment the list is not on screen.
+func TestARunningTransferSaysHowToStopIt(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+
+	h.send(transferMsg{name: "big.iso", done: 512, total: 1024})
+	h.mustContain("50%")
+	h.mustContain("esc stops it")
+}
+
+// The strip stays inside the frame. A name in a deep tree is easily wider than
+// a narrow terminal, and a row that overruns wraps rather than being clipped —
+// taking a line the layout has not allowed for and pushing the bar off screen.
+func TestTheTransferStripStaysInsideTheFrame(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+	long := "project/" + strings.Repeat("deep/", 40) + "blob.bin"
+
+	for _, msg := range []transferMsg{
+		{name: long, done: 512, total: 1024},
+		{name: long, finished: true, total: 1024},
+		{name: long, finished: true, dir: true, files: 3, total: 1024},
+		{name: long, finished: true, stopped: true, total: 1024},
+		{name: long, finished: true, stopped: true, dir: true, files: 3, total: 1024},
+	} {
+		h.send(msg)
+		for _, line := range strings.Split(h.screen(), "\n") {
+			if w := ansiWidth(line); w > testW {
+				t.Errorf("a row is %d cells wide in a %d-column frame: %q", w, testW, line)
+				break
+			}
+		}
+	}
+}
+
 // Clicking a file selects it, and focuses the pane it is in.
 func TestClickSelectsAFileAndItsPane(t *testing.T) {
 	h := sftpHarness(t, 20, 20)

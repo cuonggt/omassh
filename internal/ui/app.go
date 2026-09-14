@@ -60,6 +60,48 @@ const (
 )
 
 // confirmation is a yes/no gate in front of a destructive action.
+// copying is the stop button for a transfer, held apart from the model.
+//
+// A pointer, because Update takes the model by value: the cancel belongs to
+// the copy of the model that started the transfer, and the key that stops it
+// arrives at a different one entirely. The channel beside it is shared for the
+// same reason.
+//
+// Nothing here is locked. Starting, stopping and clearing all happen in
+// Update, on the one goroutine Bubble Tea runs it on; the transfer's own
+// goroutine is handed the context and never touches this.
+type copying struct {
+	cancel context.CancelFunc
+}
+
+// begin hands back a context for a transfer, and keeps the way to stop it.
+func (c *copying) begin() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	c.cancel = cancel
+	return ctx
+}
+
+// stop calls off the transfer in flight, and reports whether there was one.
+//
+// Nil-safe, as done below is: a model built as a zero value rather than by
+// New has no holder, and a key handler is a poor place to find that out.
+func (c *copying) stop() bool {
+	if c == nil || c.cancel == nil {
+		return false
+	}
+	c.cancel()
+	c.cancel = nil
+	return true
+}
+
+// done forgets a transfer that has ended of its own accord.
+func (c *copying) done() {
+	if c != nil && c.cancel != nil {
+		c.cancel() // releases the context; the transfer is over either way
+		c.cancel = nil
+	}
+}
+
 type confirmation struct {
 	prompt string
 	detail string
@@ -154,6 +196,8 @@ type Model struct {
 	lastClick clickAt
 	transfers chan transferMsg
 	transfer  transferMsg
+	// copying is the stop button for the transfer in flight, if there is one.
+	copying *copying
 
 	status string
 	// statusCtx names what the status is about — which rule, which host. It
@@ -181,8 +225,8 @@ func New(st *store.Store, opts Options) Model {
 
 	m := Model{opts: opts, keys: opts.Keys, st: st,
 		focus: panelHosts, filter: ti,
-		transfers: make(chan transferMsg, 32),
-		probeCh:   make(chan probeEvent, 64), probes: map[string]probe.State{}}
+		transfers: make(chan transferMsg, 32), copying: &copying{},
+		probeCh: make(chan probeEvent, 64), probes: map[string]probe.State{}}
 	m.reload()
 	if m.status == "" {
 		m.status = fmt.Sprintf("%d host%s", len(m.d.hosts), plural(len(m.d.hosts)))
@@ -252,6 +296,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case transferMsg:
 		m.transfer = msg
 		if msg.finished {
+			// However it ended, there is nothing left to stop — and the stop key
+			// has to go back to meaning "leave", or esc would swallow a press
+			// for every copy ever made in this session.
+			m.copying.done()
 			// However it ended. Reloading only after a transfer that worked
 			// left the listing describing a file that was no longer there,
 			// and a listing that disagrees with the disk is worse than one

@@ -540,6 +540,7 @@ func (m Model) helpLines() []string {
 			{"c", "copy the highlighted file to the other pane, or a"},
 			{"", "directory and everything under it"},
 			{"m / r / M / d", "mkdir / rename / chmod / delete"},
+			{"esc", "stop a copy that is running — or leave, if none is"},
 			{"", "OpenSSH performs the connection, so jump hosts,"},
 			{"", "certificates and ProxyCommand all apply as usual"},
 		}},

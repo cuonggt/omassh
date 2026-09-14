@@ -184,6 +184,15 @@ file by its place in the tree — `project/src/deep/blob.bin` — and the end is
 counted in files with the size beside it, since "copied 400 files" alone does
 not say whether the wait moved a manual or a film archive.
 
+`esc` stops a copy that is running, and leaves the browser when none is. The
+row reporting progress says so, because the one moment that key matters is the
+one moment the key list is not on screen — the progress has replaced it. A file
+that was interrupted goes back to how it was, the part file removed and the
+destination never touched; a tree keeps what had already crossed, and the strip
+says how much that was, since nothing puts those files back. Leaving with `q`
+calls off a copy on the way out rather than pulling the connection from under
+it, which used to report a deliberate stop as a transfer that had broken.
+
 Deleting follows the same rule about links the other way round: a symlink is a
 name, so deleting one deletes the name rather than what it points at. Following
 it was quiet and expensive — deleting a link to a directory emptied that
