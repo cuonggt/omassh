@@ -129,6 +129,82 @@ chains, `ProxyCommand`, certificates, `Match` blocks, `IdentityAgent` and
 `BatchMode` is forced on, because the child's stdin carries the protocol and
 there is nowhere to prompt; `ssh-add` the key first if it has a passphrase.
 
+## SFTP
+
+`s` opens a two-pane file browser on the selected host: your machine on the
+left, the host on the right. `tab` switches panes, `↵` enters a directory and
+`-` goes back up, `c` copies what is highlighted to the other pane, `m`, `r`,
+`M` and `d` make a directory, rename, chmod and delete, and `g` re-reads the
+pane you are in.
+
+The local pane opens where Omassh was launched rather than at your home
+directory, since the directory you were just working in is more often the one
+you want to send. The remote pane opens where the session lands, and the
+keyboard starts there — you came here to look at the host.
+
+A transfer is **written beside its destination and moved onto it at the end**,
+so the destination is only ever the old file or the new one. Writing straight
+to it truncated the file before a byte had arrived: a transfer that then failed
+left neither what was there nor what was wanted, and since the listing
+refreshed only after a transfer that worked, it went on reporting the size the
+file used to be. What moved is counted from what actually crossed rather than
+from the row — a symlink's row gives the length of the path it holds while the
+copy follows it, so 3MB would arrive under a bar announcing "copied 90B".
+
+Copying onto a name already taken **asks first**. A copy over a file destroys
+it as surely as deleting one does, and deleting asks — while the copy used to
+go quietly ahead and say "copied 16B". It asks rather than refuses because
+replacing what is there is very often the point, and refusing would mean
+deleting first, which leaves a moment with neither file.
+
+`c` on a directory takes the whole tree. Onto a directory already there it
+**merges**: the names that clash are overwritten and everything else in there
+is left alone. That is why it asks to merge rather than to replace — replace
+would promise that whatever is not in the copy goes away. Onto a *file* of the
+same name it is refused rather than asked about, since no answer to that
+question leaves both of them.
+
+The walk reads each directory's listing rather than following the names in it,
+which is what keeps it finite: a listing reports a symlink as the link and not
+as what it points at, so only real directories are descended, and a real
+directory cannot contain itself. Following instead would turn one link pointing
+at its own parent into a copy that never ends.
+
+Nothing here can write a symlink, so a link is copied the way copying its own
+row is — followed, and the file it names moved. A link to a *directory* has no
+bytes to move, so it is counted and stepped over rather than failing a tree
+that is otherwise fine; one link is a poor reason to abandon ten thousand
+files. The count is said at the end, because a copy that quietly left something
+behind is the one nobody checks until it matters.
+
+Each file still lands atomically; the tree as a whole does not, and cannot. A
+copy that fails partway names the file it stopped on and leaves what had
+already arrived, rather than pretending nothing happened. Progress names each
+file by its place in the tree — `project/src/deep/blob.bin` — and the end is
+counted in files with the size beside it, since "copied 400 files" alone does
+not say whether the wait moved a manual or a film archive.
+
+Deleting follows the same rule about links the other way round: a symlink is a
+name, so deleting one deletes the name rather than what it points at. Following
+it was quiet and expensive — deleting a link to a directory emptied that
+directory, and deleting a directory that merely *contained* such a link
+destroyed everything on the far side of it, files nobody had selected, while
+the confirmation said "this cannot be undone" about what the listing had shown
+as a single file.
+
+A filename is not a message. One carrying an escape sequence went straight into
+the interface: the row took its colour from the file rather than from the
+theme, and a name holding a cursor move or an erase had the terminal act on it
+in the middle of a redraw. Widths were never the problem — escapes have no
+width, so the frame held while the terminal did as the remote asked. Remote
+names are stripped of escapes and control characters before anything draws one.
+
+What the far side refuses is reported in its own words where it offers any.
+`pkg/sftp` maps the two status codes with `os` equivalents and hands the rest
+back as they came, so a full disk, a quota or a server that simply says no all
+arrived as `sftp: "Failure" (SSH_FX_FAILURE)` — a protocol constant, shown to
+someone who has just typed a directory name.
+
 ## Port forwarding
 
 `f` lists the tunnels belonging to a host, and `↵` starts or stops the
