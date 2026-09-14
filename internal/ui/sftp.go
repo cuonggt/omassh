@@ -66,6 +66,13 @@ type transferMsg struct {
 	// started. Working it out from the focus when the message arrives got it
 	// wrong for anyone who switched panes while a transfer was running.
 	dst int
+	// dir marks a directory copy, which finishes by saying how many files it
+	// moved rather than how big the one file was. It is a field of its own
+	// rather than files > 0, because a directory with nothing in it moves no
+	// files and is still not a file.
+	dir     bool
+	files   int
+	skipped int
 }
 
 func connectSFTP(h store.Host) tea.Cmd {
@@ -238,10 +245,7 @@ func (m Model) copySelected() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if e.IsDir {
-		// Recursive transfer is a queue of its own; refusing is clearer than
-		// silently copying only the directory entry.
-		m.setStatus("directories cannot be copied yet — select a file")
-		return m, nil
+		return m.copyDirSelected(e, src, dst)
 	}
 
 	start := m.copier(e, src, dst)
@@ -303,6 +307,81 @@ func (m Model) copier(e sftpx.Entry, src, dst *filePane) func() string {
 			ch <- transferMsg{name: fromRemote(e.Name), err: err, finished: true, total: moved, done: moved, dst: dstPane}
 		}()
 		return "copying " + fromRemote(e.Name) + " → " + dstFS.Label()
+	}
+}
+
+// copyDirSelected sends the highlighted directory, and everything under it,
+// to the other pane.
+func (m Model) copyDirSelected(e sftpx.Entry, src, dst *filePane) (tea.Model, tea.Cmd) {
+	start := m.dirCopier(e, src, dst)
+
+	if info, err := dst.fs.Stat(dst.fs.Join(dst.path, e.Name)); err == nil {
+		// A name taken by a file is refused rather than asked about. The two
+		// are not the same question: replacing a file with a directory is not
+		// what anyone means by copying one, and there is no answer to "yes"
+		// that leaves both.
+		if !info.IsDir {
+			m.setStatus("a file called " + fromRemote(e.Name) + " is already on " +
+				dst.fs.Label() + " — rename one of them")
+			return m, nil
+		}
+		// A directory already there is merged into, not replaced: the names
+		// that clash are overwritten and the rest is left alone. Asked about
+		// for the same reason a file is — this is still a way to lose a file
+		// without being told — but worded as the merge it is, because
+		// "replace" would promise that what is not in the copy goes away.
+		m.confirm = &confirmation{
+			prompt: "Merge " + fromRemote(e.Name) + " into " + dst.fs.Label() + "?",
+			detail: "files already there under the same names are overwritten — this cannot be undone",
+			run:    func() (string, error) { return start(), nil },
+		}
+		m.returnTo, m.mode = backFor(m.mode), modeConfirm
+		return m, nil
+	}
+
+	m.setStatus(start())
+	return m, nil
+}
+
+// dirCopier starts a directory copy, in the same shape as copier so either can
+// be kicked off from here or from behind a confirmation.
+func (m Model) dirCopier(e sftpx.Entry, src, dst *filePane) func() string {
+	srcPath := src.fs.Join(src.path, e.Name)
+	dstPath := dst.fs.Join(dst.path, e.Name)
+	srcFS, dstFS := src.fs, dst.fs
+	dstPane := 1 - m.paneFocus
+	ch := m.transfers
+	name := fromRemote(e.Name)
+
+	return func() string {
+		go func() {
+			last := time.Now()
+			res, err := sftpx.CopyDir(dstFS, dstPath, srcFS, srcPath, func(rel string, done, total int64) {
+				// Throttled like a single file's, and for the same reason: a
+				// tree of small files reports far faster than anything can draw.
+				if time.Since(last) < 100*time.Millisecond {
+					return
+				}
+				last = time.Now()
+				select {
+				case ch <- transferMsg{name: name + "/" + fromRemote(rel), done: done, total: total, dst: dstPane}:
+				default:
+				}
+			})
+			// Where it stopped, when it stopped early. The walk hands the name
+			// back rather than writing it into the error precisely so that it
+			// can be made safe to draw here, where remote text always is.
+			subject := name
+			if res.Failed != "" {
+				subject = name + "/" + fromRemote(res.Failed)
+			}
+			ch <- transferMsg{
+				name: subject, err: err, finished: true, dir: true,
+				files: res.Files, skipped: res.Skipped,
+				done: res.Bytes, total: res.Bytes, dst: dstPane,
+			}
+		}()
+		return "copying " + name + " → " + dstFS.Label()
 	}
 }
 
@@ -502,6 +581,18 @@ func (m Model) transferStrip() string {
 			msg = with
 		}
 		return theme.Fg(theme.Red).Render(" " + ansi.Truncate(msg, m.w-1, "…"))
+	case t.finished && t.dir:
+		// By the count, because that is what a tree is measured in; the size is
+		// kept beside it because "copied 400 files" alone says nothing about
+		// whether the long wait moved a manual or a film archive.
+		msg := fmt.Sprintf(" %s — copied %d file%s, %s", t.name, t.files, plural(t.files), humanSize(t.total))
+		if t.skipped > 0 {
+			// Never silently: the ones stepped over are links to directories,
+			// which this cannot write, and a copy that quietly left something
+			// behind is the copy nobody checks until it matters.
+			msg += fmt.Sprintf(", %d skipped", t.skipped)
+		}
+		return theme.Fg(theme.Green).Render(msg)
 	case t.finished:
 		return theme.Fg(theme.Green).Render(fmt.Sprintf(" %s — copied %s", t.name, humanSize(t.total)))
 	default:

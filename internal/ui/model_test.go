@@ -3,6 +3,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -1373,6 +1374,88 @@ func TestADialogQuietensTheHintRowButNotATransfer(t *testing.T) {
 	h.mustContain("Delete p1-file-00 on fake?")
 	h.mustContain("big.iso")
 	h.mustContain("50%")
+}
+
+// statFS answers Stat however a test needs and behaves like fakeFS otherwise,
+// which is how a test says what is — or is not — already on the far side.
+type statFS struct {
+	fakeFS
+	entry sftpx.Entry
+	err   error
+}
+
+func (f statFS) Stat(string) (sftpx.Entry, error) { return f.entry, f.err }
+
+// dirHarness puts a directory under the cursor with a given far side.
+func dirHarness(t *testing.T, far statFS) *harness {
+	t.Helper()
+	h := sftpHarness(t, 1, 1)
+	h.m.panes[1].entries = []sftpx.Entry{{Name: "docs", IsDir: true}}
+	h.m.panes[1].idx = 0
+	h.m.panes[0].fs = far
+	return h
+}
+
+// A directory can be copied. It used to be refused outright — "directories
+// cannot be copied yet" — which made the browser able to show a tree and not
+// to move one.
+func TestADirectoryCanBeCopied(t *testing.T) {
+	h := dirHarness(t, statFS{err: os.ErrNotExist})
+
+	h.press("c")
+	h.mustNotContain("cannot be copied")
+	h.mustContain("copying docs")
+}
+
+// Onto a directory of the same name it merges, and says so. "Replace" would
+// promise that whatever is not in the copy goes away, which is not what
+// happens.
+func TestCopyingADirectoryOntoOneAsksToMerge(t *testing.T) {
+	h := dirHarness(t, statFS{entry: sftpx.Entry{Name: "docs", IsDir: true}})
+
+	h.press("c")
+	h.mustContain("Merge docs into fake?")
+	h.mustContain("overwritten")
+}
+
+// Onto a file of the same name it is refused rather than asked about: there is
+// no answer to "yes" there that leaves both of them.
+func TestADirectoryWillNotLandOnAFileOfTheSameName(t *testing.T) {
+	h := dirHarness(t, statFS{entry: sftpx.Entry{Name: "docs"}})
+
+	h.press("c")
+	h.mustContain("a file called docs is already on fake")
+	h.mustContain("rename one of them")
+	h.mustNotContain("Merge docs")
+}
+
+// A finished directory copy is measured in files, with the size beside it —
+// "copied 400 files" alone does not say whether the wait moved a manual or a
+// film archive.
+func TestAFinishedDirectoryCopyIsCountedInFiles(t *testing.T) {
+	h := sftpHarness(t, 1, 1)
+
+	h.send(transferMsg{name: "docs", finished: true, dir: true, files: 12, total: 3500})
+	h.mustContain("docs — copied 12 files,")
+
+	// One file is not "1 files".
+	h.send(transferMsg{name: "docs", finished: true, dir: true, files: 1, total: 10})
+	h.mustContain("copied 1 file,")
+
+	// A directory with nothing in it moved no files and is still not a file,
+	// so it does not fall through to the single-file wording.
+	h.send(transferMsg{name: "empty", finished: true, dir: true, files: 0, total: 0})
+	h.mustContain("copied 0 files,")
+}
+
+// What was stepped over is never left unsaid: a copy that quietly skipped
+// something is the one nobody checks until it matters.
+func TestAFinishedDirectoryCopySaysWhatItSteppedOver(t *testing.T) {
+	h := sftpHarness(t, 1, 1)
+
+	h.send(transferMsg{name: "docs", finished: true, dir: true, files: 3, skipped: 2, total: 99})
+	h.mustContain("copied 3 files,")
+	h.mustContain(", 2 skipped")
 }
 
 // Clicking a file selects it, and focuses the pane it is in.
