@@ -64,6 +64,30 @@ type Stat struct {
 	Count    int       `json:"count"`
 }
 
+// inCycle reports whether walking up from g comes back to g itself.
+//
+// Bounded by the number of groups, because a walk that visits more nodes than
+// there are has revisited one — and the revisited node need not be g. That is
+// the case this has to tell apart: a group *below* a cycle walks forever too,
+// and it is not the one whose parent has to be let go of.
+func inCycle(byID map[string]Group, g Group) bool {
+	id := g.ParentID
+	for range len(byID) + 1 {
+		if id == "" {
+			return false
+		}
+		if id == g.ID {
+			return true
+		}
+		parent, ok := byID[id]
+		if !ok {
+			return false // a missing parent is a root, not a loop
+		}
+		id = parent.ParentID
+	}
+	return false
+}
+
 // GroupNode is a group positioned in the display tree.
 type GroupNode struct {
 	Group
@@ -71,18 +95,35 @@ type GroupNode struct {
 }
 
 // FlattenGroups orders groups depth-first by name, so the UI can render a
-// nested tree as a flat list. Groups whose parent is missing are treated as
-// roots, which keeps a broken ParentID from hiding hosts.
+// nested tree as a flat list. A group whose parent is missing, or whose
+// parents come back round to it, is treated as a root — which keeps a broken
+// ParentID from hiding hosts.
+//
+// The walk starts from roots, and no group in a cycle is one, so a cycle used
+// to leave every group in it out of the list entirely, and its hosts with it.
+// The records were all still there; the only thing that could be done about
+// them was to not see them. A list with nothing in it to select is also
+// nothing to mend, so the loop could not be undone from the interface that was
+// hiding it. This store will not create one, but a database written by an
+// older build, by another writer, or by hand can hold one.
 func FlattenGroups(gs []Group) []GroupNode {
 	byParent := map[string][]Group{}
 	exists := map[string]bool{}
+	byID := make(map[string]Group, len(gs))
 	for _, g := range gs {
 		exists[g.ID] = true
+		byID[g.ID] = g
 	}
 	for _, g := range gs {
 		p := g.ParentID
-		if p != "" && !exists[p] {
+		switch {
+		case p != "" && !exists[p]:
 			p = "" // orphaned: surface it at the root rather than losing it
+		case inCycle(byID, g):
+			// Only the groups the cycle runs through, not everything under
+			// one: a group below a cycle keeps its parent, which is now a
+			// root itself, so what was nested stays nested.
+			p = ""
 		}
 		byParent[p] = append(byParent[p], g)
 	}

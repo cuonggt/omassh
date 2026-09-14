@@ -42,13 +42,22 @@ func TestFlattenGroupsSurfacesOrphans(t *testing.T) {
 	}
 }
 
+// It terminates on a cycle, and lists what is in one rather than dropping it.
+// Emitting nothing is what this used to do, and it was the wrong half of the
+// promise the function makes: a broken ParentID must not hide hosts, and a
+// parent that comes back round is as broken as one that is not there.
 func TestFlattenGroupsTerminatesOnCycle(t *testing.T) {
 	got := FlattenGroups([]Group{
 		{ID: "a", Name: "A", ParentID: "b"},
 		{ID: "b", Name: "B", ParentID: "a"},
 	})
-	if len(got) != 0 {
-		t.Errorf("got %v, want nothing emitted for a pure cycle", names(got))
+	if len(got) != 2 {
+		t.Fatalf("got %v, want both groups listed", names(got))
+	}
+	for _, n := range got {
+		if n.Depth != 0 {
+			t.Errorf("%s is at depth %d; neither of a pair pointing at each other is under the other", n.Name, n.Depth)
+		}
 	}
 }
 
@@ -79,5 +88,73 @@ func TestFlattenGroupsKeepsDeepNesting(t *testing.T) {
 	last := got[len(got)-1]
 	if last.Name != "L24" || last.Depth != 24 {
 		t.Errorf("deepest is %s at depth %d, want L24 at depth 24", last.Name, last.Depth)
+	}
+}
+
+// A group whose ancestry never reaches a root is surfaced at the root, the
+// same as one whose parent is missing.
+//
+// A loop is not something this store will create, but a database can hold one
+// — written by an older build, by another writer, or by hand — and the walk
+// starts from roots, so no group in a loop was ever reached. Every group in it
+// vanished from the list and took its hosts with it: the records were all
+// still there, and the only thing that could be done about them was to not see
+// them. Nothing on screen to select is also nothing to mend, so the loop could
+// not even be undone from the interface that was hiding it.
+func TestAGroupInALoopIsStillListed(t *testing.T) {
+	gs := []Group{
+		{ID: "a", Name: "company", ParentID: "b"}, // company → eu → company
+		{ID: "b", Name: "eu", ParentID: "a"},
+		{ID: "c", Name: "eu-prod", ParentID: "b"}, // below the loop
+		{ID: "d", Name: "elsewhere"},              // a genuine root
+	}
+
+	nodes := FlattenGroups(gs)
+
+	listed := map[string]int{}
+	for _, n := range nodes {
+		if _, twice := listed[n.Name]; twice {
+			t.Errorf("%q is listed more than once", n.Name)
+		}
+		listed[n.Name] = n.Depth
+	}
+	for _, g := range gs {
+		if _, ok := listed[g.Name]; !ok {
+			t.Errorf("%q is not in the list at all, and its hosts went with it", g.Name)
+		}
+	}
+	if len(nodes) != len(gs) {
+		t.Fatalf("%d groups came back as %d rows", len(gs), len(nodes))
+	}
+	// And what is below the loop stays below it, rather than being flattened
+	// alongside: eu-prod's parent is still in the list.
+	if listed["eu-prod"] == 0 {
+		t.Errorf("eu-prod was raised to the root; it has a parent that is listed")
+	}
+}
+
+// A chain that breaks further up is not a loop, and the group at the bottom of
+// it keeps its parent. Only the group whose own parent is missing is surfaced,
+// which is what the orphan rule has always done — walking up and giving up at
+// the first thing that is not there would have raised the whole line to the
+// root and flattened a tree that is perfectly readable.
+func TestAGroupWhoseGrandparentIsMissingKeepsItsParent(t *testing.T) {
+	nodes := FlattenGroups([]Group{
+		{ID: "p", Name: "parent", ParentID: "gone"},
+		{ID: "c", Name: "child", ParentID: "p"},
+	})
+
+	depth := map[string]int{}
+	for _, n := range nodes {
+		depth[n.Name] = n.Depth
+	}
+	if len(nodes) != 2 {
+		t.Fatalf("got %v, want both groups", names(nodes))
+	}
+	if depth["parent"] != 0 {
+		t.Errorf("parent is at depth %d, want the root", depth["parent"])
+	}
+	if depth["child"] != 1 {
+		t.Errorf("child is at depth %d, want it still under parent", depth["child"])
 	}
 }
