@@ -374,6 +374,18 @@ hosts Omassh knows nothing about.
 Groups are flattened on the way out, since ssh config has no such thing: what
 a host inherits is written onto the host.
 
+Which matters if that file ever comes back. Importing a config Omassh wrote
+turns everything those hosts inherited into settings of their own, and a host
+carrying its own user has stopped following its group: change the group to
+`ubuntu` afterwards and that host goes on connecting as `deploy`, because
+nothing it reads comes from the group any more. No value is wrong, and the
+only sign on screen is a quiet one — the `← Production` that sat beside the
+value in the detail pane is simply not there. `omassh export` is the round
+trip that keeps its shape, because YAML has groups to keep: what a host
+inherits stays out of the file entirely, and importing the same one twice
+changes nothing the second time. `~/.ssh/config` is somewhere to write the
+list, not somewhere to keep it.
+
 ## Install
 
 ```sh
