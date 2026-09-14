@@ -43,6 +43,10 @@ release:
 
 changelog:
   sort: asc
+  # Short hashes. The full forty characters pushed each subject most of the way
+  # across the line, and left the release notes reading as a column of hex with
+  # the sentences trailing off it — the subject is the half anyone reads.
+  abbrev: 7
   filters:
     exclude:
       - "^docs:"
