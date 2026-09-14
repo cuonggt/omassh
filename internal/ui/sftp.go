@@ -585,16 +585,10 @@ func (p *filePane) enterSelected() (ok bool, why string) {
 	return true, ""
 }
 
-// bareError is what went wrong without the path Go wraps around it. The name
-// is already in the sentence, and saying it twice pushes the half that matters
-// off the end of the bar.
-func bareError(err error) string {
-	var pe *os.PathError
-	if errors.As(err, &pe) {
-		return pe.Err.Error()
-	}
-	return err.Error()
-}
+// bareError is what went wrong, in words: without the path Go wraps around a
+// file error, and without the protocol constant the far side wraps around
+// everything it will not explain.
+func bareError(err error) string { return sftpx.Reason(err).Error() }
 
 // fromRemote is text omassh did not write, made safe to draw.
 //

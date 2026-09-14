@@ -433,3 +433,76 @@ func TestDeletingALinkDeletesTheLink(t *testing.T) {
 		}
 	})
 }
+
+// A failure the protocol will not explain is said in words rather than named
+// by its constant.
+//
+// pkg/sftp maps the two status codes with os equivalents and hands back the
+// rest as they came, so copying something that is not an ordinary file — this
+// is a socket, but a full disk or a quota does the same — reached the bar as
+// `sftp: "Failure" (SSH_FX_FAILURE)`.
+func TestAFailureTheProtocolWillNotExplainIsSaidInWords(t *testing.T) {
+	sess, dir := connect(t)
+	defer sess.Close()
+
+	// Under /tmp rather than the test's own directory: a unix socket's path
+	// has about a hundred bytes to fit in, and the temp directory's name uses
+	// most of them. The session can reach any path on this machine, so where
+	// the socket lives does not matter.
+	short, err := os.MkdirTemp("/tmp", "sx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(short)
+	sock := filepath.Join(short, "a.sock")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Skipf("no unix sockets here: %v", err)
+	}
+	defer l.Close()
+
+	err = sftpx.Copy(sftpx.Local{}, filepath.Join(dir, "out"), sess, sock, nil)
+	if err == nil {
+		t.Fatal("copying a socket worked, so there is nothing to say about it")
+	}
+	t.Logf("raw:      %v", err)
+	t.Logf("in words: %v", sftpx.Reason(err))
+
+	said := sftpx.Reason(err).Error()
+	for _, leak := range []string{"sftp:", "SSH_FX", "Failure"} {
+		if strings.Contains(said, leak) {
+			t.Errorf("%q still carries %q from the protocol", said, leak)
+		}
+	}
+	// The server's own sentence, which is the system's words for it.
+	if said != "operation not supported on socket" {
+		t.Errorf("Reason = %q, want what the server said about it", said)
+	}
+}
+
+// And the two the library does map keep their own plain words, without the
+// path os wraps around them.
+func TestTheMappedFailuresKeepTheirOwnWords(t *testing.T) {
+	sess, dir := connect(t)
+	defer sess.Close()
+
+	secret := filepath.Join(dir, "secret")
+	if err := os.WriteFile(secret, []byte("x"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ name, path, want string }{
+		{"unreadable", secret, "permission denied"},
+		{"not there", filepath.Join(dir, "nope"), "file does not exist"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := sftpx.Copy(sftpx.Local{}, filepath.Join(dir, "out"), sess, tc.path, nil)
+			if err == nil {
+				t.Fatal("it worked")
+			}
+			said := sftpx.Reason(err).Error()
+			if said != tc.want {
+				t.Errorf("Reason = %q, want %q", said, tc.want)
+			}
+		})
+	}
+}

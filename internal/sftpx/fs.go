@@ -84,9 +84,99 @@ func Problem(fs FS, dest, name string, err error) error {
 	if errors.As(err, &status) {
 		// Everything checkable has been checked, and the protocol carries no
 		// reason of its own — saying which is better than naming its constant.
-		return fmt.Errorf("%s: the server refused it, without saying why", name)
+		return fmt.Errorf("%s: %s", name, refused)
 	}
 	return err
+}
+
+// refused is what there is to say about a failure the protocol did not explain.
+const refused = "the server refused it, without saying why"
+
+// Reason is what an error from the far side says, in words rather than in the
+// protocol's own vocabulary.
+//
+// pkg/sftp maps the two status codes with os equivalents and hands back the
+// rest as they came, so everything else — a name that is not an ordinary file,
+// a full disk, a quota, a server that simply says no — arrived as `sftp:
+// "Failure" (SSH_FX_FAILURE)`. Only two operations ever asked it to say that
+// better; a transfer reported the constant straight into the bar, and the
+// browser is where people meet the widest variety of servers.
+//
+// A status can arrive wrapped in a path error — the library does that for a
+// remove and not for an open — so this unwraps through whatever it finds
+// rather than relying on which is outermost.
+//
+// os wraps a file error in the operation and the whole path — "open
+// /Users/…/from/report.csv: permission denied" — and the bar keeps the subject
+// separately, so left in, the path is what survives truncation and the reason
+// is what goes.
+func Reason(err error) error {
+	if err == nil {
+		return nil
+	}
+	var status *sftp.StatusError
+	if errors.As(err, &status) {
+		return errors.New(saidBy(status.Error()))
+	}
+	var pe *os.PathError
+	if errors.As(err, &pe) {
+		// Through whatever is inside, because the library wraps a status in a
+		// path error for a remove and not for an open — so the two nest in one
+		// order here and the other there, and neither order needs knowing.
+		return Reason(pe.Err)
+	}
+	return err
+}
+
+// saidBy digs the server's own sentence out of a status error.
+//
+// The protocol carries a message beside the code, and OpenSSH's server fills
+// it with the system's own words — "operation not supported on socket", "no
+// space left on device" — which is far more than the code alone says. The
+// library keeps that message unexported and prints it as `sftp: "…" (CODE)`,
+// so the only way to it is the text, and the only risk in reading the text is
+// that a future format leaves nothing to find, which falls back to saying the
+// server refused.
+//
+// Like an os error, the message usually leads with the operation and the whole
+// path — "open /srv/app/a.sock: operation not supported on socket" — and the
+// bar keeps the subject separately, so what is taken is the part after the
+// last colon: the reason, which is the half worth the width.
+func saidBy(s string) string {
+	open, close := strings.Index(s, `"`), strings.LastIndex(s, `"`)
+	if open < 0 || close <= open {
+		return refused
+	}
+	msg := strings.TrimSpace(s[open+1 : close])
+	// Servers differ about what they put there. OpenSSH's sftp-server sends
+	// the code's own name — "Failure" beside SSH_FX_FAILURE — which is the
+	// protocol's vocabulary with the underscores taken out, and tells nobody
+	// anything. Checked against the code in the same sentence rather than
+	// against a list of words, so a server naming any other code the same way
+	// is caught too.
+	if code := between(s, "(", ")"); code != "" {
+		bare := strings.ReplaceAll(strings.TrimPrefix(code, "SSH_FX_"), "_", " ")
+		if strings.EqualFold(bare, msg) {
+			return refused
+		}
+	}
+	if i := strings.LastIndex(msg, ": "); i >= 0 {
+		msg = strings.TrimSpace(msg[i+2:])
+	}
+	if msg == "" {
+		return refused
+	}
+	return msg
+}
+
+// between is the text inside the last pair of delimiters, or "".
+func between(s, open, close string) string {
+	i := strings.LastIndex(s, open)
+	j := strings.LastIndex(s, close)
+	if i < 0 || j <= i+len(open) {
+		return ""
+	}
+	return strings.TrimSpace(s[i+len(open) : j])
 }
 
 // sortEntries puts directories first, then names, case-insensitively — the
