@@ -1147,12 +1147,30 @@ func (m *Model) selectHost(h store.Host) {
 	}
 }
 
+// splitTags reads a comma-separated field as the set of labels it is meant to
+// be: no blanks, no spaces around them, and nothing twice.
+//
+// A tag said twice says nothing extra, and a field holding one was not only
+// untidy — the picker beside it treats the field as a set and toggles
+// membership, so unticking a tag that was in there twice removed one copy and
+// left the other, leaving the entry ticked after the press that was meant to
+// clear it. Pressing space to turn something off and watching it stay on is
+// the sort of thing that makes a screen look broken.
+//
+// Case is folded for the same reason it is everywhere else here — the filter
+// matches without it, and the resolver looks a name up lowercased — so "prod"
+// and "PROD" are one label. The first spelling is the one kept, since it is
+// the one already written down.
 func splitTags(s string) []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, t := range strings.Split(s, ",") {
-		if t = strings.TrimSpace(t); t != "" {
-			out = append(out, t)
+		t = strings.TrimSpace(t)
+		if t == "" || seen[strings.ToLower(t)] {
+			continue
 		}
+		seen[strings.ToLower(t)] = true
+		out = append(out, t)
 	}
 	return out
 }

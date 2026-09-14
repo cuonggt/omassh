@@ -3024,3 +3024,51 @@ func TestASessionThatReachedTheHostIsRecordedWhateverItExitedWith(t *testing.T) 
 		})
 	}
 }
+
+// A tag said twice says nothing extra, and the picker beside the field treats
+// it as a set: unticking a tag that was in there twice removed one copy and
+// left the other, so the entry stayed ticked after the press meant to clear
+// it. Pressing space to turn something off and watching it stay on is the sort
+// of thing that makes a screen look broken.
+func TestATagFieldIsTheSetItLooksLike(t *testing.T) {
+	for _, tc := range []struct {
+		name, typed string
+		want        []string
+	}{
+		{"blanks and spacing", "  prod ,, web  , ,", []string{"prod", "web"}},
+		{"the same tag twice", "prod, web, prod", []string{"prod", "web"}},
+		{"and in another case", "prod, PROD, Prod", []string{"prod"}},
+		// Whichever spelling came first is the one written down already.
+		{"the first spelling is the one kept", "PROD, prod", []string{"PROD"}},
+		{"a tag with a space in it", "eu west, prod", []string{"eu west", "prod"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := splitTags(tc.typed); !slices.Equal(got, tc.want) {
+				t.Errorf("splitTags(%q) = %v, want %v", tc.typed, got, tc.want)
+			}
+		})
+	}
+
+	// And the picker's one key really does both things, once.
+	t.Run("space toggles, in one press", func(t *testing.T) {
+		const field = "prod, web"
+		if !inList(field, "prod") {
+			t.Error("prod is in the field and does not show as picked")
+		}
+		if !inList(field, "PROD") {
+			t.Error("the same label in another case does not show as picked")
+		}
+		// Ticking the same label in another case unticks the one that is
+		// there, rather than adding a second spelling of it.
+		if got := toggleInList("Prod, web", "prod"); inList(got, "prod") {
+			t.Errorf("toggling prod against Prod left %q", got)
+		}
+		off := toggleInList(field, "prod")
+		if inList(off, "prod") {
+			t.Errorf("after unticking, the field is %q and prod is still in it", off)
+		}
+		if on := toggleInList(off, "prod"); !inList(on, "prod") {
+			t.Errorf("after ticking again, the field is %q", on)
+		}
+	})
+}

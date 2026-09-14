@@ -258,15 +258,22 @@ func (f *form) togglePicked() {
 }
 
 // inList reports whether a comma-separated field already holds an entry.
+//
+// Without regard to case, as splitTags is: a field holding "Prod" and a picker
+// offering "prod" are the same label, and ticking one while the other is there
+// would put both in the field for splitTags to fold away again on save.
 func inList(current, want string) bool {
-	return slices.Contains(splitTags(current), want)
+	return slices.ContainsFunc(splitTags(current), func(t string) bool {
+		return strings.EqualFold(t, want)
+	})
 }
 
 // toggleInList adds an entry to a comma-separated field, or removes it if it
 // is already there, so one key both selects and deselects.
 func toggleInList(current, entry string) string {
 	items := splitTags(current)
-	if i := slices.Index(items, entry); i >= 0 {
+	i := slices.IndexFunc(items, func(t string) bool { return strings.EqualFold(t, entry) })
+	if i >= 0 {
 		items = slices.Delete(items, i, i+1)
 	} else {
 		items = append(items, entry)
