@@ -147,6 +147,14 @@ func browse(args []string) error {
 	if err != nil {
 		return err
 	}
+	// The file's are checked by Validate; these are the ones typed here, and
+	// they fail the same way — every connection refused by an ssh complaining
+	// about a command line, which in this case at least is one that was typed.
+	for _, o := range sshOpts {
+		if err := sshx.OptionProblem(o); err != nil {
+			return fmt.Errorf("-o %q %w — write it as -o ConnectTimeout=10", o, err)
+		}
+	}
 	sshx.SetGlobalOptions(globalSSHOptions(sshOpts, cfg.SSHOptions))
 
 	st, err := store.Open(*dbPath)

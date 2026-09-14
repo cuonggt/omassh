@@ -14,6 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/cuonggt/omassh/internal/keymap"
+	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/ui/theme"
 	"github.com/cuonggt/omassh/internal/yamlerr"
 )
@@ -125,6 +126,11 @@ func (c Config) Validate() error {
 	}
 	if _, err := c.ProbeDuration(); err != nil {
 		return err
+	}
+	for _, o := range c.SSHOptions {
+		if err := sshx.OptionProblem(o); err != nil {
+			return fmt.Errorf("ssh_options: %q %w — write it as ConnectTimeout=10", o, err)
+		}
 	}
 	return nil
 }

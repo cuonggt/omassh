@@ -342,3 +342,31 @@ func TestTheExampleListsTheNamesNobodyCanGuess(t *testing.T) {
 		}
 	}
 }
+
+// An ssh option with no value is carried to every connection omassh makes, and
+// every one of them fails — with ssh complaining about a "command-line" that
+// the person reading it never typed, naming neither the file nor the setting.
+// A probe still calls the host up, because that is a TCP connection and never
+// goes near ssh.
+func TestAnSshOptionWithNoValueIsRefusedAtTheFile(t *testing.T) {
+	for _, bad := range []string{"BatchMode", "BatchMode=", "=yes", ""} {
+		c := Config{SSHOptions: []string{"ConnectTimeout=10", bad}}
+		err := c.Validate()
+		if err == nil {
+			t.Errorf("ssh_options: %q was accepted, and would break every connection", bad)
+			continue
+		}
+		if !strings.Contains(err.Error(), "ssh_options") {
+			t.Errorf("err = %q, want it to name the setting it came from", err)
+		}
+		// The one at fault, so there is something to search the file for.
+		if bad != "" && !strings.Contains(err.Error(), bad) {
+			t.Errorf("err = %q, want it to quote the entry that is wrong", err)
+		}
+	}
+	// And the forms ssh takes are left alone.
+	ok := Config{SSHOptions: []string{"ConnectTimeout=10", "BatchMode yes", "SetEnv FOO=bar"}}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("Validate() = %v, and ssh takes every one of those", err)
+	}
+}

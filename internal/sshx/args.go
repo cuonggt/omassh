@@ -2,8 +2,10 @@
 package sshx
 
 import (
+	"errors"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/cuonggt/omassh/internal/store"
 )
@@ -20,6 +22,42 @@ import (
 // ssh's own flag. Process-wide configuration set once at startup, before any
 // connection is made, so there is nothing to synchronise.
 var globalOptions []string
+
+// OptionProblem says what is wrong with an -o setting, or nil where ssh will
+// take it.
+//
+// ssh reads one of these as it reads a line of a config file: a keyword, then
+// whitespace or an =, then the argument. All of `BatchMode=yes`, `BatchMode
+// yes` and `SetEnv FOO=bar` are fine, and so is any spacing around the
+// separator — checked against ssh itself rather than assumed.
+//
+// What it refuses is a keyword with nothing after it, which is the mistake
+// worth catching here: written into a config file, `BatchMode` on its own was
+// carried to every connection omassh made, and every one of them failed with
+// "command-line line 0: no argument after keyword" — ssh's words for a command
+// line the person reading them had never typed, naming no file and no setting.
+// A probe still reported the host as up, because that is a TCP connection and
+// never goes near ssh.
+//
+// The keyword itself is left to ssh, which knows them all and says which one
+// it did not recognise. Argument counts are ssh's too: LocalForward takes two.
+func OptionProblem(o string) error {
+	o = strings.TrimSpace(o)
+	if o == "" {
+		return errors.New("is empty")
+	}
+	i := strings.IndexFunc(o, func(r rune) bool { return r == '=' || unicode.IsSpace(r) })
+	switch {
+	case i == 0:
+		return errors.New("starts with its separator, so it names no setting")
+	case i < 0:
+		return errors.New("has no value")
+	}
+	if strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(o[i:]), "=")) == "" {
+		return errors.New("has no value")
+	}
+	return nil
+}
 
 // SetGlobalOptions installs -o settings for every connection Omassh makes.
 func SetGlobalOptions(opts []string) { globalOptions = append([]string(nil), opts...) }

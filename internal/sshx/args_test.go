@@ -222,3 +222,41 @@ func TestASubsystemsFixedOptionsReachEveryHop(t *testing.T) {
 		t.Errorf("BatchMode reaches %d of the 2 ssh invocations:\n  %s", n, got)
 	}
 }
+
+// The forms below were put to ssh itself rather than reasoned about: each was
+// passed as -o to a real ssh against a real server, and this is what it made
+// of them. ssh reads an -o as it reads a line of a config file — a keyword,
+// then whitespace or an =, then the argument — so the spacing is far looser
+// than Key=Value suggests, and refusing what it accepts would be worse than
+// not checking at all.
+func TestAnOptionIsCheckedTheWaySshReadsOne(t *testing.T) {
+	for _, ok := range []string{
+		"BatchMode=yes",
+		"BatchMode yes",                  // the config-file form
+		"  BatchMode=yes  ",              // ssh trims
+		"BatchMode  =  yes",              // and does not mind the spacing
+		"SetEnv FOO=bar",                 // the argument may hold an = of its own
+		"LocalForward 8080 localhost:80", // or two arguments; that is ssh's business
+	} {
+		if err := OptionProblem(ok); err != nil {
+			t.Errorf("OptionProblem(%q) = %v, and ssh takes it", ok, err)
+		}
+	}
+	for _, bad := range []struct{ opt, want string }{
+		{"BatchMode", "no value"},
+		{"BatchMode=", "no value"},
+		{"BatchMode ", "no value"},
+		{"=yes", "names no setting"},
+		{"", "is empty"},
+		{"   ", "is empty"},
+	} {
+		err := OptionProblem(bad.opt)
+		if err == nil {
+			t.Errorf("OptionProblem(%q) = nil; ssh refuses it with \"no argument after keyword\"", bad.opt)
+			continue
+		}
+		if !strings.Contains(err.Error(), bad.want) {
+			t.Errorf("OptionProblem(%q) = %q, want it to say %q", bad.opt, err, bad.want)
+		}
+	}
+}
