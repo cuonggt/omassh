@@ -1551,6 +1551,121 @@ func TestACopyOverAFileAsksFirst(t *testing.T) {
 	t.Errorf("after agreeing, the file is still %q", got)
 }
 
+// renamePane puts the browser on a real local directory. The bug these guard
+// against is os.Rename's own behaviour, which no fake filesystem has.
+func renamePane(t *testing.T, dir string) *harness {
+	t.Helper()
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: sftpx.Local{}, path: dir}, {fs: fakeFS{}}}
+	h.m.panes[0].reload()
+	h.m.paneFocus = 0
+	return h
+}
+
+// Renaming onto a name already taken must not destroy what is there.
+//
+// os.Rename is rename(2) and replaces the destination without a word, so this
+// said "done", dropped a row from the pane and took the file with it — no
+// error, no question, nothing anywhere to say a file had gone. The far side
+// refused the same rename all along, so one keystroke did opposite things in
+// the two panes.
+func TestARenameWillNotQuietlyDestroyTheFileItLandsOn(t *testing.T) {
+	dir := t.TempDir()
+	for name, body := range map[string]string{"a.txt": "moving", "b.txt": "precious"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	h := renamePane(t, dir) // a.txt sorts first, so it is the one selected
+	h.press("r")
+	h.type_("b.txt")
+	h.press("enter")
+
+	if got, _ := os.ReadFile(filepath.Join(dir, "b.txt")); string(got) != "precious" {
+		t.Errorf("b.txt holds %q — the file that was there is gone", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.txt")); err != nil {
+		t.Errorf("a.txt was moved anyway: %v", err)
+	}
+	if h.m.form == nil {
+		t.Fatal("the dialog closed, so the rename was reported as having happened")
+	}
+	if got := h.m.form.problem; !strings.Contains(got, "already there") {
+		t.Errorf("problem = %q, want the sentence mkdir gives a taken name", got)
+	}
+}
+
+// Correcting a capital still works.
+//
+// A case-insensitive filesystem answers Stat for Report.txt with report.txt —
+// the very file being renamed — so refusing whenever the destination exists
+// would make a capital letter impossible to fix. What is there is compared
+// with the source instead of reasoning about the filesystem's idea of case.
+func TestARenameMayChangeOnlyTheCaseOfAName(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "report.txt"), []byte("body"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	h := renamePane(t, dir)
+	h.press("r")
+	h.type_("Report.txt")
+	h.press("enter")
+
+	if h.m.form != nil {
+		t.Fatalf("refused with %q", h.m.form.problem)
+	}
+	if got, err := os.ReadFile(filepath.Join(dir, "Report.txt")); err != nil || string(got) != "body" {
+		t.Errorf("Report.txt = %q (%v), want the file under its new capital", got, err)
+	}
+}
+
+// Opening the dialog and pressing ↵ changes nothing, and is not an error for
+// it: a file is not in its own way.
+func TestARenameToTheNameItAlreadyHasIsNotACollision(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("body"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	h := renamePane(t, dir)
+	h.press("r")
+	h.press("enter")
+
+	if h.m.form != nil {
+		t.Fatalf("refused with %q", h.m.form.problem)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "notes.txt")); string(got) != "body" {
+		t.Errorf("notes.txt holds %q", got)
+	}
+}
+
+// A free name renames without a word, which is the ordinary case and must not
+// grow a keystroke.
+func TestARenameToAFreeNameStillHappens(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("body"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	h := renamePane(t, dir)
+	h.press("r")
+	h.type_("c.txt")
+	h.press("enter")
+
+	if h.m.form != nil {
+		t.Fatalf("refused with %q", h.m.form.problem)
+	}
+	if got, _ := os.ReadFile(filepath.Join(dir, "c.txt")); string(got) != "body" {
+		t.Errorf("c.txt holds %q, want the renamed file", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.txt")); !os.IsNotExist(err) {
+		t.Errorf("a.txt is still there, so nothing moved")
+	}
+}
+
 // A name that is free is copied without a question, which is the ordinary case
 // and must not grow a keystroke.
 func TestACopyToAFreeNameIsNotInterrupted(t *testing.T) {

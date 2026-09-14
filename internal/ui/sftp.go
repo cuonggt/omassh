@@ -251,10 +251,12 @@ func (m Model) copySelected() (tea.Model, tea.Cmd) {
 	start := m.copier(e, src, dst)
 
 	// A name already taken on the other side is asked about, because a copy
-	// over a file destroys it as surely as deleting it does — and this was the
-	// one way to lose a file here without being told. The two operations
-	// beside it refuse a collision outright ("exists.txt is already there"),
-	// and deleting asks; only the copy went ahead and said "copied 16B".
+	// over a file destroys it as surely as deleting it does — and this was one
+	// of the two ways to lose a file here without being told. Making a
+	// directory refuses a collision outright ("exists.txt is already there")
+	// and deleting asks; the copy went ahead and said "copied 16B". Renaming
+	// was long counted among the ones that refused, and only did so on the far
+	// side — see renameCollision.
 	//
 	// Asked rather than refused: replacing what is there is very often the
 	// point, and refusing would mean deleting first, which leaves a moment
@@ -406,6 +408,49 @@ func (m Model) askDeleteFile() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// renameCollision refuses a rename onto a name that is already taken.
+//
+// os.Rename is rename(2), which replaces whatever is at the destination
+// without a word, so renaming onto a name already in the listing destroyed
+// that file — "done" in the bar, the row gone from the pane, and nothing
+// anywhere to say a file had been lost. The far side never allowed this:
+// OpenSSH's sftp-server refuses a rename onto an existing name, so one
+// keystroke quietly did opposite things in the two panes.
+//
+// Refused rather than asked about, which is how mkdir already answers a name
+// that is taken, and the only answer the remote can honour anyway — saying yes
+// there would still fail, and deleting first to make room leaves a moment with
+// neither file.
+//
+// A file may still be renamed onto itself, which is what a case-insensitive
+// filesystem makes of correcting a capital: Report.txt is "already there" when
+// the thing there is the file being renamed, and refusing would make fixing a
+// capital letter impossible. Rather than reason about the filesystem's idea of
+// case, what is at the destination is compared with the source — one file
+// answers both questions the same way — so the rename is refused only when
+// something else is in the way.
+func renameCollision(fs sftpx.FS, old, dest, name string) error {
+	if dest == old {
+		return nil
+	}
+	there, err := fs.Stat(dest)
+	if err != nil {
+		return nil // nothing in the way
+	}
+	if here, err := fs.Stat(old); err == nil && sameEntry(here, there) {
+		return nil // what is there is the file being renamed
+	}
+	// Worded as Problem words it, because the remote reaches the same sentence
+	// by its own route and the two panes have to read alike.
+	return fmt.Errorf("%s is already there", name)
+}
+
+// sameEntry reports whether two answers to Stat describe one file.
+func sameEntry(a, b sftpx.Entry) bool {
+	return a.IsDir == b.IsDir && a.Size == b.Size &&
+		a.Mode == b.Mode && a.ModTime.Equal(b.ModTime)
+}
+
 func (m Model) saveFileForm() (tea.Model, tea.Cmd) {
 	f := m.form
 	p := &m.panes[m.paneFocus]
@@ -433,6 +478,10 @@ func (m Model) saveFileForm() (tea.Model, tea.Cmd) {
 			break
 		}
 		dest := p.fs.Join(p.path, name)
+		if taken := renameCollision(p.fs, old, dest, name); taken != nil {
+			err = taken
+			break
+		}
 		err = sftpx.Problem(p.fs, dest, name, p.fs.Rename(old, dest))
 	case formChmod:
 		mode, perr := strconv.ParseUint(name, 8, 32)
