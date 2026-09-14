@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -293,7 +294,7 @@ func (m Model) copier(e sftpx.Entry, src, dst *filePane) func() string {
 			// names. So 3MB went across and the strip finished by announcing
 			// "copied 90B", having counted its way up to 3MB first.
 			moved := e.Size
-			err := sftpx.Copy(dstFS, dstPath, srcFS, srcPath, func(done, total int64) {
+			err := sftpx.Copy(context.Background(), dstFS, dstPath, srcFS, srcPath, func(done, total int64) {
 				moved = total
 				// Throttle: a fast local copy would otherwise flood the UI
 				// with more messages than it can render.
@@ -358,7 +359,7 @@ func (m Model) dirCopier(e sftpx.Entry, src, dst *filePane) func() string {
 	return func() string {
 		go func() {
 			last := time.Now()
-			res, err := sftpx.CopyDir(dstFS, dstPath, srcFS, srcPath, func(rel string, done, total int64) {
+			res, err := sftpx.CopyDir(context.Background(), dstFS, dstPath, srcFS, srcPath, func(rel string, done, total int64) {
 				// Throttled like a single file's, and for the same reason: a
 				// tree of small files reports far faster than anything can draw.
 				if time.Since(last) < 100*time.Millisecond {

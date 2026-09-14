@@ -2,6 +2,7 @@ package sftpx_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -58,7 +59,7 @@ func TestAFailedTransferLeavesTheDestinationAlone(t *testing.T) {
 	write(t, src, bytes.Repeat([]byte("x"), 200_000))
 	write(t, dst, []byte(wasThere))
 
-	err := sftpx.Copy(sftpx.Local{}, dst, haltingFS{after: 4096}, src, nil)
+	err := sftpx.Copy(context.Background(), sftpx.Local{}, dst, haltingFS{after: 4096}, src, nil)
 	if err == nil {
 		t.Fatal("the transfer was supposed to fail")
 	}
@@ -83,7 +84,7 @@ func TestAFailedTransferLeavesNothingBehind(t *testing.T) {
 	dst := filepath.Join(dir, "new.bin")
 	write(t, src, bytes.Repeat([]byte("x"), 200_000))
 
-	if err := sftpx.Copy(sftpx.Local{}, dst, haltingFS{after: 4096}, src, nil); err == nil {
+	if err := sftpx.Copy(context.Background(), sftpx.Local{}, dst, haltingFS{after: 4096}, src, nil); err == nil {
 		t.Fatal("the transfer was supposed to fail")
 	}
 	for _, p := range []string{dst, dst + sftpx.PartialSuffix} {
@@ -105,7 +106,7 @@ func TestATransferThatWorksLandsCompletely(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := sftpx.Copy(sftpx.Local{}, dst, sftpx.Local{}, src, nil); err != nil {
+	if err := sftpx.Copy(context.Background(), sftpx.Local{}, dst, sftpx.Local{}, src, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -150,7 +151,7 @@ func TestProgressIsReportedBeforeAnythingIsWritten(t *testing.T) {
 
 	var calls int
 	var first, last [2]int64
-	err := sftpx.Copy(sftpx.Local{}, filepath.Join(dir, "out"), sftpx.Local{}, src,
+	err := sftpx.Copy(context.Background(), sftpx.Local{}, filepath.Join(dir, "out"), sftpx.Local{}, src,
 		func(done, total int64) {
 			if calls == 0 {
 				first = [2]int64{done, total}
@@ -192,7 +193,7 @@ func TestADirectoryCopyTakesTheWholeTree(t *testing.T) {
 	src, dst := filepath.Join(dir, "docs"), filepath.Join(dir, "copy")
 	mkTree(t, src)
 
-	res, err := sftpx.CopyDir(sftpx.Local{}, dst, sftpx.Local{}, src, nil)
+	res, err := sftpx.CopyDir(context.Background(), sftpx.Local{}, dst, sftpx.Local{}, src, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,7 +229,7 @@ func TestADirectoryCopyDoesNotFollowALinkBackUpTheTree(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	res, err := sftpx.CopyDir(sftpx.Local{}, dst, sftpx.Local{}, src, nil)
+	res, err := sftpx.CopyDir(context.Background(), sftpx.Local{}, dst, sftpx.Local{}, src, nil)
 	if err != nil {
 		t.Fatalf("a link pointing upwards stopped the copy: %v", err)
 	}
@@ -249,7 +250,7 @@ func TestADirectoryCopyFollowsALinkToAFile(t *testing.T) {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
 
-	res, err := sftpx.CopyDir(sftpx.Local{}, dst, sftpx.Local{}, src, nil)
+	res, err := sftpx.CopyDir(context.Background(), sftpx.Local{}, dst, sftpx.Local{}, src, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -277,7 +278,7 @@ func TestADirectoryCopyMergesWithWhatIsAlreadyThere(t *testing.T) {
 	write(t, filepath.Join(dst, "readme.txt"), []byte("the old one"))
 	write(t, filepath.Join(dst, "theirs.txt"), []byte("not ours"))
 
-	if _, err := sftpx.CopyDir(sftpx.Local{}, dst, sftpx.Local{}, src, nil); err != nil {
+	if _, err := sftpx.CopyDir(context.Background(), sftpx.Local{}, dst, sftpx.Local{}, src, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -297,7 +298,7 @@ func TestADirectoryCopyThatFailsSaysWhereItStopped(t *testing.T) {
 	mkTree(t, src)
 
 	// Small files go through; the 5000-byte one does not.
-	res, err := sftpx.CopyDir(sftpx.Local{}, dst, haltingFS{after: 10}, src, nil)
+	res, err := sftpx.CopyDir(context.Background(), sftpx.Local{}, dst, haltingFS{after: 10}, src, nil)
 	if err == nil {
 		t.Fatal("the copy was supposed to fail")
 	}
@@ -319,7 +320,7 @@ func TestADirectoryCopyReportsEachFileByItsPlaceInTheTree(t *testing.T) {
 	mkTree(t, src)
 
 	seen := map[string]bool{}
-	if _, err := sftpx.CopyDir(sftpx.Local{}, dst, sftpx.Local{}, src,
+	if _, err := sftpx.CopyDir(context.Background(), sftpx.Local{}, dst, sftpx.Local{}, src,
 		func(rel string, done, total int64) { seen[rel] = true }); err != nil {
 		t.Fatal(err)
 	}
@@ -358,7 +359,7 @@ func TestADirectoryCopyFillsAReadOnlyDirectoryBeforeSealingIt(t *testing.T) {
 	// cannot remove what it is not allowed to write into.
 	t.Cleanup(func() { os.Chmod(src, 0o755); os.Chmod(dst, 0o755) })
 
-	res, err := sftpx.CopyDir(sftpx.Local{}, dst, sftpx.Local{}, src, nil)
+	res, err := sftpx.CopyDir(context.Background(), sftpx.Local{}, dst, sftpx.Local{}, src, nil)
 	if err != nil {
 		t.Fatalf("a read-only source directory stopped the copy: %v", err)
 	}
@@ -381,11 +382,98 @@ func TestCopyRefusesADirectoryRecognisably(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := sftpx.Copy(sftpx.Local{}, filepath.Join(dir, "out"), sftpx.Local{}, src, nil)
+	err := sftpx.Copy(context.Background(), sftpx.Local{}, filepath.Join(dir, "out"), sftpx.Local{}, src, nil)
 	if !errors.Is(err, sftpx.ErrIsDirectory) {
 		t.Errorf("err = %v, want it to say it is a directory", err)
 	}
 	if got := err.Error(); got != "adir is a directory" {
 		t.Errorf("err = %q, want it still to read as it did", got)
+	}
+}
+
+// A copy told to stop leaves the destination as it was.
+//
+// The part-file dance is what makes this true for nothing extra: the stop runs
+// back out through the same cleanup a broken transfer takes, so being called
+// off costs the destination no more than a connection dropping would.
+func TestAStoppedCopyLeavesTheDestinationAlone(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "payload.bin"), filepath.Join(dir, "existing.bin")
+	write(t, src, bytes.Repeat([]byte("x"), 200_000))
+	write(t, dst, []byte(wasThere))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Called off once the transfer is properly under way, which is the case
+	// worth covering: a file part-written is where the old destination used to
+	// be lost.
+	err := sftpx.Copy(ctx, sftpx.Local{}, dst, sftpx.Local{}, src, func(done, total int64) {
+		if done > 0 {
+			cancel()
+		}
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want it to say it was called off", err)
+	}
+
+	if got, rerr := os.ReadFile(dst); rerr != nil || string(got) != wasThere {
+		t.Errorf("the destination is now %q (%v)", got, rerr)
+	}
+	if _, err := os.Stat(dst + sftpx.PartialSuffix); !os.IsNotExist(err) {
+		t.Errorf("a half-written file was left beside the destination")
+	}
+}
+
+// A tree told to stop stops, and says what it had already moved.
+//
+// Those files are on the far side and nothing puts them back, so the count is
+// the only way anyone would know what is now there.
+func TestAStoppedDirectoryCopyReportsWhatItMoved(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "docs"), filepath.Join(dir, "copy")
+	mkTree(t, src)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	seen := map[string]bool{}
+	res, err := sftpx.CopyDir(ctx, sftpx.Local{}, dst, sftpx.Local{}, src,
+		func(rel string, done, total int64) {
+			seen[rel] = true
+			// Once a second file has been reached, the first is done with.
+			if len(seen) == 2 {
+				cancel()
+			}
+		})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want it to say it was called off", err)
+	}
+	if res.Files < 1 {
+		t.Errorf("Files = %d, want the ones that went across before it stopped", res.Files)
+	}
+	if res.Files == 3 {
+		t.Errorf("the whole tree went across; it was supposed to stop partway")
+	}
+	// Not named as a file that would not copy: nothing went wrong with one.
+	if res.Failed != "" {
+		t.Errorf("Failed = %q, want nothing blamed for a copy that was called off", res.Failed)
+	}
+	// The last file in the walk never came up at all.
+	if _, err := os.Stat(filepath.Join(dst, "readme.txt")); !os.IsNotExist(err) {
+		t.Errorf("it went on to the files after the one it stopped on")
+	}
+}
+
+// A copy called off before it begins does not begin.
+func TestACopyCalledOffBeforeItStartsMovesNothing(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "payload.bin"), filepath.Join(dir, "out.bin")
+	write(t, src, []byte("body"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if err := sftpx.Copy(ctx, sftpx.Local{}, dst, sftpx.Local{}, src, nil); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want it to say it was called off", err)
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Errorf("something was written for a copy that never should have started")
 	}
 }

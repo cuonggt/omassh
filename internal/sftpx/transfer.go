@@ -1,6 +1,7 @@
 package sftpx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -20,8 +21,10 @@ type Progress func(done, total int64)
 // refusal apart from a transfer that actually went wrong.
 var ErrIsDirectory = errors.New("is a directory")
 
-// progressWriter counts bytes on their way through.
+// progressWriter counts bytes on their way through, and is where a transfer
+// finds out it has been told to stop.
 type progressWriter struct {
+	ctx   context.Context
 	w     io.Writer
 	done  int64
 	total int64
@@ -29,6 +32,15 @@ type progressWriter struct {
 }
 
 func (p *progressWriter) Write(b []byte) (int, error) {
+	// Here because it is the one place a transfer passes through often enough
+	// to notice: io.Copy hands over a chunk at a time, so a copy told to stop
+	// stops within a chunk of being told. Refusing the write rather than
+	// closing anything, so that the failure runs back out through Copy's own
+	// cleanup and takes the part file with it — a transfer that was stopped
+	// leaves no more behind than one that broke.
+	if err := p.ctx.Err(); err != nil {
+		return 0, err
+	}
 	n, err := p.w.Write(b)
 	p.done += int64(n)
 	if p.fn != nil {
@@ -39,7 +51,10 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 
 // Copy transfers one file between two filesystems. Either side may be local or
 // remote, so the same call handles upload and download.
-func Copy(dst FS, dstPath string, src FS, srcPath string, fn Progress) error {
+func Copy(ctx context.Context, dst FS, dstPath string, src FS, srcPath string, fn Progress) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	info, err := src.Stat(srcPath)
 	if err != nil {
 		return err
@@ -66,7 +81,7 @@ func Copy(dst FS, dstPath string, src FS, srcPath string, fn Progress) error {
 		return err
 	}
 
-	pw := &progressWriter{w: w, total: info.Size, fn: fn}
+	pw := &progressWriter{ctx: ctx, w: w, total: info.Size, fn: fn}
 	// Once before anything is written, so the size being moved is known from
 	// the start rather than after the first chunk — and is known at all for a
 	// file with no chunks in it. A caller that shows progress has something to
@@ -134,13 +149,13 @@ type DirResult struct {
 // as a whole does not, and cannot: a copy that fails halfway leaves behind
 // what it had already written, which is why Failed says where it stopped
 // rather than pretending nothing happened.
-func CopyDir(dst FS, dstPath string, src FS, srcPath string, fn DirProgress) (DirResult, error) {
+func CopyDir(ctx context.Context, dst FS, dstPath string, src FS, srcPath string, fn DirProgress) (DirResult, error) {
 	var r DirResult
-	err := copyTree(dst, dstPath, src, srcPath, "", fn, &r)
+	err := copyTree(ctx, dst, dstPath, src, srcPath, "", fn, &r)
 	return r, err
 }
 
-func copyTree(dst FS, dstDir string, src FS, srcDir, rel string, fn DirProgress, r *DirResult) error {
+func copyTree(ctx context.Context, dst FS, dstDir string, src FS, srcDir, rel string, fn DirProgress, r *DirResult) error {
 	info, err := dst.Stat(dstDir)
 	switch {
 	case err != nil:
@@ -163,13 +178,23 @@ func copyTree(dst FS, dstDir string, src FS, srcDir, rel string, fn DirProgress,
 		return err
 	}
 	for _, e := range entries {
+		// Between the files as well as inside them. A tree of small files is
+		// thousands of copies that each finish before the writer ever looks,
+		// and one told to stop should not go on to the next thousand.
+		//
+		// Failed is left alone: this is not a file that would not copy, it is a
+		// copy that was called off, and naming a file here would report the one
+		// that was next in line as the one that went wrong.
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		s, d := src.Join(srcDir, e.Name), dst.Join(dstDir, e.Name)
 		// Slash-separated whatever either side uses locally: this is the name
 		// the copy reports itself by, not a path anything opens.
 		child := path.Join(rel, e.Name)
 
 		if e.IsDir {
-			if err := copyTree(dst, d, src, s, child, fn, r); err != nil {
+			if err := copyTree(ctx, dst, d, src, s, child, fn, r); err != nil {
 				return err // whatever it stopped on is already recorded
 			}
 			continue
@@ -179,7 +204,7 @@ func copyTree(dst FS, dstDir string, src FS, srcDir, rel string, fn DirProgress,
 		// listing reports a link's own size — the length of the path in it —
 		// while the copy follows it and moves the file it names.
 		moved := e.Size
-		err := Copy(dst, d, src, s, func(done, total int64) {
+		err := Copy(ctx, dst, d, src, s, func(done, total int64) {
 			moved = total
 			if fn != nil {
 				fn(child, done, total)
@@ -189,7 +214,12 @@ func copyTree(dst FS, dstDir string, src FS, srcDir, rel string, fn DirProgress,
 		case errors.Is(err, ErrIsDirectory):
 			r.Skipped++
 		case err != nil:
-			r.Failed = child
+			// Unless the copy was called off, in which case this is simply the
+			// file that happened to be moving at the time. Blaming it would
+			// report somebody changing their mind as a file that would not copy.
+			if ctx.Err() == nil {
+				r.Failed = child
+			}
 			return err
 		default:
 			r.Files++

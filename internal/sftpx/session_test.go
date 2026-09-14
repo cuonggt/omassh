@@ -1,6 +1,7 @@
 package sftpx_test
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -194,7 +195,7 @@ func TestSFTPOverSSHSubsystem(t *testing.T) {
 		dst := filepath.Join(local, "downloaded.bin")
 		var calls int
 		var lastDone, lastTotal int64
-		err := sftpx.Copy(sftpx.Local{}, dst, sess, src, func(done, total int64) {
+		err := sftpx.Copy(context.Background(), sftpx.Local{}, dst, sess, src, func(done, total int64) {
 			calls++
 			lastDone, lastTotal = done, total
 		})
@@ -218,7 +219,7 @@ func TestSFTPOverSSHSubsystem(t *testing.T) {
 		os.WriteFile(src, []byte("upward"), 0o644)
 
 		dst := filepath.Join(work, "uploaded.txt")
-		if err := sftpx.Copy(sess, dst, sftpx.Local{}, src, nil); err != nil {
+		if err := sftpx.Copy(context.Background(), sess, dst, sftpx.Local{}, src, nil); err != nil {
 			t.Fatalf("Copy up: %v", err)
 		}
 		got, err := os.ReadFile(dst)
@@ -228,7 +229,7 @@ func TestSFTPOverSSHSubsystem(t *testing.T) {
 	})
 
 	t.Run("refuses to copy a directory", func(t *testing.T) {
-		err := sftpx.Copy(sftpx.Local{}, filepath.Join(local, "x"), sess, filepath.Join(work, "adir"), nil)
+		err := sftpx.Copy(context.Background(), sftpx.Local{}, filepath.Join(local, "x"), sess, filepath.Join(work, "adir"), nil)
 		if err == nil {
 			t.Error("Copy accepted a directory")
 		}
@@ -461,7 +462,7 @@ func TestAFailureTheProtocolWillNotExplainIsSaidInWords(t *testing.T) {
 	}
 	defer l.Close()
 
-	err = sftpx.Copy(sftpx.Local{}, filepath.Join(dir, "out"), sess, sock, nil)
+	err = sftpx.Copy(context.Background(), sftpx.Local{}, filepath.Join(dir, "out"), sess, sock, nil)
 	if err == nil {
 		t.Fatal("copying a socket worked, so there is nothing to say about it")
 	}
@@ -495,7 +496,7 @@ func TestTheMappedFailuresKeepTheirOwnWords(t *testing.T) {
 		{"not there", filepath.Join(dir, "nope"), "file does not exist"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := sftpx.Copy(sftpx.Local{}, filepath.Join(dir, "out"), sess, tc.path, nil)
+			err := sftpx.Copy(context.Background(), sftpx.Local{}, filepath.Join(dir, "out"), sess, tc.path, nil)
 			if err == nil {
 				t.Fatal("it worked")
 			}

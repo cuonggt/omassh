@@ -2,6 +2,7 @@ package sftpx_test
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -66,7 +67,7 @@ func TestATransferIsNeverSeenHalfWritten(t *testing.T) {
 		}
 	}()
 
-	if err := sftpx.Copy(sess, dst, sftpx.Local{}, src, func(int64, int64) {}); err != nil {
+	if err := sftpx.Copy(context.Background(), sess, dst, sftpx.Local{}, src, func(int64, int64) {}); err != nil {
 		t.Fatal(err)
 	}
 	close(stop)
