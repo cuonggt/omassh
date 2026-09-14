@@ -47,11 +47,11 @@ changelog:
   # across the line, and left the release notes reading as a column of hex with
   # the sentences trailing off it — the subject is the half anyone reads.
   abbrev: 7
-  filters:
-    exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
+  # No filters. The ones that were here excluded ^docs:, ^test: and ^chore: —
+  # conventional-commit prefixes, which this log has never used. They matched
+  # nothing on any release ever cut, while quietly advertising a convention the
+  # project does not follow. A subject here is written to be worth reading, so
+  # there is nothing to hold back.
 
 # Requires a github.com/cuonggt/homebrew-tap repository to push to.
 # Casks rather than formulas: Homebrew expects pre-built binaries to ship as
