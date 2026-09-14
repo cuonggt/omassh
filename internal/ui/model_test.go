@@ -1355,6 +1355,26 @@ func TestAnSFTPDialogIsDrawnOverTheFileBrowser(t *testing.T) {
 	h.mustNotContain("Groups")
 }
 
+// A dialog quietens the hint row, but a transfer still reports under one.
+//
+// The row is the browser's key list, and behind a dialog it went on offering
+// "d delete · q close" one line above a status bar answering "y confirm · n
+// cancel" — the same key, two meanings. Progress is not a key list: it is the
+// browser still working, and it has to survive being asked a question.
+func TestADialogQuietensTheHintRowButNotATransfer(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+	h.mustContain("mkdir") // the keys, with nothing over them
+
+	h.press("d")
+	h.mustContain("Delete p1-file-00 on fake?")
+	h.mustNotContain("mkdir")
+
+	h.send(transferMsg{name: "big.iso", done: 512, total: 1024})
+	h.mustContain("Delete p1-file-00 on fake?")
+	h.mustContain("big.iso")
+	h.mustContain("50%")
+}
+
 // Clicking a file selects it, and focuses the pane it is in.
 func TestClickSelectsAFileAndItsPane(t *testing.T) {
 	h := sftpHarness(t, 20, 20)

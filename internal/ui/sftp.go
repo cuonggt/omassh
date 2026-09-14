@@ -477,7 +477,16 @@ func (m Model) transferStrip() string {
 	// in this view: the status bar shows just the status here, because the two
 	// were saying nearly the same thing in different words, and neither said
 	// all of it.
+	//
+	// Under a dialog the row goes quiet instead. The browser is still drawn
+	// behind one, and the keys went on offering "d delete · q close" a line
+	// above a status bar answering "y confirm · n cancel" — the same press,
+	// two meanings, and only the dialog's was true. A transfer is not a key
+	// list: it is the browser still working, so it goes on reporting below.
 	if m.transfer.name == "" {
+		if m.mode != modeSFTP {
+			return ""
+		}
 		return theme.Dim.Render(" " + ansi.Truncate(
 			"tab/⇧tab pane · ↵ open · - up · c copy · m mkdir · r rename · M chmod · d delete · q close",
 			m.w-1, "…"))
