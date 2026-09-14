@@ -45,6 +45,42 @@ func TestOnlyTheLastLineOfSshsOutputIsTheReason(t *testing.T) {
 	}
 }
 
+// A host whose sshd serves no sftp says so, rather than naming a channel.
+//
+// ssh answers this with "subsystem request failed on channel 0", which went
+// straight to the bar: the channel is bookkeeping inside a protocol the person
+// pressing s never asked about, and the line never says that the far side has
+// no sftp to give, nor that the fix is on that machine and not this one.
+func TestAHostWithNoSftpSaysSoRatherThanNamingAChannel(t *testing.T) {
+	got := connectError(errors.New("EOF"), "subsystem request failed on channel 0").Error()
+
+	if strings.Contains(got, "channel") {
+		t.Errorf("the channel is still in the message: %q", got)
+	}
+	if !strings.Contains(got, "sftp is not enabled") {
+		t.Errorf("the message does not say what is wrong: %q", got)
+	}
+	if !strings.Contains(got, "sshd_config") {
+		t.Errorf("the message does not say what to do about it: %q", got)
+	}
+	// One row of a 100-column bar, like the refusal beside it.
+	if n := len([]rune(got)); n > 100 {
+		t.Errorf("the message is %d cells, which a 100-column bar would cut: %q", n, got)
+	}
+}
+
+// The answer counts wherever ssh puts it. Taking the last line alone would let
+// anything printed afterwards — a connection closing — bury it.
+func TestTheMissingSubsystemIsFoundBehindALaterLine(t *testing.T) {
+	stderr := "subsystem request failed on channel 0\n" +
+		"Connection to 10.0.0.1 closed.\n"
+	got := connectError(errors.New("EOF"), stderr).Error()
+
+	if !strings.Contains(got, "sftp is not enabled") {
+		t.Errorf("a later line hid the reason: %q", got)
+	}
+}
+
 // BatchMode is what stops an sftp connection stopping at a prompt nobody can
 // answer: the child's stdin is carrying the protocol. ssh keeps the first
 // value it is given, so a single `-o BatchMode=no` handed to omassh itself

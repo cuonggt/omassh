@@ -92,10 +92,27 @@ func Connect(h store.Host, opts ...string) (*Session, error) {
 // connectError turns ssh's own diagnostics into the message, since "EOF" from
 // the SFTP handshake says nothing about why the connection failed.
 func connectError(err error, stderr string) error {
-	msg := strings.TrimSpace(stderr)
-	if msg == "" {
+	full := strings.TrimSpace(stderr)
+	if full == "" {
 		return fmt.Errorf("sftp: %w", err)
 	}
+
+	// ssh names the channel it asked on — "subsystem request failed on channel
+	// 0" — and that went to the bar whole, in front of someone who had just
+	// pressed one key to look at some files. The channel is bookkeeping inside
+	// a protocol they never asked about, and the sentence never says the one
+	// thing worth knowing: sshd on the far side has no sftp to hand out. Nor is
+	// there anything to do about it here — the line that fixes it is in that
+	// machine's config.
+	//
+	// Matched against everything ssh said rather than the last line alone: this
+	// is a definite answer wherever it turns up, and a line printed after it —
+	// a connection closing, say — would otherwise bury it.
+	if strings.Contains(full, "subsystem request failed") {
+		return errors.New("sftp is not enabled on this host — add Subsystem sftp to its sshd_config")
+	}
+
+	msg := full
 	if i := strings.LastIndex(msg, "\n"); i >= 0 {
 		msg = strings.TrimSpace(msg[i+1:])
 	}
