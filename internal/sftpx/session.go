@@ -180,8 +180,17 @@ func (s *Session) List(dir string) ([]Entry, error) {
 
 // Remove deletes a file, or a directory and everything beneath it. SFTP has no
 // recursive delete, so the walk happens here.
+//
+// By Lstat rather than Stat, because a symlink is a name and deleting one has
+// to delete the name rather than what it points at. Following it was quiet and
+// expensive: deleting a link to a directory emptied that directory, and
+// deleting a directory that merely *contained* such a link destroyed
+// everything on the far side of it — files outside the thing being deleted,
+// that nobody had selected, while the confirmation said "this cannot be
+// undone" about what the listing had shown as a single file. The local pane
+// has never done this; os.RemoveAll does not follow one either.
 func (s *Session) Remove(p string) error {
-	fi, err := s.client.Stat(p)
+	fi, err := s.client.Lstat(p)
 	if err != nil {
 		return err
 	}

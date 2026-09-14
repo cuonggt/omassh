@@ -328,3 +328,108 @@ func TestProblemLeavesSuccessAlone(t *testing.T) {
 		t.Errorf("Problem turned success into %v", err)
 	}
 }
+
+// Deleting a symlink deletes the name, not what it points at.
+//
+// Following it was quiet and expensive. A link to a directory emptied that
+// directory, and a directory that merely contained such a link took everything
+// on the far side of it with it: files outside the thing being deleted, that
+// nobody had selected, while the confirmation said "this cannot be undone"
+// about what the listing had shown as one file. The local pane has never done
+// this, so the same keystroke destroyed different things depending on which
+// side of the browser it was pressed on.
+func TestDeletingALinkDeletesTheLink(t *testing.T) {
+	t.Run("a link to a directory", func(t *testing.T) {
+		sess, dir := connect(t)
+		defer sess.Close()
+
+		target := filepath.Join(dir, "important")
+		if err := os.Mkdir(target, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range []string{"a.txt", "b.txt"} {
+			if err := os.WriteFile(filepath.Join(target, n), []byte("keep me"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		link := filepath.Join(dir, "shortcut")
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("no symlinks here: %v", err)
+		}
+
+		if err := sess.Remove(link); err != nil {
+			t.Fatalf("Remove: %v", err)
+		}
+		if _, err := os.Lstat(link); err == nil {
+			t.Error("the link is still there")
+		}
+		entries, err := os.ReadDir(target)
+		if err != nil {
+			t.Fatalf("the directory it pointed at is gone: %v", err)
+		}
+		if len(entries) != 2 {
+			t.Errorf("deleting the link took %d of the 2 files it pointed at", 2-len(entries))
+		}
+	})
+
+	t.Run("a directory holding a link to somewhere else", func(t *testing.T) {
+		sess, dir := connect(t)
+		defer sess.Close()
+
+		outside := filepath.Join(dir, "elsewhere")
+		if err := os.Mkdir(outside, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range []string{"keep-1", "keep-2", "keep-3"} {
+			if err := os.WriteFile(filepath.Join(outside, n), []byte("important"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		junk := filepath.Join(dir, "junk")
+		if err := os.Mkdir(junk, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(junk, "scratch"), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(junk, "link")); err != nil {
+			t.Skipf("no symlinks here: %v", err)
+		}
+
+		if err := sess.Remove(junk); err != nil {
+			t.Fatalf("Remove: %v", err)
+		}
+		if _, err := os.Stat(junk); err == nil {
+			t.Error("the directory that was asked for is still there")
+		}
+		entries, err := os.ReadDir(outside)
+		if err != nil {
+			t.Fatalf("the directory outside is gone entirely: %v", err)
+		}
+		if len(entries) != 3 {
+			t.Errorf("deleting junk/ destroyed %d of the 3 files in elsewhere/", 3-len(entries))
+		}
+	})
+
+	// And a real directory still goes, with everything in it.
+	t.Run("a directory with things in it", func(t *testing.T) {
+		sess, dir := connect(t)
+		defer sess.Close()
+
+		d := filepath.Join(dir, "tree")
+		if err := os.MkdirAll(filepath.Join(d, "sub"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		for _, n := range []string{"one", "sub/two"} {
+			if err := os.WriteFile(filepath.Join(d, n), []byte("x"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := sess.Remove(d); err != nil {
+			t.Fatalf("Remove: %v", err)
+		}
+		if _, err := os.Stat(d); err == nil {
+			t.Error("the directory is still there")
+		}
+	})
+}
