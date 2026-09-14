@@ -204,6 +204,28 @@ func (m Model) handleSFTPKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// nameProblem says why something typed into a name field is not a name.
+//
+// These dialogs promise where they are putting things — "New directory in
+// /srv/app" — and a name holding a path broke that promise without saying so:
+// "../logs" made the directory beside the one on screen, and renaming a file
+// to one moved it out of the listing, which then reloaded without it and
+// without a word about where it had gone. A name with a slash anywhere in it
+// got as far as the server and came back "file does not exist", which is true
+// of a directory nobody asked for and says nothing about the name that did.
+//
+// Only the separator: every other character is a legal filename on the far
+// side, whatever this side would make of it.
+func nameProblem(name string) string {
+	switch {
+	case strings.Contains(name, "/"):
+		return "is a path, not a name — it would put this somewhere else"
+	case name == "." || name == "..":
+		return "is not a name"
+	}
+	return ""
+}
+
 // --- actions -----------------------------------------------------------
 
 // copySelected transfers the highlighted file to the other pane's directory.
@@ -312,6 +334,12 @@ func (m Model) saveFileForm() (tea.Model, tea.Cmd) {
 	if name == "" {
 		f.problem = "a name is required"
 		return m, nil
+	}
+	if f.kind != formChmod {
+		if problem := nameProblem(name); problem != "" {
+			f.problem = strconv.Quote(name) + " " + problem
+			return m, nil
+		}
 	}
 
 	var err error

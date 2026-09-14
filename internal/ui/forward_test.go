@@ -1650,3 +1650,100 @@ func drainTransfer(h *harness) transferMsg {
 		return transferMsg{}
 	}
 }
+
+// A name field takes a name. These dialogs promise where they are putting
+// things — "New directory in /srv/app" — and a name holding a path broke that
+// promise without saying so: "../logs" made the directory beside the one on
+// screen, and renaming a file to one moved it out of the listing, which then
+// reloaded without it and without a word about where it had gone.
+func TestANameFieldWillNotTakeAPath(t *testing.T) {
+	dir := t.TempDir()
+	work := filepath.Join(dir, "work")
+	if err := os.Mkdir(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "file.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	open := func(t *testing.T) *harness {
+		h := newHarness(t)
+		h.m.mode = modeSFTP
+		h.m.panes = [2]filePane{{fs: sftpx.Local{}, path: work}, {fs: fakeFS{}}}
+		h.m.panes[0].reload()
+		h.m.paneFocus = 0
+		return h
+	}
+
+	for _, tc := range []struct{ key, typed, escapes string }{
+		{"m", "../escaped", "escaped"},     // a directory beside this one
+		{"m", "sub/deeper", ""},            // not a name either
+		{"m", "..", ""},                    // nor this
+		{"r", "../moved.txt", "moved.txt"}, // a file out of the listing
+	} {
+		t.Run(tc.key+" "+tc.typed, func(t *testing.T) {
+			h := open(t)
+			h.press(tc.key)
+			if h.m.mode != modeForm {
+				t.Fatalf("%q did not open a form", tc.key)
+			}
+			// Clear whatever the form prefilled, then type the path.
+			for range 40 {
+				h.press("backspace")
+			}
+			h.type_(tc.typed)
+			h.press("enter")
+
+			if h.m.mode != modeForm {
+				t.Fatalf("the form closed, so %q was accepted", tc.typed)
+			}
+			if got := h.m.form.problem; !strings.Contains(got, "not a name") {
+				t.Errorf("the form says %q", got)
+			}
+			if tc.escapes != "" {
+				if _, err := os.Stat(filepath.Join(dir, tc.escapes)); err == nil {
+					t.Errorf("%q appeared outside the directory being browsed", tc.escapes)
+				}
+			}
+			// And the file is where it was.
+			if _, err := os.Stat(filepath.Join(work, "file.txt")); err != nil {
+				t.Errorf("the file left the directory: %v", err)
+			}
+		})
+	}
+
+	// The mode field is not a name field, and says so in its own words: a
+	// mode with a slash in it is a mode typed wrong, not a path.
+	t.Run("the mode field keeps its own message", func(t *testing.T) {
+		h := open(t)
+		h.press("M")
+		if h.m.mode != modeForm {
+			t.Fatal("M did not open the permissions form")
+		}
+		for range 40 {
+			h.press("backspace")
+		}
+		h.type_("6/4")
+		h.press("enter")
+		if got := h.m.form.problem; !strings.Contains(got, "octal") {
+			t.Errorf("the form says %q, want it to talk about the mode", got)
+		}
+	})
+
+	// An ordinary name still works.
+	t.Run("an ordinary name", func(t *testing.T) {
+		h := open(t)
+		h.press("m")
+		for range 40 {
+			h.press("backspace")
+		}
+		h.type_("docs")
+		h.press("enter")
+		if h.m.mode != modeSFTP {
+			t.Fatalf("a plain name was refused: %q", h.m.form.problem)
+		}
+		if _, err := os.Stat(filepath.Join(work, "docs")); err != nil {
+			t.Errorf("the directory was not made: %v", err)
+		}
+	})
+}
