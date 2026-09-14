@@ -1747,3 +1747,74 @@ func TestANameFieldWillNotTakeAPath(t *testing.T) {
 		}
 	})
 }
+
+// Copying several files in a row overlaps them, and their messages arrive in
+// whatever order the transfers finish. One that worked used to clear the bar
+// outright — wiping the reason another had just reported, which the strip
+// could not hold either, having been taken over by the later transfer. The
+// failure then left no trace anywhere.
+func TestATransferThatWorksDoesNotWipeAnothersFailure(t *testing.T) {
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: fakeFS{}}, {fs: fakeFS{}}}
+
+	// As the program loop sees them: one transfer reports a failure, and a
+	// second, still in flight when it did, finishes successfully afterwards.
+	h.send(transferMsg{name: "secret.bin", err: os.ErrPermission, finished: true, dst: 1})
+	if got := lastLine(h.screen()); !strings.Contains(got, "permission denied") {
+		t.Fatalf("the failure was not reported: %q", got)
+	}
+	h.send(transferMsg{name: "report.csv", finished: true, total: 4096, done: 4096, dst: 1})
+
+	if got := lastLine(h.screen()); !strings.Contains(got, "permission denied") {
+		t.Errorf("the failure is gone from the bar: %q", got)
+	}
+	if got := h.screen(); !strings.Contains(got, "copied") {
+		t.Errorf("the transfer that worked is not reported either")
+	}
+}
+
+// A file error arrives wrapped in the path it was about, and the bar keeps the
+// subject separately — so left in, the reason came after a whole absolute path
+// and was the half that truncation threw away, leaving a row that said which
+// file and not what went wrong.
+func TestAFailedTransferSaysWhatWentWrongRatherThanWhere(t *testing.T) {
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: fakeFS{}}, {fs: fakeFS{}}}
+
+	// Exactly what a copy off a local disk hands back.
+	wrapped := &os.PathError{
+		Op:   "open",
+		Path: "/Users/someone/very/long/path/that/fills/the/bar/report.csv",
+		Err:  os.ErrPermission,
+	}
+	h.send(transferMsg{name: "report.csv", err: wrapped, finished: true, dst: 1})
+
+	for _, line := range []string{lastLine(h.screen()), h.m.transferStrip()} {
+		if !strings.Contains(line, "permission denied") {
+			t.Errorf("%q does not say what went wrong", line)
+		}
+		if strings.Contains(line, "/very/long/path") {
+			t.Errorf("%q carries the path Go wrapped around it", line)
+		}
+	}
+	// The subject is kept, just not inside the reason.
+	if h.m.statusCtx != "report.csv" {
+		t.Errorf("statusCtx = %q, want the file it was about", h.m.statusCtx)
+	}
+}
+
+// And a transfer that worked on its own still clears the "copying…" it put
+// there, rather than leaving the bar claiming it is still going.
+func TestATransferThatWorksClearsItsOwnMessage(t *testing.T) {
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: fakeFS{}}, {fs: fakeFS{}}}
+
+	h.m.setStatus("copying report.csv → fake")
+	h.send(transferMsg{name: "report.csv", finished: true, total: 4096, done: 4096, dst: 1})
+	if strings.Contains(h.m.status, "copying") {
+		t.Errorf("the bar still says %q", h.m.status)
+	}
+}

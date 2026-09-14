@@ -211,8 +211,14 @@ func (m *Model) setStatus(s string) {
 
 // setErrOf reports a failure along with what it was about, so a narrow bar can
 // keep the reason and let the subject go.
+//
+// Without the path Go wraps around a file error, because the subject is the
+// ctx and is already being kept separately: left in, the reason came after a
+// whole absolute path — "open /Users/…/from/a-secret.bin: permission denied" —
+// and truncation kept the path, leaving a bar that said which file and not
+// what went wrong, which is the thing splitting them exists to prevent.
 func (m *Model) setErrOf(ctx string, err error) {
-	m.status, m.statusCtx, m.failed = err.Error(), ctx, true
+	m.status, m.statusCtx, m.failed = bareError(err), ctx, true
 }
 
 // setStatusOf is the same for something that went right.
@@ -255,9 +261,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// started and nothing replaced it, so after a failure the strip
 			// said the transfer was refused while the row beneath it said the
 			// transfer was still going.
-			if msg.err != nil {
+			switch {
+			case msg.err != nil:
 				m.setErrOf(msg.name, msg.err)
-			} else {
+			case !m.failed:
+				// A transfer that worked clears the "copying…" it put there —
+				// but not a failure another one left: copying several files in
+				// a row overlaps them, and the one that worked wiped the
+				// reason the one that failed had reported. The strip cannot
+				// hold it either, having been taken over by the later
+				// transfer, so the failure left no trace anywhere.
 				m.setStatus("")
 			}
 		}

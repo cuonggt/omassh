@@ -488,7 +488,7 @@ func (m Model) transferStrip() string {
 		// The name only if it fits beside the reason. It is in the listing
 		// just above either way, and cut the other way round this row said
 		// which file and not what went wrong.
-		msg := t.err.Error()
+		msg := bareError(t.err)
 		if with := t.name + ": " + msg; ansi.StringWidth(with)+1 <= m.w {
 			msg = with
 		}
