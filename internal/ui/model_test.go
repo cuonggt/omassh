@@ -1334,6 +1334,27 @@ func TestSFTPShiftTabSwitchesPanes(t *testing.T) {
 	}
 }
 
+// A dialog opened in the file browser is drawn over the file browser.
+//
+// Opening one moves the mode off modeSFTP, and the backdrop was decided from
+// the mode alone — so every sftp dialog landed over the host list instead.
+// "Delete p1-file-00 on fake?" was asked over groups and hosts, with not one
+// of the files it was about left on screen to check it against.
+func TestAnSFTPDialogIsDrawnOverTheFileBrowser(t *testing.T) {
+	h := sftpHarness(t, 3, 3)
+
+	h.press("d")
+	h.mustContain("Delete p1-file-00 on fake?")
+	h.mustContain("p1-file-02") // the directory it asked about is still there
+	h.mustNotContain("Groups")
+
+	h.press("esc")
+	h.press("m")
+	h.mustContain("New directory in")
+	h.mustContain("p1-file-02")
+	h.mustNotContain("Groups")
+}
+
 // Clicking a file selects it, and focuses the pane it is in.
 func TestClickSelectsAFileAndItsPane(t *testing.T) {
 	h := sftpHarness(t, 20, 20)

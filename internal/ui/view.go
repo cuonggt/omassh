@@ -48,7 +48,8 @@ func (m Model) render() string {
 	}
 
 	// Help and the file browser are whole screens of their own; forms and
-	// confirmations are dialogs, and fall through to be drawn over the list.
+	// confirmations are dialogs, and fall through to be drawn over whichever of
+	// them they were opened from.
 	switch m.mode {
 	case modeHelp:
 		return box("Help", true, m.w, content, m.helpBody()) + "\n" + m.statusBar()
@@ -56,7 +57,7 @@ func (m Model) render() string {
 		return m.sftpView(content) + "\n" + m.statusBar()
 	}
 
-	body := m.browserBody(content)
+	body := m.backdrop(content)
 	if d, ok := m.dialog(content); ok {
 		dw := ansi.StringWidth(strings.Split(d, "\n")[0])
 		dh := strings.Count(d, "\n") + 1
@@ -64,6 +65,21 @@ func (m Model) render() string {
 		body = overlay(body, d, x, y)
 	}
 	return body + "\n" + m.statusBar()
+}
+
+// backdrop is the view a dialog is drawn over: the one it was opened from.
+//
+// Opening a dialog moves the mode off modeSFTP, so the file browser's own case
+// above stops matching while one is up, and every sftp dialog was drawn over
+// the host list instead — "Delete readme.txt on filebox?" asked over the
+// groups and hosts, with nothing of the directory it was about still in sight.
+// returnTo already records where esc goes back to, so the backdrop follows it
+// there rather than deciding a second time and disagreeing.
+func (m Model) backdrop(content int) string {
+	if m.returnTo == modeSFTP {
+		return m.sftpView(content)
+	}
+	return m.browserBody(content)
 }
 
 // dialogWidth is how wide a modal is drawn.
