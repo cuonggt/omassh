@@ -60,6 +60,14 @@ func Copy(dst FS, dstPath string, src FS, srcPath string, fn Progress) error {
 	}
 
 	pw := &progressWriter{w: w, total: info.Size, fn: fn}
+	// Once before anything is written, so the size being moved is known from
+	// the start rather than after the first chunk — and is known at all for a
+	// file with no chunks in it. A caller that shows progress has something to
+	// show immediately, and one that reports what it moved is not left with
+	// whatever it guessed beforehand.
+	if fn != nil {
+		fn(0, info.Size)
+	}
 	if _, err := io.Copy(pw, r); err != nil {
 		w.Close()
 		dst.Remove(tmpPath)

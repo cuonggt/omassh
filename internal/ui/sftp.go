@@ -259,7 +259,14 @@ func (m Model) copier(e sftpx.Entry, src, dst *filePane) func() string {
 	return func() string {
 		go func() {
 			last := time.Now()
+			// What is actually being moved, which is not always what the row
+			// said: a listing reports a symlink's own size — the length of the
+			// path it holds — while a copy follows it and moves the file it
+			// names. So 3MB went across and the strip finished by announcing
+			// "copied 90B", having counted its way up to 3MB first.
+			moved := e.Size
 			err := sftpx.Copy(dstFS, dstPath, srcFS, srcPath, func(done, total int64) {
+				moved = total
 				// Throttle: a fast local copy would otherwise flood the UI
 				// with more messages than it can render.
 				if time.Since(last) < 100*time.Millisecond {
@@ -271,7 +278,7 @@ func (m Model) copier(e sftpx.Entry, src, dst *filePane) func() string {
 				default:
 				}
 			})
-			ch <- transferMsg{name: fromRemote(e.Name), err: err, finished: true, total: e.Size, done: e.Size, dst: dstPane}
+			ch <- transferMsg{name: fromRemote(e.Name), err: err, finished: true, total: moved, done: moved, dst: dstPane}
 		}()
 		return "copying " + fromRemote(e.Name) + " → " + dstFS.Label()
 	}

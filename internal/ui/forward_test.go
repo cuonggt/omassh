@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -1583,4 +1584,69 @@ func TestACopyToAFreeNameIsNotInterrupted(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Error("the file never arrived")
+}
+
+// What the transfer strip says was copied is what actually went across.
+//
+// A listing reports a symlink's own size — the length of the path it holds —
+// while a copy follows it and moves the file it names. So 3MB went across and
+// the strip finished by announcing "copied 90B", having counted its way up to
+// 3MB on the way there.
+func TestAFinishedTransferReportsWhatActuallyMoved(t *testing.T) {
+	dir := t.TempDir()
+	from, to := filepath.Join(dir, "from"), filepath.Join(dir, "to")
+	for _, d := range []string{from, to} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := bytes.Repeat([]byte("x"), 40_000)
+	real := filepath.Join(dir, "real.bin")
+	if err := os.WriteFile(real, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(from, "link.bin")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+
+	h := newHarness(t)
+	h.m.mode = modeSFTP
+	h.m.panes = [2]filePane{{fs: sftpx.Local{}, path: from}, {fs: sftpx.Local{}, path: to}}
+	h.m.panes[0].reload()
+	h.m.panes[1].reload()
+	h.m.paneFocus = 0
+
+	// The row says the link's own length, which is the number that used to be
+	// reported at the end.
+	listed := h.m.panes[0].entries[0]
+	if listed.Size >= int64(len(body)) {
+		t.Fatalf("the listing says %d bytes, so this proves nothing", listed.Size)
+	}
+
+	h.press("c")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if msg := drainTransfer(h); msg.finished {
+			if msg.total != int64(len(body)) {
+				t.Errorf("the strip reports %d bytes; %d went across", msg.total, len(body))
+			}
+			got, _ := os.ReadFile(filepath.Join(to, "link.bin"))
+			if len(got) != len(body) {
+				t.Errorf("%d bytes arrived, want %d", len(got), len(body))
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Error("the transfer never finished")
+}
+
+// drainTransfer takes the next transfer message, or an empty one.
+func drainTransfer(h *harness) transferMsg {
+	select {
+	case msg := <-h.m.transfers:
+		return msg
+	default:
+		return transferMsg{}
+	}
 }

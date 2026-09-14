@@ -131,3 +131,42 @@ func write(t *testing.T, p string, body []byte) {
 		t.Fatal(err)
 	}
 }
+
+// Progress is reported once before anything is written.
+//
+// A caller showing a bar has something to show immediately, and — the reason
+// it is here — one that reports what it moved is not left with whatever it
+// guessed beforehand. A file with nothing in it produces no writes and so no
+// progress at all, and the browser's guess is the size from the listing, which
+// for a symlink is the length of the path it holds rather than the size of the
+// file it names.
+func TestProgressIsReportedBeforeAnythingIsWritten(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "empty")
+	if err := os.WriteFile(src, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var calls int
+	var first, last [2]int64
+	err := sftpx.Copy(sftpx.Local{}, filepath.Join(dir, "out"), sftpx.Local{}, src,
+		func(done, total int64) {
+			if calls == 0 {
+				first = [2]int64{done, total}
+			}
+			last = [2]int64{done, total}
+			calls++
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls == 0 {
+		t.Fatal("nothing was reported for a file with no bytes in it")
+	}
+	if first != [2]int64{0, 0} {
+		t.Errorf("the first report is %v, want none of zero bytes", first)
+	}
+	if last[1] != 0 {
+		t.Errorf("the size reported is %d, want 0", last[1])
+	}
+}
