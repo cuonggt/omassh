@@ -288,13 +288,14 @@ nothing.
 
 A key the format does not have is named with its line, in the words of the
 file rather than of the program reading it — `"jump_host" is not something a
-host has — it takes name, addr, port, …`, with the keys read off the format so
-the list offered is the list accepted. An import reports the same `2 added, 0 updated` whether or not it
-understood every line, so `jump_host` where the field is `jump` would
-otherwise leave that host showing `via —` and nothing on screen to say a line
-was dropped — the mistake and the success read identically. More than one YAML
-document in the file is refused on the same grounds, since only the first
-would be imported; a file that merely opens with `---` is still one document.
+host has — it takes name, addr, port, …`, with the keys read off the format
+so the list offered is the list accepted. An import reports the same `2
+added, 0 updated` whether or not it understood every line, so `jump_host`
+where the field is `jump` would otherwise leave that host showing `via —`
+and nothing on screen to say a line was dropped — the mistake and the
+success read identically. More than one YAML document in the file is refused
+on the same grounds, since only the first would be imported; a file that
+merely opens with `---` is still one document.
 
 Forwarding rules travel with their host, nested under it, because a rule says
 how you work with a machine — "the database is on 5432 through there" — which
@@ -363,13 +364,14 @@ each setting: below a `Host *` of yours, every exported host would quietly
 take that block's user instead of its own.
 
 An alias your config already declares — in the file or in anything it
-`Include`s — is left exactly as it is and reported, never written over: import
-treats your config as a read-only source, and this keeps that promise from the
-other side. So is a host whose jump host will not be in the file, since writing
-it without one would dial a machine meant to sit behind a bastion. A host whose name ssh could not use as a destination is reported
-the same way rather than written; a name with a space in it is refused by ssh
-however it is quoted, and one holding `*` or `?` would be a pattern governing
-hosts Omassh knows nothing about.
+`Include`s — is left exactly as it is and reported, never written over:
+import treats your config as a read-only source, and this keeps that promise
+from the other side. So is a host whose jump host will not be in the file,
+since writing it without one would dial a machine meant to sit behind a
+bastion. A host whose name ssh could not use as a destination is reported
+the same way rather than written; a name with a space in it is refused by
+ssh however it is quoted, and one holding `*` or `?` would be a pattern
+governing hosts Omassh knows nothing about.
 
 Groups are flattened on the way out, since ssh config has no such thing: what
 a host inherits is written onto the host.
