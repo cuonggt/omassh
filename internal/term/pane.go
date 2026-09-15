@@ -186,12 +186,33 @@ func (p *Pane) SendKey(k tea.KeyPressMsg) {
 	p.em.SendKey(toUV(k))
 }
 
-// SendText writes a string to the session as literal input, which is what a
-// bracketed paste is: text the terminal delivers in one piece rather than as
-// key presses.
+// SendText writes a string to the session as literal input: text the terminal
+// delivers in one piece rather than as key presses.
 func (p *Pane) SendText(s string) {
 	p.ScrollToBottom()
 	p.em.SendText(s)
+}
+
+// Paste delivers text the way a terminal delivers a paste, which for anything
+// with a newline in it is a different thing from typing it.
+//
+// Typed, every line runs as it arrives: a four-line script becomes four
+// commands, and the first of them is often the one that makes the rest wrong.
+// Bracketing says "this arrived in one piece", and a shell that understands
+// bracketed paste — bash through readline, zsh, fish — puts the whole of it in
+// its edit buffer for the person to read and run themselves.
+//
+// A remote that has not asked for bracketed paste gets the text as it is,
+// which is also what a real terminal does: its shell then runs each line as it
+// arrives. Whether that is what happens cannot be known from here. The mode
+// belongs to the shell at the far end, and with tmux in between it is tmux's
+// own that reaches this emulator — tmux turns bracketed paste on for its
+// client whatever the pane is running, keeps the pane's real mode to itself,
+// and exposes no format variable holding it. A watcher on the output stream
+// was written, and it read tmux every time.
+func (p *Pane) Paste(s string) {
+	p.ScrollToBottom()
+	p.em.Paste(s)
 }
 
 // toUV converts a Bubble Tea key press to the ultraviolet event the emulator
