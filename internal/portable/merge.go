@@ -3,6 +3,7 @@ package portable
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/cuonggt/omassh/internal/store"
@@ -32,11 +33,12 @@ func (c Change) String() string {
 // applying it is what makes a dry run exactly the real thing rather than a
 // second implementation that predicts it.
 type Plan struct {
-	Groups    []store.Group
-	Hosts     []store.Host
-	Forwards  []store.Forward
-	Changes   []Change
-	Unchanged int
+	Credentials []store.Credential
+	Groups      []store.Group
+	Hosts       []store.Host
+	Forwards    []store.Forward
+	Changes     []Change
+	Unchanged   int
 }
 
 func (p Plan) Empty() bool { return len(p.Changes) == 0 }
@@ -64,7 +66,7 @@ func (p Plan) Counts() (added, updated int) {
 // ssh_config be imported twice without the second pass wiping a user or a tag
 // added here in between, and the cost is that a field cannot be cleared by
 // importing — which the interface does instead.
-func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []store.Forward) (Plan, error) {
+func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []store.Forward, creds []store.Credential) (Plan, error) {
 	if err := d.validate(); err != nil {
 		return Plan{}, err
 	}
@@ -74,6 +76,47 @@ func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []stor
 		byName[key(g.Name)] = g
 	}
 	var p Plan
+
+	// Credentials first: a host or a group may name one, and unlike a group a
+	// name nothing has heard of is refused rather than created. An invented
+	// credential is one that cannot log in anywhere, and a host quietly
+	// pointing at it would be worse than the import stopping to say so.
+	credByName := make(map[string]store.Credential, len(creds)+len(d.Credentials))
+	for _, c := range creds {
+		credByName[key(c.Name)] = c
+	}
+	for _, in := range d.Credentials {
+		k := key(in.Name)
+		was, exists := credByName[k]
+		now := was
+		now.Name, now.Kind = in.Name, store.CredentialKind(pick(in.Kind, string(was.Kind)))
+		now.User = pick(in.User, was.User)
+		now.Identity = pick(in.Identity, was.Identity)
+		if err := now.Valid(); err != nil {
+			return Plan{}, fmt.Errorf("credential %q: %w", in.Name, err)
+		}
+		switch {
+		case !exists:
+			now.ID = store.NewID()
+			p.addCredential(now, Add)
+		case now != was:
+			p.addCredential(now, Update)
+		default:
+			p.Unchanged++
+		}
+		credByName[k] = now
+	}
+	// namedCredential resolves what a host or a group refers to.
+	namedCredential := func(owner, name string) (string, error) {
+		if name == "" {
+			return "", nil
+		}
+		c, ok := credByName[key(name)]
+		if !ok {
+			return "", fmt.Errorf("%s names credential %q, which is neither in this document nor already here", owner, name)
+		}
+		return c.ID, nil
+	}
 
 	// accounted is which groups the report has already spoken for, so a group
 	// declared once and named by ten hosts is counted once.
@@ -103,6 +146,11 @@ func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []stor
 		now.User = pick(in.User, was.User)
 		now.Identity = pick(in.Identity, was.Identity)
 		now.ProxyJump = pick(in.Jump, was.ProxyJump)
+		id, err := namedCredential("group "+strconv.Quote(in.Name), in.Credential)
+		if err != nil {
+			return Plan{}, err
+		}
+		now.CredentialID = pick(id, was.CredentialID)
 		if in.Parent != "" {
 			parent, ok := byName[key(in.Parent)]
 			if !ok {
@@ -137,6 +185,11 @@ func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []stor
 		if len(in.Tags) > 0 {
 			now.Tags = slices.Clone(in.Tags)
 		}
+		id, err := namedCredential("host "+strconv.Quote(in.Name), in.Credential)
+		if err != nil {
+			return Plan{}, err
+		}
+		now.CredentialID = pick(id, was.CredentialID)
 		// A host naming a group nothing has heard of creates it, exactly as
 		// typing an unknown group into the host form does.
 		if in.Group != "" {
@@ -219,6 +272,11 @@ func (p *Plan) addForwards(in Host, hostID string, existing []store.Forward) err
 func ruleKey(f store.Forward) string { return string(f.Kind) + " " + f.Spec() }
 
 // addGroup and addHost queue a record and the line that reports it.
+func (p *Plan) addCredential(c store.Credential, a Action) {
+	p.Credentials = append(p.Credentials, c)
+	p.Changes = append(p.Changes, Change{Kind: "credential", Name: c.Name, Action: a})
+}
+
 func (p *Plan) addGroup(g store.Group, a Action) {
 	p.Groups = append(p.Groups, g)
 	p.Changes = append(p.Changes, Change{Kind: "group", Name: g.Name, Action: a})

@@ -352,7 +352,7 @@ func TestPutAllWritesForwardsWithTheirHost(t *testing.T) {
 	h := Host{ID: "h1", Name: "db-01", Addr: "10.0.0.1"}
 	f := Forward{ID: "f1", HostID: "h1", Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432}
 
-	if err := s.PutAll(nil, []Host{h}, []Forward{f}); err != nil {
+	if err := s.PutAll(nil, []Host{h}, []Forward{f}, nil); err != nil {
 		t.Fatalf("PutAll: %v", err)
 	}
 	got, err := s.Forwards()
@@ -369,7 +369,7 @@ func TestPutAllWritesForwardsWithTheirHost(t *testing.T) {
 func TestPutAllRefusesAForwardWithNoHost(t *testing.T) {
 	s := openTest(t)
 	err := s.PutAll(nil, []Host{{ID: "h1", Name: "db-01", Addr: "10.0.0.1"}},
-		[]Forward{{ID: "f1", HostID: "nobody", Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432}})
+		[]Forward{{ID: "f1", HostID: "nobody", Kind: ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432}}, nil)
 
 	if !errors.Is(err, ErrNoSuchHost) {
 		t.Fatalf("err = %v, want it to refuse the orphan", err)

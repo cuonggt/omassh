@@ -18,7 +18,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 		{ID: "h2", Name: "bastion", Addr: "edge.example.com", User: "ops"},
 	}
 
-	raw, err := Export(groups, hosts, nil).YAML()
+	raw, err := Export(groups, hosts, nil, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Merge(d, nil, nil, nil)
+	p, err := Merge(d, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 }
 
 func TestExportLeavesOutSessionHistory(t *testing.T) {
-	raw, err := Export(nil, []store.Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}, nil).YAML()
+	raw, err := Export(nil, []store.Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}, nil, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestImportMatchesByNameAndKeepsTheID(t *testing.T) {
 	existing := []store.Host{{ID: "keep-me", Name: "web", Addr: "10.0.0.1"}}
 	d := Document{Version: Version, Hosts: []Host{{Name: "WEB", Addr: "10.0.0.9"}}}
 
-	p, err := Merge(d, nil, existing, nil)
+	p, err := Merge(d, nil, existing, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestImportFillsInWithoutBlanking(t *testing.T) {
 	// What ssh_config knows nothing about must survive a second import.
 	d := Document{Version: Version, Hosts: []Host{{Name: "web", Addr: "10.0.0.1"}}}
 
-	p, err := Merge(d, nil, existing, nil)
+	p, err := Merge(d, nil, existing, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestImportFillsInWithoutBlanking(t *testing.T) {
 func TestImportCreatesAGroupAHostNames(t *testing.T) {
 	d := Document{Version: Version, Hosts: []Host{{Name: "web", Addr: "10.0.0.1", Group: "Homelab"}}}
 
-	p, err := Merge(d, nil, nil, nil)
+	p, err := Merge(d, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestImportRejectsWhatItCannotApply(t *testing.T) {
 	}
 	for name, d := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Merge(d, nil, nil, nil); err == nil {
+			if _, err := Merge(d, nil, nil, nil, nil); err == nil {
 				t.Fatalf("merged a document with %s", name)
 			}
 		})
@@ -242,7 +242,7 @@ func TestAParentListedAfterItsChildStillResolves(t *testing.T) {
 		{Name: "EU", Parent: "Production"},
 		{Name: "Production"},
 	}}
-	p, err := Merge(d, nil, nil, nil)
+	p, err := Merge(d, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestEveryRecordIsAccountedForExactlyOnce(t *testing.T) {
 		{Name: "b", Addr: "10.0.0.2", Group: "Work"},
 	}}
 
-	first, err := Merge(d, nil, nil, nil)
+	first, err := Merge(d, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestEveryRecordIsAccountedForExactlyOnce(t *testing.T) {
 	}
 
 	// Applied, the same document is a no-op — and still speaks for all three.
-	second, err := Merge(d, first.Groups, first.Hosts, nil)
+	second, err := Merge(d, first.Groups, first.Hosts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,7 +325,7 @@ func TestAKeyThatIsNotAFieldIsNamedInOmasshsWords(t *testing.T) {
 		},
 		"the list itself": {
 			"version: 2\nwhat: 1\n",
-			[]string{`"what" is not something a host list has`, "version, groups, hosts"},
+			[]string{`"what" is not something a host list has`, "version, credentials, groups, hosts"},
 		},
 		"the wrong shape": {
 			"version: 2\nhosts: not-a-list\n",
@@ -358,6 +358,11 @@ func TestAKeyThatIsNotAFieldIsNamedInOmasshsWords(t *testing.T) {
 // message meant to help.
 func TestEveryKeyTheComplaintOffersIsAccepted(t *testing.T) {
 	full := `version: 2
+credentials:
+  - name: c
+    kind: key
+    user: u
+    identity: i
 groups:
   - name: x2
   - name: x
@@ -365,6 +370,7 @@ groups:
     user: u
     identity: i
     jump: j
+    credential: c
 hosts:
   - name: h
     addr: a
@@ -373,6 +379,7 @@ hosts:
     identity: i
     jump: j
     group: x
+    credential: c
     tags: [t]
     forwards:
       - kind: local
@@ -384,7 +391,7 @@ hosts:
 	}
 
 	// And the document above really does use them all, or it proves nothing.
-	for _, typ := range []string{"portable.Document", "portable.Group", "portable.Host", "portable.Forward"} {
+	for _, typ := range []string{"portable.Document", "portable.Group", "portable.Host", "portable.Forward", "portable.Credential"} {
 		for _, f := range fieldsOf(typ) {
 			if !strings.Contains(full, f+":") {
 				t.Errorf("%s is offered as a key of %s but never tried here", f, typ)
@@ -407,5 +414,97 @@ func TestARecordWithNoWordForItIsLeftToYaml(t *testing.T) {
 	}
 	if got := fieldsOf("portable.SomethingNew"); got != nil {
 		t.Errorf("fieldsOf on an unknown type = %v", got)
+	}
+}
+
+// A credential crosses with the host that uses it, and arrives carrying no
+// secret: the document is written to live in a dotfiles repository, so what
+// travels is the name, the kind and the user.
+func TestACredentialCrossesWithoutItsPassword(t *testing.T) {
+	creds := []store.Credential{
+		{ID: "c1", Name: "Prod deploy", Kind: store.CredentialKey, User: "deploy", Identity: "~/.ssh/prod"},
+		{ID: "c2", Name: "Legacy switch", Kind: store.CredentialPassword, User: "admin"},
+	}
+	hosts := []store.Host{{ID: "h1", Name: "web", Addr: "10.0.1.1", CredentialID: "c1"}}
+	groups := []store.Group{{ID: "g1", Name: "Production", CredentialID: "c2"}}
+
+	raw, err := Export(groups, hosts, nil, creds).YAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, "credential: Prod deploy") {
+		t.Errorf("the host does not name its credential:\n%s", got)
+	}
+	if !strings.Contains(got, "kind: password") {
+		t.Errorf("the password credential did not cross:\n%s", got)
+	}
+	// No password anywhere, because the record has none to give. Checked as a
+	// key rather than as a word: the document's own header says "No secrets
+	// here", and that sentence is the promise, not a breach of it.
+	for _, line := range strings.Split(got, "\n") {
+		if trimmed := strings.TrimSpace(line); strings.HasPrefix(trimmed, "password:") ||
+			strings.HasPrefix(trimmed, "- password:") {
+			t.Errorf("a password key is in the document: %q", line)
+		}
+	}
+	// And "password" appears only as the name of a kind.
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "password") && !strings.Contains(line, "kind: password") {
+			t.Errorf("password turns up somewhere unexpected: %q", line)
+		}
+	}
+}
+
+// Exporting and importing the same list changes nothing the second time, for
+// credentials as for everything else.
+func TestACredentialRoundTripsWithoutChanging(t *testing.T) {
+	creds := []store.Credential{
+		{ID: "c1", Name: "Prod deploy", Kind: store.CredentialKey, User: "deploy", Identity: "~/.ssh/prod"},
+	}
+	hosts := []store.Host{{ID: "h1", Name: "web", Addr: "10.0.1.1", CredentialID: "c1"}}
+
+	raw, _ := Export(nil, hosts, nil, creds).YAML()
+	d, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := Merge(d, nil, hosts, nil, creds)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !p.Empty() {
+		t.Errorf("a second import changed things: %v", p.Changes)
+	}
+}
+
+// A host naming a credential nothing has heard of stops the import rather than
+// inventing one. An invented credential cannot log in anywhere, and the host
+// would point at it in silence.
+func TestAHostNamingAnUnknownCredentialIsRefused(t *testing.T) {
+	d, err := Parse([]byte("version: 1\nhosts:\n  - name: web\n    addr: 10.0.1.1\n    credential: Nope\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Merge(d, nil, nil, nil, nil)
+	if err == nil {
+		t.Fatal("the import went ahead naming a credential that does not exist")
+	}
+	if !strings.Contains(err.Error(), "Nope") {
+		t.Errorf("err = %v, want it to name the credential", err)
+	}
+}
+
+// A credential the document describes badly is refused with the same words the
+// form would use, rather than being written and failing at the first use.
+func TestACredentialTheDocumentGetsWrongIsRefused(t *testing.T) {
+	d, err := Parse([]byte("version: 1\ncredentials:\n  - name: c\n    kind: key\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Merge(d, nil, nil, nil, nil); err == nil {
+		t.Fatal("a key credential with no key was accepted")
+	} else if !strings.Contains(err.Error(), "private key") {
+		t.Errorf("err = %v, want it to say what is missing", err)
 	}
 }

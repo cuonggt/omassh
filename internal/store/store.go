@@ -677,7 +677,15 @@ func (s *Store) DeleteForward(id string) error {
 // took the better part of a minute, saying nothing while it went. One
 // transaction is also all-or-nothing, so a disk that fills up halfway leaves
 // the store as it was rather than holding part of a list.
-func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward) error {
+func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward, cs []Credential) error {
+	for i := range cs {
+		if cs[i].ID == "" {
+			cs[i].ID = NewID()
+		}
+		if err := cs[i].Valid(); err != nil {
+			return err
+		}
+	}
 	for i := range gs {
 		if gs[i].ID == "" {
 			gs[i].ID = NewID()
@@ -699,6 +707,18 @@ func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward) error {
 
 	return s.write(func(tx *bolt.Tx) error {
 		gb, hb := tx.Bucket(bucketGroups), tx.Bucket(bucketHosts)
+		// Credentials first, so a host or a group written below never names
+		// one that is not there yet.
+		cb := tx.Bucket(bucketCredentials)
+		for _, c := range cs {
+			b, err := json.Marshal(c)
+			if err != nil {
+				return err
+			}
+			if err := cb.Put([]byte(c.ID), b); err != nil {
+				return err
+			}
+		}
 		// Checked once over the whole tree, rather than each group re-reading
 		// every other one from a transaction of its own.
 		if err := acyclicIn(gb, gs); err != nil {

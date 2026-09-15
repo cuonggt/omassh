@@ -2610,7 +2610,7 @@ func TestAHostWhoseGroupWentIsStillListed(t *testing.T) {
 		t.Fatal(err)
 	}
 	host.GroupID = g.ID
-	if err := h.store.PutAll(nil, []store.Host{host}, nil); err != nil {
+	if err := h.store.PutAll(nil, []store.Host{host}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	h.reload()

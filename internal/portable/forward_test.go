@@ -19,7 +19,7 @@ func TestForwardsRoundTrip(t *testing.T) {
 		{ID: "f3", HostID: "h1", Kind: store.ForwardDynamic, Listen: "127.0.0.1", ListenPort: 1080},
 	}
 
-	raw, err := Export(nil, hosts, rules).YAML()
+	raw, err := Export(nil, hosts, rules, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func TestForwardsRoundTrip(t *testing.T) {
 		t.Fatalf("parsing what we wrote: %v", err)
 	}
 	// Into a store that has the host but none of its rules.
-	p, err := Merge(d, nil, hosts, nil)
+	p, err := Merge(d, nil, hosts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,9 +63,9 @@ func TestImportingForwardsTwiceIsIdempotent(t *testing.T) {
 	rules := []store.Forward{
 		{ID: "f1", HostID: "h1", Kind: store.ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432},
 	}
-	d := Export(nil, hosts, rules)
+	d := Export(nil, hosts, rules, nil)
 
-	first, err := Merge(d, nil, hosts, nil)
+	first, err := Merge(d, nil, hosts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestImportingForwardsTwiceIsIdempotent(t *testing.T) {
 		t.Fatalf("first import planned %d rules, want 1", len(first.Forwards))
 	}
 
-	second, err := Merge(d, nil, hosts, first.Forwards)
+	second, err := Merge(d, nil, hosts, first.Forwards, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,9 +94,9 @@ func TestTwoRulesOnOnePortBothTravel(t *testing.T) {
 		{ID: "f1", HostID: "h1", Kind: store.ForwardLocal, ListenPort: 5432, Dest: "primary", DestPort: 5432},
 		{ID: "f2", HostID: "h1", Kind: store.ForwardLocal, ListenPort: 5432, Dest: "replica", DestPort: 5432},
 	}
-	d := Export(nil, hosts, rules)
+	d := Export(nil, hosts, rules, nil)
 
-	p, err := Merge(d, nil, hosts, nil)
+	p, err := Merge(d, nil, hosts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestAForwardAttachesToAHostTheDocumentBrings(t *testing.T) {
 		Forwards: []Forward{{Kind: "local", Listen: "5432", Dest: "db:5432"}},
 	}}}
 
-	p, err := Merge(d, nil, nil, nil)
+	p, err := Merge(d, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestABadForwardIsRefusedNamingTheHost(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			d := Document{Version: 1, Hosts: []Host{{Name: "db-01", Addr: "10.0.0.1", Forwards: []Forward{c.f}}}}
-			p, err := Merge(d, nil, nil, nil)
+			p, err := Merge(d, nil, nil, nil, nil)
 			if err == nil {
 				t.Fatalf("accepted, planning %+v", p.Forwards)
 			}
@@ -162,7 +162,7 @@ func TestADynamicForwardTravelsWithoutADestination(t *testing.T) {
 	hosts := []store.Host{{ID: "h1", Name: "db-01", Addr: "10.0.0.1"}}
 	rules := []store.Forward{{ID: "f1", HostID: "h1", Kind: store.ForwardDynamic, ListenPort: 1080}}
 
-	raw, err := Export(nil, hosts, rules).YAML()
+	raw, err := Export(nil, hosts, rules, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestADynamicForwardTravelsWithoutADestination(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Merge(d, nil, hosts, nil)
+	p, err := Merge(d, nil, hosts, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestAForwardIsReportedAsItsOwnChange(t *testing.T) {
 		Name: "db-01", Addr: "10.0.0.1",
 		Forwards: []Forward{{Kind: "local", Listen: "5432", Dest: "db.internal:5432"}},
 	}}}
-	p, err := Merge(d, nil, nil, nil)
+	p, err := Merge(d, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,14 +217,14 @@ func TestAForwardIsReportedAsItsOwnChange(t *testing.T) {
 func TestADocumentDeclaresTheVersionItNeeds(t *testing.T) {
 	hosts := []store.Host{{ID: "h1", Name: "db-01", Addr: "10.0.0.1"}}
 
-	if got := Export(nil, hosts, nil).Version; got != 1 {
+	if got := Export(nil, hosts, nil, nil).Version; got != 1 {
 		t.Errorf("a list with no forwards is version %d — an older omassh could have read it", got)
 	}
 
 	withRules := []store.Forward{
 		{ID: "f1", HostID: "h1", Kind: store.ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432},
 	}
-	if got := Export(nil, hosts, withRules).Version; got != 2 {
+	if got := Export(nil, hosts, withRules, nil).Version; got != 2 {
 		t.Errorf("a list carrying forwards is version %d, want 2", got)
 	}
 

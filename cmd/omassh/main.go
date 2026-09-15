@@ -246,13 +246,14 @@ func runExport(args []string) error {
 	groups, gerr := st.Groups()
 	hosts, herr := st.Hosts()
 	forwards, ferr := st.Forwards()
-	for _, e := range []error{gerr, herr, ferr} {
+	creds, cerr := st.Credentials()
+	for _, e := range []error{gerr, herr, ferr, cerr} {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
 		}
 	}
 
-	raw, err := portable.Export(groups, hosts, forwards).YAML()
+	raw, err := portable.Export(groups, hosts, forwards, creds).YAML()
 	if err != nil {
 		return err
 	}
@@ -263,7 +264,9 @@ func runExport(args []string) error {
 	if err := os.WriteFile(*out, raw, 0o600); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "wrote %d hosts and %d groups to %s\n", len(hosts), len(groups), *out)
+	fmt.Fprintf(os.Stderr, "wrote %d host%s, %d group%s and %d credential%s to %s\n",
+		len(hosts), plural(len(hosts)), len(groups), plural(len(groups)),
+		len(creds), plural(len(creds)), *out)
 	return nil
 }
 
@@ -446,13 +449,14 @@ func apply(db string, d portable.Document, dry bool) error {
 	groups, gerr := st.Groups()
 	hosts, herr := st.Hosts()
 	forwards, ferr := st.Forwards()
-	for _, e := range []error{gerr, herr, ferr} {
+	creds, cerr := st.Credentials()
+	for _, e := range []error{gerr, herr, ferr, cerr} {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
 		}
 	}
 
-	plan, err := portable.Merge(d, groups, hosts, forwards)
+	plan, err := portable.Merge(d, groups, hosts, forwards, creds)
 	if err != nil {
 		return err
 	}
@@ -469,7 +473,7 @@ func apply(db string, d portable.Document, dry bool) error {
 	// One transaction for the lot: a record at a time meant a trip to the disk
 	// each, which took the better part of a minute for a few thousand of them
 	// and left part of a list behind if the disk filled up on the way.
-	if err := st.PutAll(plan.Groups, plan.Hosts, plan.Forwards); err != nil {
+	if err := st.PutAll(plan.Groups, plan.Hosts, plan.Forwards, plan.Credentials); err != nil {
 		return err
 	}
 	fmt.Println(summary)
@@ -502,4 +506,13 @@ func askpass(id string) error {
 	}
 	fmt.Println(pw)
 	return nil
+}
+
+// plural is the s on the end of a count, which the summaries above had been
+// going without: a list with one group in it reported "1 groups".
+func plural(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }

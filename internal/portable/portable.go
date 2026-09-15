@@ -56,32 +56,51 @@ func versionFor(d Document) int {
 
 // Document is the whole exchange format.
 type Document struct {
-	Version int     `yaml:"version"`
-	Groups  []Group `yaml:"groups,omitempty"`
-	Hosts   []Host  `yaml:"hosts,omitempty"`
+	Version int `yaml:"version"`
+	// Credentials come first in the document because hosts and groups name
+	// them, and a file reads better when what is referred to is declared
+	// before what refers to it. Merge does not depend on the order.
+	Credentials []Credential `yaml:"credentials,omitempty"`
+	Groups      []Group      `yaml:"groups,omitempty"`
+	Hosts       []Host       `yaml:"hosts,omitempty"`
 }
 
 // Group is a group as text. Parent names another group rather than pointing
 // at an id, for the same reason everything else here is by name.
 type Group struct {
+	Name       string `yaml:"name"`
+	Parent     string `yaml:"parent,omitempty"`
+	User       string `yaml:"user,omitempty"`
+	Identity   string `yaml:"identity,omitempty"`
+	Jump       string `yaml:"jump,omitempty"`
+	Credential string `yaml:"credential,omitempty"`
+}
+
+// Credential is a way of logging in, named once and shared.
+//
+// No password here, and there cannot be one: this document is written to be
+// kept in a dotfiles repository. What crosses is the name, the kind and the
+// user; a password credential arrives on the other machine knowing who it is
+// and needing a password typed into that machine's own keychain.
+type Credential struct {
 	Name     string `yaml:"name"`
-	Parent   string `yaml:"parent,omitempty"`
+	Kind     string `yaml:"kind"`
 	User     string `yaml:"user,omitempty"`
 	Identity string `yaml:"identity,omitempty"`
-	Jump     string `yaml:"jump,omitempty"`
 }
 
 // Host is a host as text. The field is Jump rather than ProxyJump because
 // that is what the form and the detail pane call it.
 type Host struct {
-	Name     string   `yaml:"name"`
-	Addr     string   `yaml:"addr"`
-	Port     int      `yaml:"port,omitempty"`
-	User     string   `yaml:"user,omitempty"`
-	Identity string   `yaml:"identity,omitempty"`
-	Jump     string   `yaml:"jump,omitempty"`
-	Group    string   `yaml:"group,omitempty"`
-	Tags     []string `yaml:"tags,omitempty,flow"`
+	Name       string   `yaml:"name"`
+	Addr       string   `yaml:"addr"`
+	Port       int      `yaml:"port,omitempty"`
+	User       string   `yaml:"user,omitempty"`
+	Identity   string   `yaml:"identity,omitempty"`
+	Jump       string   `yaml:"jump,omitempty"`
+	Group      string   `yaml:"group,omitempty"`
+	Credential string   `yaml:"credential,omitempty"`
+	Tags       []string `yaml:"tags,omitempty,flow"`
 
 	// Forwards are nested rather than listed apart, because a rule belongs to
 	// exactly one host and has no name of its own — nesting is what says
@@ -134,7 +153,11 @@ func asText(f store.Forward) Forward {
 // Session history is deliberately absent. "Last connected two hours ago" is a
 // fact about the machine that connected, and carrying it across would let a
 // laptop's history overwrite a desktop's on every import.
-func Export(gs []store.Group, hs []store.Host, fs []store.Forward) Document {
+func Export(gs []store.Group, hs []store.Host, fs []store.Forward, cs []store.Credential) Document {
+	credName := make(map[string]string, len(cs))
+	for _, c := range cs {
+		credName[c.ID] = c.Name
+	}
 	name := make(map[string]string, len(gs))
 	for _, g := range gs {
 		name[g.ID] = g.Name
@@ -145,25 +168,32 @@ func Export(gs []store.Group, hs []store.Host, fs []store.Forward) Document {
 	}
 
 	var d Document
+	for _, c := range cs {
+		d.Credentials = append(d.Credentials, Credential{
+			Name: c.Name, Kind: string(c.Kind), User: c.User, Identity: c.Identity,
+		})
+	}
 	for _, g := range gs {
 		d.Groups = append(d.Groups, Group{
-			Name:     g.Name,
-			Parent:   name[g.ParentID],
-			User:     g.User,
-			Identity: g.Identity,
-			Jump:     g.ProxyJump,
+			Name:       g.Name,
+			Parent:     name[g.ParentID],
+			User:       g.User,
+			Identity:   g.Identity,
+			Jump:       g.ProxyJump,
+			Credential: credName[g.CredentialID],
 		})
 	}
 	for _, h := range hs {
 		out := Host{
-			Name:     h.Name,
-			Addr:     h.Addr,
-			Port:     h.Port,
-			User:     h.User,
-			Identity: h.Identity,
-			Jump:     h.ProxyJump,
-			Group:    name[h.GroupID],
-			Tags:     h.Tags,
+			Name:       h.Name,
+			Addr:       h.Addr,
+			Port:       h.Port,
+			User:       h.User,
+			Identity:   h.Identity,
+			Jump:       h.ProxyJump,
+			Group:      name[h.GroupID],
+			Credential: credName[h.CredentialID],
+			Tags:       h.Tags,
 		}
 		mine := rules[h.ID]
 		store.SortForwards(mine)
@@ -210,10 +240,11 @@ func (d Document) YAML() ([]byte, error) {
 var words = yamlerr.Vocabulary{
 	Field: func(name, typ string) string {
 		known := map[string]string{
-			"portable.Document": "a host list",
-			"portable.Host":     "a host",
-			"portable.Group":    "a group",
-			"portable.Forward":  "a forwarding rule",
+			"portable.Document":   "a host list",
+			"portable.Host":       "a host",
+			"portable.Group":      "a group",
+			"portable.Forward":    "a forwarding rule",
+			"portable.Credential": "a credential",
 		}[typ]
 		if known == "" {
 			return ""
@@ -223,16 +254,18 @@ var words = yamlerr.Vocabulary{
 	},
 	Type: func(typ string) string {
 		return map[string]string{
-			"portable.Document":  "a host list",
-			"portable.Host":      "a host",
-			"portable.Group":     "a group",
-			"portable.Forward":   "a forwarding rule",
-			"[]portable.Host":    "a list of hosts",
-			"[]portable.Group":   "a list of groups",
-			"[]portable.Forward": "a list of forwarding rules",
-			"[]string":           "a list",
-			"string":             "a single value",
-			"int":                "a number",
+			"portable.Document":     "a host list",
+			"portable.Host":         "a host",
+			"portable.Group":        "a group",
+			"portable.Forward":      "a forwarding rule",
+			"portable.Credential":   "a credential",
+			"[]portable.Credential": "a list of credentials",
+			"[]portable.Host":       "a list of hosts",
+			"[]portable.Group":      "a list of groups",
+			"[]portable.Forward":    "a list of forwarding rules",
+			"[]string":              "a list",
+			"string":                "a single value",
+			"int":                   "a number",
 		}[typ]
 	},
 }
