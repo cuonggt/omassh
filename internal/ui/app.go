@@ -211,6 +211,8 @@ type Model struct {
 	// runToken tells its result from one belonging to a run already closed.
 	running  *snippetRun
 	runToken int
+	// runCh carries one host's result at a time, the way a probe's does.
+	runCh chan snippetEvent
 	// secrets is where a password credential's password is kept, and
 	// secretsErr why there is nowhere to keep one. Opened once at startup:
 	// the cost is a look along PATH, and the answer cannot change while
@@ -245,7 +247,8 @@ func New(st *store.Store, opts Options) Model {
 	m := Model{opts: opts, keys: opts.Keys, st: st,
 		focus: panelHosts, filter: ti,
 		transfers: make(chan transferMsg, 32), copying: &copying{},
-		probeCh: make(chan probeEvent, 64), probes: map[string]probe.State{}}
+		probeCh: make(chan probeEvent, 64), probes: map[string]probe.State{},
+		runCh: make(chan snippetEvent, 64)}
 	// Asked for once, and remembered either way: a machine with no keychain
 	// is a fact about the machine, and the form has to be able to say so at
 	// the moment someone types a password rather than after saving one.
@@ -320,8 +323,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scriptEditedMsg:
 		return m.handleScriptEdited(msg)
 
-	case snippetDoneMsg:
-		return m.handleSnippetDone(msg)
+	case snippetEvent:
+		return m.handleSnippetEvent(msg)
 
 	case transferMsg:
 		m.transfer = msg

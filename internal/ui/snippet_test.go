@@ -317,9 +317,11 @@ func TestRunningASnippetShowsWhatAndWhereFirst(t *testing.T) {
 	if h.m.mode != modeSnippetRun {
 		t.Fatalf("mode = %v, want the run screen", h.m.mode)
 	}
-	h.mustContain(`Run "restart nginx" on web-01?`)
+	h.mustContain(`Run "restart nginx"`)
 	// The whole script, not its size: this is where it is read before it runs.
 	h.mustContain("systemctl restart nginx")
+	h.mustContain("this host")
+	h.mustContain("web-01")
 	h.mustContain("no terminal there")
 	h.mustContain("y run")
 
@@ -344,20 +346,7 @@ func TestEscapingTheRunScreenRunsNothing(t *testing.T) {
 	}
 }
 
-// With no host there is nothing to run it on, and the list says so rather than
-// opening a screen that cannot go anywhere.
-func TestRunningWithNoHostSelectedSaysSo(t *testing.T) {
-	h := newHarness(t)
-	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
-
-	h.press("S", "enter")
-	if h.m.mode != modeSnippets {
-		t.Fatalf("mode = %v, want to have stayed on the list", h.m.mode)
-	}
-	h.mustContain("no host to run it on")
-}
-
-// start puts the run in flight without actually spawning ssh: pressing y
+// startRun puts the run in flight without actually spawning ssh: pressing y
 // returns the command that would, and the harness does not run commands.
 func (h *harness) startRun() {
 	h.t.Helper()
@@ -367,42 +356,70 @@ func (h *harness) startRun() {
 	}
 }
 
+// begin says a host's ssh has been started, which a worker does as the limit
+// lets each one through.
+func (h *harness) begin(hosts ...store.Host) {
+	h.t.Helper()
+	for _, host := range hosts {
+		h.send(snippetEvent{token: h.m.runToken, host: host, began: true})
+	}
+}
+
+// report delivers one host's result. It begins the host first, because a host
+// cannot finish without having started.
+func (h *harness) report(host store.Host, res sshx.Result) {
+	h.t.Helper()
+	h.begin(host)
+	h.send(snippetEvent{token: h.m.runToken, host: host, result: res})
+}
+
+// finishRun delivers one host's result and the end of the run.
+func (h *harness) finishRun(host store.Host, res sshx.Result) {
+	h.t.Helper()
+	h.report(host, res)
+	h.send(snippetEvent{token: h.m.runToken, done: true})
+}
+
 func TestWhatAScriptSaidIsShownWhenItFinishes(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("web-01", "10.0.1.1")
+	web := h.addHost("web-01", "10.0.1.1")
 	h.addSnippet(store.Snippet{Name: "disk free", Script: "df -h /"})
 	h.selectHost("web-01")
 
 	h.press("S", "enter")
 	h.startRun()
-	h.mustContain("running on web-01")
+	h.begin(web)
+	h.mustContain("web-01")
+	h.mustContain("running…")
 	h.mustContain("esc stop")
 
-	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
+	h.finishRun(web, sshx.Result{
 		Output:   "Filesystem  Size  Used\n/dev/sda1   40G   12G\n",
 		Duration: 2 * time.Second,
-	}})
+	})
 	h.mustContain("disk free on web-01")
 	h.mustContain("ok in 2s")
 	h.mustNotContain("exit ")
 	h.mustContain("/dev/sda1   40G   12G")
-	h.mustContain("esc back")
+	// One host needs no table behind it, so esc leaves rather than going back
+	// to a list of one.
+	h.mustContain("esc close")
 }
 
 // A script that failed says so with its own status, and what it wrote is
 // still what is on screen — that is where the reason is.
 func TestAFailedScriptShowsItsStatusAndWhatItSaid(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("db-01", "10.0.2.1")
+	db := h.addHost("db-01", "10.0.2.1")
 	h.addSnippet(store.Snippet{Name: "restart nginx", Script: "systemctl restart nginx"})
 	h.selectHost("db-01")
 
 	h.press("S", "enter")
 	h.startRun()
-	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
+	h.finishRun(db, sshx.Result{
 		Output:   "sudo: a password is required\n",
 		ExitCode: 1,
-	}})
+	})
 	h.mustContain("exit 1")
 	h.mustContain("sudo: a password is required")
 }
@@ -411,7 +428,7 @@ func TestAFailedScriptShowsItsStatusAndWhatItSaid(t *testing.T) {
 // stopped rather than putting a status on it.
 func TestAStoppedRunSaysStoppedRatherThanFailed(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("web-01", "10.0.1.1")
+	web := h.addHost("web-01", "10.0.1.1")
 	h.addSnippet(store.Snippet{Name: "slow", Script: "sleep 300"})
 	h.selectHost("web-01")
 
@@ -422,10 +439,10 @@ func TestAStoppedRunSaysStoppedRatherThanFailed(t *testing.T) {
 		t.Fatalf("esc left the screen, taking what it had already said with it")
 	}
 	h.mustContain("esc again to leave without waiting")
-	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
+	h.finishRun(web, sshx.Result{
 		Output: "still going\n",
 		Err:    context.Canceled,
-	}})
+	})
 	h.mustContain("stopped")
 	h.mustContain("still going")
 	h.mustNotContain("exit ")
@@ -435,7 +452,7 @@ func TestAStoppedRunSaysStoppedRatherThanFailed(t *testing.T) {
 // its way back when the screen was shut, and nothing on screen is its.
 func TestAResultFromAClosedRunIsIgnored(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("web-01", "10.0.1.1")
+	web := h.addHost("web-01", "10.0.1.1")
 	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
 	h.selectHost("web-01")
 
@@ -450,9 +467,9 @@ func TestAResultFromAClosedRunIsIgnored(t *testing.T) {
 	}
 	h.press("enter")
 
-	h.send(snippetDoneMsg{token: stale, result: sshx.Result{Output: "from the run that was closed"}})
+	h.send(snippetEvent{token: stale, host: web, result: sshx.Result{Output: "from the run that was closed"}})
 	h.mustNotContain("from the run that was closed")
-	if h.m.running.result != nil {
+	if len(h.m.running.results) != 0 {
 		t.Error("a stale result was taken as this run's")
 	}
 }
@@ -461,7 +478,7 @@ func TestAResultFromAClosedRunIsIgnored(t *testing.T) {
 // for rather than simply absent.
 func TestLongOutputScrollsAndSaysHowMuchIsLeft(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("web-01", "10.0.1.1")
+	web := h.addHost("web-01", "10.0.1.1")
 	h.addSnippet(store.Snippet{Name: "lots", Script: "seq 100"})
 	h.selectHost("web-01")
 
@@ -471,7 +488,7 @@ func TestLongOutputScrollsAndSaysHowMuchIsLeft(t *testing.T) {
 	}
 	h.press("S", "enter")
 	h.startRun()
-	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{Output: sb.String()}})
+	h.finishRun(web, sshx.Result{Output: sb.String()})
 
 	h.mustContain("line 1")
 	h.mustContain("more line")
@@ -490,15 +507,13 @@ func TestLongOutputScrollsAndSaysHowMuchIsLeft(t *testing.T) {
 // ending mid-line.
 func TestTruncatedOutputSaysSo(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("web-01", "10.0.1.1")
+	web := h.addHost("web-01", "10.0.1.1")
 	h.addSnippet(store.Snippet{Name: "lots", Script: "cat /dev/urandom"})
 	h.selectHost("web-01")
 
 	h.press("S", "enter")
 	h.startRun()
-	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
-		Output: "the beginning\n", Truncated: true,
-	}})
+	h.finishRun(web, sshx.Result{Output: "the beginning\n", Truncated: true})
 	h.mustContain("more than omassh keeps")
 }
 
@@ -506,13 +521,13 @@ func TestTruncatedOutputSaysSo(t *testing.T) {
 // box that looks like something went wrong on the way back.
 func TestAScriptThatSaidNothingSaysSo(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("web-01", "10.0.1.1")
+	web := h.addHost("web-01", "10.0.1.1")
 	h.addSnippet(store.Snippet{Name: "quiet", Script: "true"})
 	h.selectHost("web-01")
 
 	h.press("S", "enter")
 	h.startRun()
-	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{}})
+	h.finishRun(web, sshx.Result{})
 	h.mustContain("it said nothing")
 }
 
@@ -544,15 +559,247 @@ func TestASecondEscLeavesARunThatWillNotComeBack(t *testing.T) {
 // reads as a measurement that failed rather than as a script that was quick.
 func TestAQuickScriptDoesNotReportZeroSeconds(t *testing.T) {
 	h := newHarness(t)
-	h.addHost("web-01", "10.0.1.1")
+	web := h.addHost("web-01", "10.0.1.1")
 	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
 	h.selectHost("web-01")
 
 	h.press("S", "enter")
 	h.startRun()
-	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
-		Output: "up 3 days\n", Duration: 120 * time.Millisecond,
-	}})
+	h.finishRun(web, sshx.Result{Output: "up 3 days\n", Duration: 120 * time.Millisecond})
 	h.mustContain("uptime on web-01  ·  ok")
 	h.mustNotContain("0s")
+}
+
+// --- running on more than one host -------------------------------------
+
+// threeHosts is a group with hosts in it, for the fan-out tests.
+func threeHosts(t *testing.T, h *harness) []store.Host {
+	t.Helper()
+	g := h.addGroup("Production", "")
+	out := []store.Host{
+		h.addGroupedHost("web-01", g.ID),
+		h.addGroupedHost("web-02", g.ID),
+		h.addGroupedHost("db-01", g.ID),
+	}
+	h.selectGroup("Production")
+	return out
+}
+
+// The group in front of you is offered by name and by size, so choosing it is
+// not a guess about what "this group" currently holds.
+func TestAGroupIsOfferedAsAPlaceToRun(t *testing.T) {
+	h := newHarness(t)
+	threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "enter")
+	h.mustContain("this host")
+	h.mustContain("this group")
+	h.mustContain("Production — 3 hosts")
+	h.mustContain("pick hosts…")
+}
+
+// Under a search the list is the matches and not a group at all, and calling
+// that "this group" would invite running a script on a set other than the one
+// on screen.
+func TestASearchIsNotCalledAGroup(t *testing.T) {
+	h := newHarness(t)
+	threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("/")
+	h.type_("web")
+	// enter leaves the search box with the search still in force, which is
+	// the state this is about.
+	h.press("enter")
+	h.press("S", "enter")
+	h.mustContain("these hosts")
+	h.mustNotContain("this group")
+}
+
+// The table fills in as hosts finish, and says what is still to come rather
+// than showing a list that looks complete.
+func TestTheTableFillsInAsHostsFinish(t *testing.T) {
+	h := newHarness(t)
+	hosts := threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "enter")
+	h.press("j") // this group
+	h.startRun()
+	h.begin(hosts...)
+	h.mustContain("3 running")
+
+	h.report(hosts[0], sshx.Result{Output: "up 3 days\n"})
+	h.mustContain("1 ok")
+	h.mustContain("2 running")
+	h.mustContain("up 3 days")
+
+	h.report(hosts[1], sshx.Result{Output: "boom\n", ExitCode: 2})
+	h.mustContain("1 failed")
+	h.mustContain("boom")
+
+	h.report(hosts[2], sshx.Result{Output: "up 1 day\n"})
+	h.send(snippetEvent{token: h.m.runToken, done: true})
+	h.mustContain("2 ok, 1 failed")
+	h.mustContain("esc close")
+}
+
+// A host's own output is one keypress away, and esc comes back to the table
+// rather than throwing the whole run away.
+func TestEnterOpensOneHostsOutputAndEscReturnsToTheTable(t *testing.T) {
+	h := newHarness(t)
+	hosts := threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "enter", "j")
+	h.startRun()
+	for _, host := range hosts {
+		h.report(host, sshx.Result{
+			Output: fmt.Sprintf("first line from %s\nsummary from %s\n", host.Name, host.Name),
+		})
+	}
+	h.send(snippetEvent{token: h.m.runToken, done: true})
+
+	// The table is in the order the list is, which is not the order they were
+	// added in — so the assertion follows the cursor rather than assuming it.
+	under, ok := h.m.running.hostAt(h.m.running.idx)
+	if !ok {
+		t.Fatal("the table has no host under the cursor")
+	}
+	h.mustContain("summary from " + under.Name)
+	h.press("enter")
+	h.mustContain("first line from " + under.Name)
+	h.mustContain("esc back")
+
+	h.press("esc")
+	if h.m.running == nil {
+		t.Fatal("esc from one host's output threw the whole run away")
+	}
+	if h.m.running.showing != "" {
+		t.Error("esc did not go back to the table")
+	}
+	h.mustContain("summary from " + under.Name)
+}
+
+// A set that is none of the ready-made ones is chosen by hand, and what runs
+// is what was ticked.
+func TestPickingHostsRunsOnTheOnesChosen(t *testing.T) {
+	h := newHarness(t)
+	threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "enter")
+	h.press("j", "j") // pick hosts…
+	h.press("enter")
+	h.mustContain("space toggle")
+
+	h.press("space")      // the first host
+	h.press("j", "space") // and the second
+	h.mustContain("2 of 3 chosen")
+	h.press("enter")
+	h.mustContain("chosen")
+	h.mustContain("2 hosts")
+
+	h.startRun()
+	if n := len(h.m.running.hosts); n != 2 {
+		t.Errorf("running on %d hosts, want the 2 that were ticked", n)
+	}
+}
+
+// Ticking eleven of twelve is otherwise eleven presses, and unticking them
+// again is another eleven.
+func TestAllOrNoneInThePicker(t *testing.T) {
+	h := newHarness(t)
+	threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "enter", "j", "j", "enter")
+	h.press("a")
+	h.mustContain("3 of 3 chosen")
+	h.press("a")
+	h.mustContain("0 of 3 chosen")
+}
+
+// Stopping mid-run keeps what the hosts that did finish said. Closing the
+// screen instead would take it away at the same moment.
+func TestStoppingMidRunKeepsWhatFinished(t *testing.T) {
+	h := newHarness(t)
+	hosts := threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "slow", Script: "sleep 300"})
+
+	h.press("S", "enter", "j")
+	h.startRun()
+	h.report(hosts[0], sshx.Result{Output: "web-01 finished\n"})
+
+	h.press("esc")
+	if h.m.mode != modeSnippetRun {
+		t.Fatal("the first esc left, taking what had finished with it")
+	}
+	h.mustContain("web-01 finished")
+	h.mustContain("esc again to leave without waiting")
+
+	// The ones caught still running are reported stopped, not failed.
+	h.report(hosts[1], sshx.Result{Err: context.Canceled})
+	h.report(hosts[2], sshx.Result{Err: context.Canceled})
+	h.send(snippetEvent{token: h.m.runToken, done: true})
+	h.mustContain("stopped")
+	h.mustNotContain("exit ")
+
+	h.press("esc")
+	if h.m.mode != modeSnippets {
+		t.Errorf("mode = %v, want back on the list once it has finished", h.m.mode)
+	}
+}
+
+// With no hosts at all there is nowhere to run it, and the list says so
+// rather than opening a screen with nothing on it.
+func TestRunningWithNoHostsAtAllSaysSo(t *testing.T) {
+	h := newHarness(t)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "enter")
+	if h.m.mode != modeSnippets {
+		t.Fatalf("mode = %v, want to have stayed on the list", h.m.mode)
+	}
+	h.mustContain("no host to run it on")
+}
+
+// A sweep runs a few at a time, so most of a large one has not started. A
+// table calling every host running would be claiming ssh sessions that are
+// not open.
+func TestHostsTheSweepHasNotReachedSayQueued(t *testing.T) {
+	h := newHarness(t)
+	hosts := threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "enter", "j")
+	h.startRun()
+	h.mustContain("3 queued")
+	h.mustNotContain("running")
+
+	h.begin(hosts[0])
+	h.mustContain("1 running, 2 queued")
+
+	h.report(hosts[0], sshx.Result{Output: "up 3 days\n"})
+	h.mustContain("1 ok, 2 queued")
+}
+
+// A sweep someone stopped is not a sweep that failed. The rows said "stopped"
+// while the title above them counted the same hosts as failures.
+func TestAStoppedSweepIsCountedAsStoppedNotFailed(t *testing.T) {
+	h := newHarness(t)
+	hosts := threeHosts(t, h)
+	h.addSnippet(store.Snippet{Name: "slow", Script: "sleep 300"})
+
+	h.press("S", "enter", "j")
+	h.startRun()
+	h.report(hosts[0], sshx.Result{Output: "done\n"})
+	h.press("esc")
+	h.report(hosts[1], sshx.Result{Err: context.Canceled})
+	h.report(hosts[2], sshx.Result{Err: context.Canceled})
+	h.send(snippetEvent{token: h.m.runToken, done: true})
+
+	h.mustContain("1 ok, 2 stopped")
+	h.mustNotContain("failed")
 }
