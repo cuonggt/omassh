@@ -1,6 +1,7 @@
 package smoke
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -65,6 +66,24 @@ func startServer(t *testing.T, dir string) server {
 		// which one, not whether this server would have accepted it.
 		PublicKeyHandler: func(gssh.Context, gssh.PublicKey) bool { return true },
 		Handler: func(s gssh.Session) {
+			// A remote command — which is what a snippet run is — is run and
+			// answered, so the run ends with a result rather than with a
+			// session nobody closes. Without this the banner below would be
+			// the answer to every script alike, and to none of them.
+			if script := s.RawCommand(); script != "" {
+				cmd := exec.Command("sh", "-c", script)
+				cmd.Stdout, cmd.Stderr = s, s.Stderr()
+				var ee *exec.ExitError
+				switch err := cmd.Run(); {
+				case err == nil:
+					s.Exit(0)
+				case errors.As(err, &ee):
+					s.Exit(ee.ExitCode())
+				default:
+					s.Exit(1)
+				}
+				return
+			}
 			// A banner rather than a shell: it needs no pty, arrives the
 			// moment the session opens, and is the one thing the screen can be
 			// searched for to know a connection was really made.
@@ -98,6 +117,12 @@ type pane struct {
 }
 
 func start(t *testing.T, bin, dir string, args ...string) *pane {
+	return startWith(t, bin, dir, nil, args...)
+}
+
+// startWith is start with extra environment, for the programs omassh shells
+// out to — $EDITOR being the one a snippet needs.
+func startWith(t *testing.T, bin, dir string, env []string, args ...string) *pane {
 	t.Helper()
 	p := &pane{t: t, dir: dir}
 
@@ -114,7 +139,8 @@ func start(t *testing.T, bin, dir string, args ...string) *pane {
 
 	cmd := exec.Command("tmux", "-L", driveSocket, "new-session", "-d", "-s", "v",
 		"-x", "160", "-y", "44",
-		"OMASSH_TMUX_SOCKET="+socket+" "+strings.Join(full, " ")+"; sleep 300")
+		strings.Join(append([]string{"OMASSH_TMUX_SOCKET=" + socket}, env...), " ")+
+			" "+strings.Join(full, " ")+"; sleep 300")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("starting omassh in tmux: %v\n%s", err, out)
 	}
@@ -146,10 +172,12 @@ func (p *pane) send(keys ...string) {
 
 func namedKey(k string) bool {
 	switch k {
-	case "Enter", "Escape", "Tab", "Down", "Up", "Left", "Right", "BSpace":
+	case "Enter", "Escape", "Tab", "Down", "Up", "Left", "Right", "BSpace", "Space":
 		return true
 	}
-	return false
+	// tmux spells a control key C-x, and typing that literally is how ctrl+e
+	// arrived in a form as three characters.
+	return len(k) == 3 && strings.HasPrefix(k, "C-")
 }
 
 // screen is what is on the terminal now, with tabs expanded so a column of

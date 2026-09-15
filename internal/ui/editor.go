@@ -43,6 +43,14 @@ func editScript(script string) tea.Cmd {
 	}
 	// Named .sh so the editor recognises what it is and highlights it.
 	path := filepath.Join(dir, "snippet.sh")
+	// Ending in a newline, as a text file does. Without one, anything that
+	// appends to the file lands on the end of the last line instead of under
+	// it — `set -e` edited into `set -esystemctl restart nginx` — and vim
+	// opens it complaining of [noeol] before quietly adding the newline back
+	// on save. What comes out is trimmed either way, so this costs nothing.
+	if !strings.HasSuffix(script, "\n") {
+		script += "\n"
+	}
 	if err := os.WriteFile(path, []byte(script), 0o600); err != nil {
 		os.RemoveAll(dir)
 		return func() tea.Msg { return scriptEditedMsg{err: err} }
