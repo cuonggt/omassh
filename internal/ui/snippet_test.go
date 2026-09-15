@@ -912,3 +912,42 @@ func TestAMultiLinePasteDoesNotClaimItIsWaiting(t *testing.T) {
 		}
 	}
 }
+
+// A host omassh never reached did not run the script, and saying "exit 255"
+// reads as one that ran and failed. 255 is ssh's own failure status, which
+// SessionEndedMsg.NeverConnected already treats this way.
+func TestAHostThatWasNeverReachedSaysSoRatherThanGivingAStatus(t *testing.T) {
+	h := newHarness(t)
+	web := h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.finishRun(web, sshx.Result{
+		Output:   "ssh: connect to host 10.0.1.1 port 22: Connection refused\n",
+		ExitCode: sshx.ConnectionFailed,
+	})
+
+	h.mustContain("could not connect")
+	h.mustNotContain("exit 255")
+	// And ssh's own diagnostic is still what is on screen, since that is the
+	// part saying which of the many ways it failed. Only its beginning is
+	// asserted: a long line is cut to the width of the box, as every line
+	// drawn into one here is.
+	h.mustContain("ssh: connect to host")
+}
+
+// A status that is the script's own is still shown as one.
+func TestAScriptsOwnStatusIsStillANumber(t *testing.T) {
+	h := newHarness(t)
+	web := h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.finishRun(web, sshx.Result{Output: "nope\n", ExitCode: 3})
+	h.mustContain("exit 3")
+	h.mustNotContain("could not connect")
+}

@@ -453,6 +453,14 @@ func (m Model) outputTitle() string {
 		return name
 	case res.Err != nil:
 		return name + "  ·  stopped"
+	case res.ExitCode == sshx.ConnectionFailed:
+		// 255 is the status ssh exits with for its own failures, and a host
+		// omassh never reached did not run the script at all — "exit 255"
+		// reads as a script that ran and failed. A remote command can exit
+		// 255 of its own accord, and calling that a connection failure is the
+		// rarer mistake and the cheaper one, which is the same trade
+		// SessionEndedMsg.NeverConnected already makes.
+		return name + "  ·  could not connect"
 	case res.ExitCode != 0:
 		return fmt.Sprintf("%s  ·  exit %d", name, res.ExitCode)
 	case res.Duration < time.Second:
@@ -602,6 +610,10 @@ func runMark(r *snippetRun, h store.Host) (string, color.Color, string) {
 		return "○", theme.TextDim, "running…"
 	case res.Err != nil:
 		return "◌", theme.Yellow, "stopped"
+	case res.ExitCode == sshx.ConnectionFailed:
+		// ssh says why on stderr, which is already the summary; where it
+		// somehow said nothing, the row still has to say what happened.
+		return "✖", theme.Red, strOr(res.Summary(), "could not connect")
 	case res.ExitCode != 0:
 		return "✖", theme.Red, strOr(res.Summary(), fmt.Sprintf("exited %d, saying nothing", res.ExitCode))
 	default:
