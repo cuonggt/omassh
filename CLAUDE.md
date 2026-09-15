@@ -55,6 +55,15 @@ goreleaser release --snapshot --clean  # archives, checksums and cask locally, p
   terminal the unit tests never had, and an environment set on an `exec.Cmd`
   that the tmux path then replaced. Both are invisible to a test that calls the
   function and reads what it returns.
+- **Linux is checked with `hack/linux-smoke.sh`.** The suite itself needs no
+  Docker and must not grow a dependency on one; the script is a tool, not a
+  test. It builds a container with tmux, openssh-client and a real libsecret
+  keyring, and runs `internal/secret` and `internal/smoke` inside it with the
+  keychain tests turned on. It is there because `security(1)` and
+  `secret-tool(1)` are different programs with different opinions — the Linux
+  one exits 1 for an item that is not there and adds no newline of its own, and
+  neither was true of what this package first believed. A fake runner agrees
+  with whatever it is told; only running it disagrees.
 - **The keychain is opt-in.** `OMASSH_KEYCHAIN_TEST=1` turns on the tests that
   use the real one, in `internal/secret` and `internal/smoke`. They are off by
   default because they cannot be isolated: `security(1)` takes a named keychain
