@@ -27,6 +27,7 @@ const (
 	SFTP        Action = "sftp"
 	Forward     Action = "forward"
 	Credentials Action = "credentials"
+	Snippets    Action = "snippets"
 	Theme       Action = "theme"
 	Pane        Action = "pane"
 	NextPanel   Action = "next-panel"
@@ -44,6 +45,7 @@ var defaults = map[Action]string{
 	Redraw: "ctrl+l",
 	SFTP:   "s", Pane: "t", Theme: "T", Forward: "f",
 	Credentials: "C",
+	Snippets:    "S",
 	NextPanel:   "tab", PrevPanel: "shift+tab",
 	PanelGroups: "1", PanelHosts: "2",
 	Up: "k", Down: "j",

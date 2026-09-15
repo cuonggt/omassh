@@ -140,6 +140,11 @@ func (m Model) dialog(content int) (string, bool) {
 		title := "Credentials" +
 			listPosition(m.credIdx, len(m.d.creds), m.credentialListRows(content))
 		return box(title, true, w, dialogHeight(body, content), body), true
+	case modeSnippets:
+		body := m.snippetsBody(w-4, content)
+		title := "Snippets" +
+			listPosition(m.snipIdx, len(m.d.snippets), m.snippetListRows(content))
+		return box(title, true, w, dialogHeight(body, content), body), true
 	case modeTheme:
 		// Narrower than the rest: a dialog this size leaves more of the
 		// coloured interface showing behind it, which is the thing actually
@@ -501,6 +506,7 @@ func (m Model) helpLines() []string {
 			{m.keys.Key(keymap.Reload), "reload the store from disk"},
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
 			{m.keys.Key(keymap.Credentials), "credentials: a user and a way of proving it, shared by hosts"},
+			{m.keys.Key(keymap.Snippets), "snippets: scripts worth keeping, named once"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 			{m.keys.Key(keymap.Forward), "port forwarding for the selected host"},
 			{m.keys.Key(keymap.Theme), "choose a colour theme, previewing as you move"},
@@ -629,9 +635,10 @@ func (m Model) statusBar() string {
 		// The file browser keeps its keys on the transfer strip, which has a
 		// whole row for them; repeating a shorter version here said the same
 		// thing twice and named different keys each time.
-	case modeForwards, modeCredentials:
+	case modeForwards, modeCredentials, modeSnippets:
 		// Likewise: these dialogs carry their own keys, and the status is
-		// where what just happened to a tunnel or a credential is reported.
+		// where what just happened to a tunnel, a credential or a snippet is
+		// reported.
 	default:
 		switch {
 		case m.prefixArmed:

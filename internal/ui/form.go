@@ -18,6 +18,7 @@ const (
 	formGroup
 	formForward
 	formCredential
+	formSnippet
 	formMkdir
 	formRename
 	formChmod
@@ -37,6 +38,12 @@ type field struct {
 	// so picking adds to it instead of replacing it. Opening the picker again
 	// is then how a second tag is added.
 	list bool
+
+	// readonly marks a field whose value is shown rather than typed. A
+	// snippet's script is one when it runs to more than a line: every input
+	// here is single-line, and a shell script is not. ctrl+e is how such a
+	// field changes.
+	readonly bool
 
 	// suggested marks a value that was filled in for you rather than typed.
 	// Typing over it replaces it, the way selected text would: appending to a
@@ -60,6 +67,11 @@ type form struct {
 	// so.
 	picking bool
 	pickIdx int
+
+	// script is a snippet's script. It does not live in a field, because a
+	// field is one line and a shell script is not; showScript keeps the two
+	// in step, and ctrl+e is what edits it.
+	script string
 
 	// passwordStored is whether the keychain already holds one for the
 	// credential being edited, which is what lets an empty field mean "as it
@@ -113,6 +125,12 @@ func (f *form) move(d int) tea.Cmd {
 
 func (f *form) update(msg tea.Msg) tea.Cmd {
 	x := &f.fields[f.idx]
+	// A field that is shown rather than typed swallows the keystroke. What is
+	// drawn in it is a description of the value — "4 lines" — and letting that
+	// be edited would mean saving the description as the script.
+	if x.readonly {
+		return nil
+	}
 	if x.suggested {
 		// Only text replaces. Arriving with an arrow key or backspace means
 		// you intend to edit what is there, so the value stays.
@@ -169,7 +187,13 @@ func (f *form) render(w int) string {
 		if i == f.idx {
 			label = theme.Fg(theme.TextBrt).Render(pad(x.label, labelW) + "  ")
 		}
-		b.WriteString("  " + marker + label + x.input.View() + "\n")
+		value := x.input.View()
+		if x.readonly {
+			// Dim, so a field that cannot be typed into does not look like
+			// one that can and is simply refusing to take the keystroke.
+			value = theme.Dim.Render(x.input.Value())
+		}
+		b.WriteString("  " + marker + label + value + "\n")
 	}
 	if f.problem != "" {
 		// Wrapped, for the reason a confirmation is. What a complaint says
@@ -182,6 +206,14 @@ func (f *form) render(w int) string {
 		for _, l := range lines[1:] {
 			b.WriteString("    " + theme.Fg(theme.Red).Render(l) + "\n")
 		}
+	}
+	// Said on its own line rather than among the footer keys, which have no
+	// room left for it, and said on every snippet form rather than only where
+	// the script is already too long to type: a one-liner sits in a field that
+	// looks perfectly ordinary, and nothing else would suggest a longer script
+	// is possible at all.
+	if f.kind == formSnippet {
+		b.WriteString("\n" + theme.Dim.Render("  ctrl+e opens $EDITOR, for a script longer than a line") + "\n")
 	}
 	b.WriteString("\n" + theme.Dim.Render("  ") +
 		hint("tab", "next field") + theme.Dim.Render("  ·  ") +

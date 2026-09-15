@@ -45,6 +45,7 @@ const (
 	modeTheme
 	modeForwards
 	modeCredentials
+	modeSnippets
 )
 
 const (
@@ -203,6 +204,8 @@ type Model struct {
 
 	// credIdx is the cursor in the credential list.
 	credIdx int
+	// snipIdx is the cursor in the snippet list.
+	snipIdx int
 	// secrets is where a password credential's password is kept, and
 	// secretsErr why there is nowhere to keep one. Opened once at startup:
 	// the cost is a look along PATH, and the answer cannot change while
@@ -308,6 +311,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case sftpConnectedMsg:
 		return m.sftpConnected(msg)
+
+	case scriptEditedMsg:
+		return m.handleScriptEdited(msg)
 
 	case transferMsg:
 		m.transfer = msg
@@ -428,6 +434,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleForwardsKey(msg)
 	case modeCredentials:
 		return m.handleCredentialsKey(msg)
+	case modeSnippets:
+		return m.handleSnippetsKey(msg)
 	}
 	return m.handleBrowseKey(msg)
 }
@@ -531,6 +539,8 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openForwards()
 	case keymap.Credentials:
 		return m.openCredentials()
+	case keymap.Snippets:
+		return m.openSnippets()
 	case keymap.Pane:
 		return m.attachSession()
 	case keymap.Redraw:
@@ -678,10 +688,19 @@ func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.form.move(1)
 	case "shift+tab", "up":
 		return m, m.form.move(-1)
+	case "ctrl+e":
+		// Only a snippet has anything to open an editor on. Everywhere else
+		// the key is not bound, and falls through to the field.
+		if m.form.kind == formSnippet {
+			return m, editScript(m.form.script)
+		}
 	case "enter":
 		return m.saveForm()
 	}
 	cmd := m.form.update(msg)
+	// The script and its field are two views of one value while it is short
+	// enough to type, and this is what keeps them in step.
+	m.form.syncScript()
 	// A credential shows only the fields its kind actually uses, so changing
 	// the kind changes the form under you. Offering a key credential a
 	// Password box, or a password credential a path to a private key, invites
@@ -1040,6 +1059,8 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 		return m.saveForwardForm()
 	case formCredential:
 		return m.saveCredentialForm()
+	case formSnippet:
+		return m.saveSnippetForm()
 	}
 	if f.kind == formGroup {
 		name := f.value("Name")
@@ -1252,7 +1273,7 @@ func (m Model) groupChoices(excludeID, credID string) groupChoices {
 // A modal opened from another modal still returns to the underlying view.
 func backFor(current mode) mode {
 	switch current {
-	case modeSFTP, modeForwards, modeCredentials:
+	case modeSFTP, modeForwards, modeCredentials, modeSnippets:
 		return current
 	default:
 		return modeBrowse

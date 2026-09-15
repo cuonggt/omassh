@@ -32,6 +32,7 @@ import/export for moving the list between machines or starting from
 | `s` | sftp: browse and transfer files |
 | `f` | port forwarding: tunnels that outlive the window |
 | `C` | credentials: a user and a way of proving it, shared by hosts |
+| `S` | snippets: scripts worth keeping, named once |
 | `T` | pick a theme, previewing as you move |
 | `r` | reload the store from disk |
 | `?` | help, which names the running version |

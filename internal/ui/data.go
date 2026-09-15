@@ -19,6 +19,7 @@ type data struct {
 	groups   []store.Group // persisted groups only
 	hosts    []store.Host  // persisted hosts plus config-sourced hosts
 	creds    []store.Credential
+	snippets []store.Snippet
 	stats    map[string]store.Stat
 	tree     []store.GroupNode // display order, including synthetic groups
 	resolver store.Resolver
@@ -60,6 +61,8 @@ func load(s *store.Store) (data, error) {
 	d.hosts, err = s.Hosts()
 	note(err)
 	d.creds, err = s.Credentials()
+	note(err)
+	d.snippets, err = s.Snippets()
 	note(err)
 	d.stats, err = s.Stats()
 	note(err)
