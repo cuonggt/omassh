@@ -31,6 +31,7 @@ import/export for moving the list between machines or starting from
 | `t` | connect in the main pane instead, keeping the host list |
 | `s` | sftp: browse and transfer files |
 | `f` | port forwarding: tunnels that outlive the window |
+| `C` | credentials: a user and a way of proving it, shared by hosts |
 | `T` | pick a theme, previewing as you move |
 | `r` | reload the store from disk |
 | `?` | help, which names the running version |
@@ -128,6 +129,61 @@ chains, `ProxyCommand`, certificates, `Match` blocks, `IdentityAgent` and
 `known_hosts` all apply, with no second implementation to keep in step.
 `BatchMode` is forced on, because the child's stdin carries the protocol and
 there is nowhere to prompt; `ssh-add` the key first if it has a passphrase.
+
+## Credentials
+
+`C` lists the ways you log in, and a host or a group can name one instead of
+repeating a user and a key path on every machine it applies to. `n`, `e` and
+`d` make, change and remove them. There are three kinds: a `key` credential is
+a user and a path to a private key, which becomes `ssh -i`; an `agent` one is
+a user with the key left to ssh-agent; and a `password` one is a user and a
+machine that takes no key at all.
+
+A credential fills in the same fields a group does, and by the same rule: the
+nearest thing that sets a value wins. A host's own user beats its credential,
+which beats its group's user, which beats its group's credential, and so on up
+the tree. The detail pane says where each value came from — `← Prod deploy`
+beside a key, exactly as it writes `← Production` beside one a group supplied.
+
+Deleting a credential takes it off everything that named it, and says how many
+will lose it first. A host left pointing at one that had gone would resolve to
+nothing at all and give no sign why.
+
+Only a password credential changes how omassh connects. It stores no key, so
+ssh is told not to walk the agent's keys first: on a host offering several, ssh
+can spend `MaxAuthTries` on keys it was never going to be let in with and be
+refused before it reaches the password at all.
+
+The password itself is not here. The store is an ordinary file and the export
+is meant for a dotfiles repository, so a password goes where the operating
+system already keeps such things — your login keychain on macOS, libsecret on
+Linux — and omassh keeps a name for it. A machine with neither says so while
+you are typing one, rather than accepting a password it cannot store. It is
+the same argument omassh makes about ssh-agent: there is a facility for this
+already, and reimplementing it would be worse than using it.
+
+It reaches ssh through `SSH_ASKPASS`, which is OpenSSH's own way of being
+answered by a program rather than a person — no `sshpass`, and nothing
+pretending to be a terminal. ssh runs omassh, omassh reads the keychain, and
+the answer comes back on a pipe between those two processes. It is never in
+the argument list, which every process on the machine can read, and never in
+an environment variable, which every child would inherit; only the
+credential's id travels that way.
+
+Because a program answers, a password host works where nobody is watching —
+sftp, forwards and probes — and not only where you are sitting. That costs one
+thing worth knowing. `BatchMode=yes` is forced on for those connections
+precisely so that nothing can stop and wait, and it would refuse the askpass
+helper along with every other prompt. For a password credential it becomes
+`NumberOfPasswordPrompts=1` instead: ssh asks once, the helper answers, and a
+password that is wrong fails immediately rather than looping on a prompt
+nobody can see. What must never happen there is a connection that waits, and
+neither of those waits.
+
+`omassh export` carries the name, the kind and the user, and never the
+password. A list moved to another machine arrives knowing who it logs in as
+and wanting the password typed into that machine's own keychain — which is the
+same thing it would want for a key that machine does not have yet.
 
 ## SFTP
 

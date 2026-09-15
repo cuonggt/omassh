@@ -500,6 +500,7 @@ func (m Model) helpLines() []string {
 			{m.keys.Key(keymap.Probe), "probe reachability of the hosts in this group"},
 			{m.keys.Key(keymap.Reload), "reload the store from disk"},
 			{m.keys.Key(keymap.Redraw), "redraw, if the terminal cleared the screen underneath"},
+			{m.keys.Key(keymap.Credentials), "credentials: a user and a way of proving it, shared by hosts"},
 			{m.keys.Key(keymap.SFTP), "sftp: browse and transfer files on the selected host"},
 			{m.keys.Key(keymap.Forward), "port forwarding for the selected host"},
 			{m.keys.Key(keymap.Theme), "choose a colour theme, previewing as you move"},
