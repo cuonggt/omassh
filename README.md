@@ -8,9 +8,9 @@ interaction model, running on top of real OpenSSH.
 ## Status
 
 Hosts and groups with attribute inheritance, embedded sessions, SFTP and port
-forwarding, plus theming, rebindable keys, reachability probes, and a text
-import/export for moving the list between machines or starting from
-`~/.ssh/config`.
+forwarding, shared credentials, and snippets you can run across a whole group,
+plus theming, rebindable keys, reachability probes, and a text import/export
+for moving the list between machines or starting from `~/.ssh/config`.
 
 ## Keys
 
@@ -32,7 +32,7 @@ import/export for moving the list between machines or starting from
 | `s` | sftp: browse and transfer files |
 | `f` | port forwarding: tunnels that outlive the window |
 | `C` | credentials: a user and a way of proving it, shared by hosts |
-| `S` | snippets: scripts worth keeping, named once |
+| `S` | snippets: a script to run on a host or a whole group |
 | `T` | pick a theme, previewing as you move |
 | `r` | reload the store from disk |
 | `?` | help, which names the running version |
@@ -185,6 +185,64 @@ neither of those waits.
 password. A list moved to another machine arrives knowing who it logs in as
 and wanting the password typed into that machine's own keychain — which is the
 same thing it would want for a key that machine does not have yet.
+
+## Snippets
+
+`S` lists the scripts worth keeping, so a command you run often is typed once
+rather than remembered. `n`, `e` and `d` make, change and remove them. The row
+beside a name shows the command itself where there is one, and the size where
+there is more.
+
+A one-line script is typed into the form. Anything longer goes to `$EDITOR` on
+`ctrl+e` — `$VISUAL` first, then `$EDITOR`, then `vi` — and comes back with
+whatever you saved. Omassh does not grow a text area for this, for the reason
+it does not implement SSH: there is an editor on the machine already, and it
+is better than the one that would be written here. A script too long for its
+field then reads `4 lines — ctrl+e to edit`, and the field stops taking
+keystrokes rather than letting the description be saved as the script.
+
+`↵` runs it. The screen that opens shows the whole script and the ways of
+saying where — the host in front of you, the hosts beside it, or any set you
+tick off by hand — and nothing runs until `y`. That step is not ceremony: a
+long snippet is listed by its size, so `↵` on its own would be running
+something you cannot see on machines you have to be right about.
+
+Results fill in as they arrive, one row per host, each carrying the last line
+that host said. `↵` on a row opens what it said in full. `esc` stops the run
+and keeps what has already come back, because the hosts that did finish are
+worth reading and closing the screen would take them away in the same moment.
+A second `esc` leaves without waiting, for a run whose results are not coming:
+killing ssh does not close a pipe a background process is still holding.
+
+Four hosts at a time. A probe is a TCP connection and nothing else, and its
+limit scales with the size of the sweep; this is a whole ssh session plus
+whatever the script does at the far end, and thirty simultaneous package
+upgrades is not a thing to start by accident. Hosts past the limit are shown
+as queued rather than running, because they are: a table claiming forty open
+sessions when four are open is describing something that is not happening.
+
+**A run has no terminal.** It goes through the same unattended path a forward
+and an sftp session do, so `sudo` asking for a password fails immediately
+instead of waiting on a keyboard that is not there — which is the right
+answer, since waiting is the one thing a connection nobody is watching must
+never do. A password credential still works, by the same
+`NumberOfPasswordPrompts=1` route described above. What a run cannot do is
+anything interactive, and that is what the other half of this is for.
+
+`p` pastes the snippet into the session in the main pane instead, and stops
+there. Omassh delivers it as a paste rather than as typing, which a shell that
+understands bracketed paste holds in its edit buffer for you to read, change
+and run yourself. One that does not understand it — macOS ships a bash whose
+readline predates the idea — runs each line as it arrives. Which of those
+happened cannot be known from here: the mode belongs to the shell at the far
+end, and with tmux in between it is tmux's own that reaches omassh. So it is
+not claimed. A one-line snippet always waits, because what would run it is the
+trailing newline omassh takes off; a longer one says to go and look, next to
+the pane it has just put in front of you.
+
+`omassh export` carries a snippet's script exactly as written, which is also
+the warning: a password belongs in a credential, where the export does not
+carry it, and never in a script, where it does.
 
 ## SFTP
 

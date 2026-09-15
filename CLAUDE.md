@@ -54,7 +54,10 @@ goreleaser release --snapshot --clean  # archives, checksums and cask locally, p
   because two bugs shipped through a green suite — `security(1)` prompting on a
   terminal the unit tests never had, and an environment set on an `exec.Cmd`
   that the tmux path then replaced. Both are invisible to a test that calls the
-  function and reads what it returns.
+  function and reads what it returns. Anything going through `tea.Exec` belongs
+  here for the same reason: `Update` returns a command and nothing in a unit
+  test runs it, so a snippet's trip to `$EDITOR` is only ever exercised by a
+  terminal it can actually be handed.
 - **Linux is checked with `hack/linux-smoke.sh`.** The suite itself needs no
   Docker and must not grow a dependency on one; the script is a tool, not a
   test. It builds a container with tmux, openssh-client and a real libsecret

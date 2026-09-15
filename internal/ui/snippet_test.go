@@ -301,7 +301,7 @@ func TestTheSnippetFormSaysHowToWriteALongerScript(t *testing.T) {
 func TestHelpNamesTheSnippetKey(t *testing.T) {
 	h := newHarness(t)
 	h.press("?")
-	h.mustContain("snippets: scripts worth keeping")
+	h.mustContain("snippets: a script to run on a host or a whole group")
 }
 
 // Running shows the script and the host first and waits. A long snippet is
