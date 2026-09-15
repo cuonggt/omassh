@@ -29,6 +29,11 @@ import (
 // scrollback is how many lines above the viewport each pane keeps.
 const scrollback = 2000
 
+// termVar is what a pane's child is told it is talking to. That is our
+// emulator, not the user's terminal, so it gets what the emulator actually
+// implements rather than inheriting a TERM that promises more.
+const termVar = "TERM=xterm-256color"
+
 // Pane is one embedded session: a pty running ssh, a terminal emulator fed by
 // its output, and the plumbing to send keys back.
 type Pane struct {
@@ -70,27 +75,7 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 		return nil, fmt.Errorf("allocate pty: %w", err)
 	}
 
-	// Prefer a persistent tmux-backed session; fall back to a plain ssh child
-	// where tmux is not installed, which simply means sessions end with the UI.
-	sshArgs := sshx.Build(h)
-	env := sshx.Env(h)
-	cmd := exec.Command("ssh", sshArgs...)
-	if len(env) > 0 {
-		cmd.Env = append(os.Environ(), env...)
-	}
-	session := ""
-	if TmuxAvailable() {
-		// The tmux command replaces the plain one above, environment and all,
-		// so what a password credential needs has to be built into it rather
-		// than set on the Cmd this discards.
-		if c, name, err := tmuxCommand(h, sshArgs, env); err == nil {
-			cmd, session = c, name
-		}
-	}
-	// The child is talking to our emulator, not the user's terminal, so it is
-	// told what the emulator actually implements rather than inheriting a TERM
-	// that promises more.
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	cmd, session := sessionCommand(h, TmuxAvailable())
 	attachTTY(cmd)
 
 	if err := pty.Start(cmd); err != nil {
@@ -147,6 +132,41 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 	}()
 
 	return p, nil
+}
+
+// sessionCommand is what a pane runs: a persistent tmux-backed session where
+// tmux is installed, and a plain ssh child where it is not, which simply means
+// sessions end with the UI.
+//
+// The two put a password credential's environment in different places, and the
+// difference is load-bearing. The tmux command carries it in its own argv,
+// through env(1), because setting it on the Cmd would put it on tmux rather
+// than on the ssh tmux goes on to run, and because the session outlives omassh
+// anyway. The plain child has nowhere to put it but the Cmd.
+//
+// One command each, rather than a plain one the tmux branch overwrites: TERM
+// used to be assigned after that overwrite, and so replaced the credential
+// environment outright. A machine without tmux then prompted in the pane for a
+// password it had already been given. Nothing failed and nothing was logged;
+// the stored password was simply never reached.
+func sessionCommand(h store.Host, tmuxOK bool) (*exec.Cmd, string) {
+	sshArgs := sshx.Build(h)
+	env := sshx.Env(h)
+
+	if tmuxOK {
+		if cmd, name, err := tmuxCommand(h, sshArgs, env); err == nil {
+			// Deliberately without env: this tmux server is shared with every
+			// other session, and a credential in the environment that starts
+			// it would reach panes it has nothing to do with.
+			cmd.Env = append(os.Environ(), termVar)
+			return cmd, name
+		}
+	}
+
+	cmd := exec.Command("ssh", sshArgs...)
+	cmd.Env = append(os.Environ(), env...)
+	cmd.Env = append(cmd.Env, termVar)
+	return cmd, ""
 }
 
 // SendKey forwards a key press to the remote session.
