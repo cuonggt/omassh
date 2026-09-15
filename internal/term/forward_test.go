@@ -142,7 +142,7 @@ func TestForwardCarriesTraffic(t *testing.T) {
 		ID: "fwd-carries", HostID: h.ID, Kind: store.ForwardLocal,
 		ListenPort: local, Dest: "127.0.0.1", DestPort: target,
 	}
-	if err := term.StartForward(f, sshx.ForwardArgs(h, f)); err != nil {
+	if err := term.StartForward(f, sshx.ForwardArgs(h, f), nil); err != nil {
 		t.Fatalf("StartForward: %v", err)
 	}
 	t.Cleanup(func() { term.StopForward(f) })
@@ -190,7 +190,7 @@ func TestAFailedForwardSaysWhy(t *testing.T) {
 	}
 	t.Cleanup(func() { term.StopForward(f) })
 
-	err := term.StartForward(f, sshx.ForwardArgs(h, f))
+	err := term.StartForward(f, sshx.ForwardArgs(h, f), nil)
 	if err == nil {
 		t.Fatal("a forward whose key was refused reported success")
 	}
@@ -239,13 +239,13 @@ func TestStartingOverAStoppedTunnel(t *testing.T) {
 		ListenPort: local, Dest: "127.0.0.1", DestPort: target,
 	}
 	t.Cleanup(func() { term.StopForward(f) })
-	if err := term.StartForward(f, sshx.ForwardArgs(refuse, f)); err == nil {
+	if err := term.StartForward(f, sshx.ForwardArgs(refuse, f), nil); err == nil {
 		t.Fatal("the refusing server accepted the connection")
 	}
 
 	// Now the same rule against a server that will have it.
 	accept := forwardingHost(t, true)
-	if err := term.StartForward(f, sshx.ForwardArgs(accept, f)); err != nil {
+	if err := term.StartForward(f, sshx.ForwardArgs(accept, f), nil); err != nil {
 		t.Fatalf("starting over a stopped tunnel: %v", err)
 	}
 	if got := readThrough(t, local, 15*time.Second); got != greeting {
@@ -321,7 +321,7 @@ func TestARunningTunnelSaysWhatItIsCarrying(t *testing.T) {
 		ListenPort: freePort(t), Dest: "127.0.0.1", DestPort: target,
 	}
 	args := sshx.ForwardArgs(h, f)
-	if err := term.StartForward(f, args); err != nil {
+	if err := term.StartForward(f, args, nil); err != nil {
 		t.Fatalf("StartForward: %v", err)
 	}
 	t.Cleanup(func() { term.StopForward(f) })
@@ -334,16 +334,16 @@ func TestARunningTunnelSaysWhatItIsCarrying(t *testing.T) {
 	if !ok || !st.Running {
 		t.Fatalf("the tunnel is not running: %+v", st)
 	}
-	if st.Args != term.ForwardFingerprint(args) {
+	if st.Args != term.ForwardFingerprint(args, nil) {
 		t.Errorf("the tunnel reports %q, want the fingerprint of what it was started with (%q)",
-			st.Args, term.ForwardFingerprint(args))
+			st.Args, term.ForwardFingerprint(args, nil))
 	}
 
 	// Now the rule says something else. The tunnel has not changed, and must
 	// not claim to have.
 	edited := f
 	edited.DestPort = target + 1
-	if st.Args == term.ForwardFingerprint(sshx.ForwardArgs(h, edited)) {
+	if st.Args == term.ForwardFingerprint(sshx.ForwardArgs(h, edited), nil) {
 		t.Error("a rule pointed somewhere else fingerprints the same as the tunnel carrying the old one")
 	}
 }
@@ -368,7 +368,7 @@ func TestRestartingARunningTunnelMovesIt(t *testing.T) {
 		ID: "fwd-moves", HostID: h.ID, Kind: store.ForwardLocal,
 		ListenPort: local, Dest: "127.0.0.1", DestPort: first,
 	}
-	if err := term.StartForward(f, sshx.ForwardArgs(h, f)); err != nil {
+	if err := term.StartForward(f, sshx.ForwardArgs(h, f), nil); err != nil {
 		t.Fatalf("StartForward: %v", err)
 	}
 	t.Cleanup(func() { term.StopForward(f) })
@@ -379,7 +379,7 @@ func TestRestartingARunningTunnelMovesIt(t *testing.T) {
 	// The rule now points elsewhere, and the tunnel is still up on the old one.
 	moved := f
 	moved.DestPort = second
-	if err := term.StartForward(moved, sshx.ForwardArgs(h, moved)); err != nil {
+	if err := term.StartForward(moved, sshx.ForwardArgs(h, moved), nil); err != nil {
 		t.Fatalf("restarting a running tunnel: %v", err)
 	}
 	if got := readThrough(t, local, 15*time.Second); !strings.Contains(got, "second") {
@@ -391,7 +391,7 @@ func TestRestartingARunningTunnelMovesIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if st := states[term.ForwardSessionName(moved)]; st.Args != term.ForwardFingerprint(sshx.ForwardArgs(h, moved)) {
+	if st := states[term.ForwardSessionName(moved)]; st.Args != term.ForwardFingerprint(sshx.ForwardArgs(h, moved), nil) {
 		t.Errorf("the restarted tunnel reports %q, want the fingerprint of the rule it now carries", st.Args)
 	}
 }
@@ -420,7 +420,7 @@ func TestAPortAlreadyTakenIsRefusedBeforeAnythingIsStarted(t *testing.T) {
 	}
 	t.Cleanup(func() { term.StopForward(f) })
 
-	err = term.StartForward(f, sshx.ForwardArgs(h, f))
+	err = term.StartForward(f, sshx.ForwardArgs(h, f), nil)
 	if err == nil {
 		t.Fatal("a port already listening was accepted")
 	}
@@ -454,7 +454,7 @@ func TestATunnelKilledBySignalCountsAsFailed(t *testing.T) {
 		ID: "fwd-killed", HostID: h.ID, Kind: store.ForwardLocal,
 		ListenPort: freePort(t), Dest: "127.0.0.1", DestPort: target,
 	}
-	if err := term.StartForward(f, sshx.ForwardArgs(h, f)); err != nil {
+	if err := term.StartForward(f, sshx.ForwardArgs(h, f), nil); err != nil {
 		t.Fatalf("StartForward: %v", err)
 	}
 	t.Cleanup(func() { term.StopForward(f) })
@@ -526,7 +526,7 @@ func TestAForwardThatDiedAtTheHopSaysWhatTheHopSaid(t *testing.T) {
 	}
 	t.Cleanup(func() { term.StopForward(f) })
 
-	err := term.StartForward(f, sshx.ForwardArgs(h, f))
+	err := term.StartForward(f, sshx.ForwardArgs(h, f), nil)
 	if err == nil {
 		t.Fatal("a tunnel whose hop refused the key reported success")
 	}

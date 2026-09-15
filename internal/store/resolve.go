@@ -9,12 +9,6 @@ type Resolved struct {
 	UserFrom      string
 	IdentityFrom  string
 	ProxyJumpFrom string
-	// Cred is the credential that applied: the host's own if it named one,
-	// otherwise the nearest one up the group chain. It is kept whole rather
-	// than flattened away because how a host logs in is not only a user and a
-	// key — a password credential carries neither, and its id is what the
-	// askpass helper is told to look up.
-	Cred *Credential
 }
 
 // Resolver applies group inheritance to hosts, and turns a jump host named by

@@ -45,7 +45,7 @@ type Session struct {
 // still be raised to watch what ssh is doing.
 func connectArgs(h store.Host, opts []string) []string {
 	return sshx.SubsystemArgs(h, "sftp",
-		[]string{"-o", "BatchMode=yes"},
+		sshx.Unattended(h),
 		append([]string{"-o", "LogLevel=ERROR"}, opts...))
 }
 
@@ -57,6 +57,11 @@ func connectArgs(h store.Host, opts []string) []string {
 func Connect(h store.Host, opts ...string) (*Session, error) {
 	args := connectArgs(h, opts)
 	cmd := exec.Command("ssh", args...)
+	// A password credential answers through omassh itself; Env is empty for
+	// every other kind, so this is the same command it always was.
+	if env := sshx.Env(h); len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

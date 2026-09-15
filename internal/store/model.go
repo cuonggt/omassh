@@ -91,6 +91,13 @@ type Host struct {
 	// wants a password rather than a key.
 	CredentialID string `json:"credential_id,omitempty"`
 
+	// Cred is the resolved credential, filled in at resolve time and never
+	// persisted — like Jump below. It is here rather than only on Resolved
+	// because Build is handed a Host, and how a host authenticates is not
+	// expressible in the user and key it copies out: a password credential
+	// carries neither, and its id is what the askpass helper looks up.
+	Cred *Credential `json:"-"`
+
 	// Jump is the resolved jump host, filled in at resolve time and never
 	// persisted. ssh -J passes only -l, -p and -v to the hop, so the jump
 	// host's own key and port would be ignored; carrying the host itself lets

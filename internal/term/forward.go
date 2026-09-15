@@ -77,8 +77,13 @@ const argsOption = "@omassh-args"
 // the rule's id, so it goes on being found and reported as up — against a rule
 // that now says something else entirely. Recording what is actually running is
 // what lets the two be compared.
-func ForwardFingerprint(sshArgs []string) string {
-	sum := sha256.Sum256([]byte(strings.Join(sshArgs, "\x00")))
+func ForwardFingerprint(sshArgs, env []string) string {
+	// The environment counts as part of the invocation: two password
+	// credentials with the same user differ only in the id handed to the
+	// askpass helper, and a tunnel moved from one to the other would
+	// otherwise go on reporting itself as carrying the rule it now does not.
+	all := append(append([]string(nil), sshArgs...), env...)
+	sum := sha256.Sum256([]byte(strings.Join(all, "\x00")))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -100,7 +105,7 @@ var ErrNoTmux = errors.New("port forwarding needs tmux: a tunnel that died with 
 
 // StartForward runs one rule's ssh in a detached session, and waits long
 // enough to see whether it stayed up.
-func StartForward(f store.Forward, sshArgs []string) error {
+func StartForward(f store.Forward, sshArgs, env []string) error {
 	if !TmuxAvailable() {
 		return ErrNoTmux
 	}
@@ -121,14 +126,23 @@ func StartForward(f store.Forward, sshArgs []string) error {
 		return err
 	}
 
-	args := []string{"-L", tmuxSocket(), "-f", conf, "new-session", "-d", "-s", name, "ssh"}
+	args := []string{"-L", tmuxSocket(), "-f", conf, "new-session", "-d", "-s", name}
+	// Through env(1) rather than tmux's own -e, which only arrived in tmux
+	// 3.2 and would make a password credential the one feature with a version
+	// requirement of its own. What is set here is an id and a program path;
+	// the password itself never leaves the keychain until ssh asks for it.
+	if len(env) > 0 {
+		args = append(args, "env")
+		args = append(args, env...)
+	}
+	args = append(args, "ssh")
 	args = append(args, sshArgs...)
 	// Set in the same command sequence as the session is created, so the
 	// option is in force before the server can act on the child exiting —
 	// which for a port already taken is a matter of milliseconds.
 	args = append(args, ";", "set-option", "-t", name, "remain-on-exit", "on")
 	// What is running, so the interface can tell it from what the rule says.
-	args = append(args, ";", "set-option", "-p", "-t", name, argsOption, ForwardFingerprint(sshArgs))
+	args = append(args, ";", "set-option", "-p", "-t", name, argsOption, ForwardFingerprint(sshArgs, env))
 
 	if out, err := exec.Command("tmux", args...).CombinedOutput(); err != nil {
 		return fmt.Errorf("start forward: %s", strings.TrimSpace(string(out)))

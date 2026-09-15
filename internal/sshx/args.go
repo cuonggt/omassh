@@ -75,8 +75,16 @@ func Build(h store.Host, extra ...string) []string { return BuildWith(nil, h, ex
 //
 // Carried down every level, so a hop behind a hop is covered too.
 func BuildWith(fixed []string, h store.Host, extra ...string) []string {
-	args := make([]string, 0, len(fixed)+10+2*len(globalOptions)+len(extra))
+	args := make([]string, 0, len(fixed)+12+2*len(globalOptions)+len(extra))
 	args = append(args, fixed...)
+	// Before the -o options omassh was given, because for this host it is not
+	// a preference: a password credential is the statement that the machine
+	// takes no key, and left to try the agent's first, ssh can spend
+	// MaxAuthTries on keys it was never going to be let in with and be
+	// refused before it reaches the password at all.
+	if wantsPassword(h) {
+		args = append(args, "-o", "PreferredAuthentications=password,keyboard-interactive")
+	}
 	for _, o := range globalOptions {
 		args = append(args, "-o", o)
 	}

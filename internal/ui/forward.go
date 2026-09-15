@@ -190,7 +190,7 @@ func forwardStale(target store.Host, f store.Forward, st term.ForwardState) bool
 	if !st.Running || st.Args == "" {
 		return false
 	}
-	return st.Args != term.ForwardFingerprint(sshx.ForwardArgs(target, f))
+	return st.Args != term.ForwardFingerprint(sshx.ForwardArgs(target, f), sshx.Env(target))
 }
 
 // holderOf finds a tunnel of ours already bound to the port a rule wants.
@@ -224,7 +224,7 @@ func (m Model) forwardTarget() store.Host {
 // which takes long enough to be worth doing off the interface's own goroutine.
 func startForward(h store.Host, f store.Forward) tea.Cmd {
 	return func() tea.Msg {
-		return forwardDoneMsg{f: f, err: term.StartForward(f, sshx.ForwardArgs(h, f))}
+		return forwardDoneMsg{f: f, err: term.StartForward(f, sshx.ForwardArgs(h, f), sshx.Env(h))}
 	}
 }
 

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"github.com/cuonggt/omassh/internal/config"
 	"github.com/cuonggt/omassh/internal/portable"
 	"github.com/cuonggt/omassh/internal/safefile"
+	"github.com/cuonggt/omassh/internal/secret"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui"
@@ -60,6 +62,15 @@ func main() {
 }
 
 func run(args []string) error {
+	// Before anything else, because this is not a person calling. ssh runs its
+	// askpass program with the prompt as the only argument — there is no
+	// subcommand to look for, so the environment is what says which of the two
+	// this is. Answering and leaving, without touching the store or the
+	// terminal, is the whole of it.
+	if id := os.Getenv(sshx.EnvCredential); id != "" {
+		return askpass(id)
+	}
+
 	// A subcommand is a bare word. Anything starting with a dash is a flag to
 	// the browser, which is what omassh does when asked for nothing else.
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
@@ -462,5 +473,33 @@ func apply(db string, d portable.Document, dry bool) error {
 		return err
 	}
 	fmt.Println(summary)
+	return nil
+}
+
+// askpass answers ssh's password prompt out of the system's keychain.
+//
+// Printed to standard output, which is where ssh reads it and where nothing
+// else can: not the argument list, which every process can read, and not the
+// environment, which every child inherits. Only the credential's id travels
+// that way.
+//
+// A failure here is silent as far as ssh is concerned — it takes whatever it
+// gets on stdout — so the reason goes to stderr, which for a session is the
+// terminal and for a tunnel is the pane it died in. Exiting non-zero tells ssh
+// there is no answer coming, which turns into an ordinary refusal rather than
+// a prompt that hangs.
+func askpass(id string) error {
+	st, err := secret.Open()
+	if err != nil {
+		return err
+	}
+	pw, err := st.Get(id)
+	if err != nil {
+		if errors.Is(err, secret.ErrNotFound) {
+			return errors.New("no password stored for this credential — open it in omassh and type one")
+		}
+		return err
+	}
+	fmt.Println(pw)
 	return nil
 }

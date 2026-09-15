@@ -412,7 +412,7 @@ func TestATunnelRunningAnOlderRuleIsNotClaimedAsCurrent(t *testing.T) {
 	h.m.d.fwd = map[string]term.ForwardState{
 		term.ForwardSessionName(f): {
 			Running: true,
-			Args:    term.ForwardFingerprint(sshx.ForwardArgs(target, f)),
+			Args:    term.ForwardFingerprint(sshx.ForwardArgs(target, f), nil),
 		},
 	}
 	if forwardStale(target, f, h.m.d.forwardState(f)) {
@@ -665,7 +665,7 @@ func TestAGroupChangeMakesATunnelStale(t *testing.T) {
 	h.selectHost("db-01")
 
 	// Running exactly what the rule resolves to today.
-	started := term.ForwardFingerprint(sshx.ForwardArgs(h.m.d.resolver.Resolve(host).Host, f))
+	started := term.ForwardFingerprint(sshx.ForwardArgs(h.m.d.resolver.Resolve(host).Host, f), nil)
 	h.press("f")
 	h.m.d.fwd = map[string]term.ForwardState{
 		term.ForwardSessionName(f): {Running: true, Args: started},

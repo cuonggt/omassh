@@ -74,6 +74,9 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 	// where tmux is not installed, which simply means sessions end with the UI.
 	sshArgs := sshx.Build(h)
 	cmd := exec.Command("ssh", sshArgs...)
+	if env := sshx.Env(h); len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	session := ""
 	if TmuxAvailable() {
 		if c, name, err := tmuxCommand(h, sshArgs); err == nil {
