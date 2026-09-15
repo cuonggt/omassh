@@ -228,3 +228,31 @@ func TestOpenGivesAStoreOrSaysWhyNot(t *testing.T) {
 		t.Errorf("err = %v, want it to be ErrNoStore", err)
 	}
 }
+
+// The keychain command runs with no controlling terminal.
+//
+// security(1) asks for a password on /dev/tty when it can find one, and only
+// falls back to standard input when it cannot. Run from the browser — which
+// has a terminal and is drawing an interface on it — it opened that terminal
+// behind omassh's back, printed its prompt into the middle of the frame, and
+// then waited for an answer on a device nothing was typing into: the record
+// was saved, the keychain got nothing, and the command hung until it was
+// killed. Setsid takes the terminal away, which leaves stdin.
+//
+// Setsid makes the child a session and process-group leader both, so its
+// process group id is its own pid — which is the part of it that can be seen
+// from outside without a terminal to compare against.
+func TestTheKeychainCommandRunsWithNoTerminal(t *testing.T) {
+	out, err := execRun("/bin/sh", []string{"-c", `echo "$$ $(ps -o pgid= -p $$)"`}, "")
+	if err != nil {
+		t.Skipf("ps is not answering the way this test needs: %v", err)
+	}
+	parts := strings.Fields(out)
+	if len(parts) != 2 {
+		t.Skipf("could not read a pid and a process group out of %q", out)
+	}
+	if parts[0] != parts[1] {
+		t.Errorf("pid %s is in process group %s, so the child was not put in a "+
+			"session of its own and still has the terminal", parts[0], parts[1])
+	}
+}

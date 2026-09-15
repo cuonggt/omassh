@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"syscall"
 )
 
 // Service is the name every item is filed under, so that what omassh put in
@@ -60,6 +61,22 @@ func execRun(name string, args []string, stdin string) (string, error) {
 	if stdin != "" {
 		cmd.Stdin = strings.NewReader(stdin)
 	}
+	// In a session of its own, with no controlling terminal.
+	//
+	// security(1) asks for a password on /dev/tty when it can find one, and
+	// only falls back to standard input when it cannot. Run from the browser
+	// — which has a terminal, and is drawing an interface on it — it opened
+	// that terminal behind omassh's back, printed "password data for new
+	// item:" into the middle of the frame, and then waited for an answer on a
+	// device nothing was typing into. The password went to the store, the
+	// keychain got nothing, and the command hung until it was killed.
+	//
+	// Setsid takes the terminal away, which leaves stdin as the only thing it
+	// can read. It costs nothing elsewhere: none of these commands has any
+	// business talking to the terminal, and on macOS the prompt to unlock a
+	// locked keychain is a window rather than a tty prompt, so that still
+	// reaches the person.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	out, err := cmd.Output()
 	if err != nil {
 		var ee *exec.ExitError
