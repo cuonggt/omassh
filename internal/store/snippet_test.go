@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	bolt "go.etcd.io/bbolt"
 )
 
 func TestPutSnippetMintsAnIdAndKeepsIt(t *testing.T) {
@@ -172,5 +174,60 @@ func TestASnippetDescribesItselfByItsCommandOrItsSize(t *testing.T) {
 		if got := sn.Describe(); got != tc.want {
 			t.Errorf("Describe(%q) = %q, want %q", tc.script, got, tc.want)
 		}
+	}
+}
+
+// A snippet written by the omassh that had this feature before still reads.
+//
+// It called the script "command", and JSON quietly decodes such a record into
+// a snippet with no script at all: a blank row in the list, a form that
+// refuses to save what it was given, and an export writing `script: ""` for
+// import to turn down. A database that has been in use since then still holds
+// them, and the round trip is the promise that breaks first.
+func TestASnippetFromTheOlderFeatureStillReads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	// Written the way that omassh wrote it, straight into the bucket.
+	if err := s.write(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketSnippets).Put([]byte("old-1"),
+			[]byte(`{"id":"old-1","name":"capi","command":"ssh capi"}`))
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.Snippets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("%d snippets, want the one already there", len(got))
+	}
+	if got[0].Script != "ssh capi" {
+		t.Errorf("script = %q, want what the older field held", got[0].Script)
+	}
+	if err := got[0].Valid(); err != nil {
+		t.Errorf("the record it read back is one it would refuse: %v", err)
+	}
+
+	// And saving it puts it in the shape this omassh writes, so the old field
+	// goes by being used rather than by a migration nobody can see.
+	if _, err := s.PutSnippet(got[0]); err != nil {
+		t.Fatalf("saving a rescued snippet: %v", err)
+	}
+	var raw string
+	s.read(func(tx *bolt.Tx) error {
+		raw = string(tx.Bucket(bucketSnippets).Get([]byte("old-1")))
+		return nil
+	})
+	if strings.Contains(raw, "command") {
+		t.Errorf("the record still carries the old field: %s", raw)
+	}
+	if !strings.Contains(raw, `"script":"ssh capi"`) {
+		t.Errorf("the record was not rewritten as a script: %s", raw)
 	}
 }

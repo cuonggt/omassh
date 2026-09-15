@@ -256,10 +256,32 @@ func decodeSnippets(b *bolt.Bucket) (out []Snippet, bad []string) {
 			bad = append(bad, string(k))
 			return nil
 		}
+		if s.Script == "" {
+			s.Script = oldScript(v)
+		}
 		out = append(out, s)
 		return nil
 	})
 	return out, bad
+}
+
+// oldScript is the script out of a record written by the omassh that had this
+// feature before, which called it "command".
+//
+// Snippets were here once, were taken out, and are back. A database in use
+// since then still holds records shaped the old way, and JSON decodes one into
+// a snippet with no script at all rather than failing: a blank row in the
+// list, a form that refuses to save what it was handed, and an export writing
+// `script: ""` that import then turns down — this program refusing a file it
+// had just written. Read here and written back as a script on the next save,
+// so the old field goes by being used rather than by a migration nobody can
+// see. A record with neither is empty either way.
+func oldScript(v []byte) string {
+	var old struct {
+		Command string `json:"command"`
+	}
+	json.Unmarshal(v, &old)
+	return old.Command
 }
 
 func sortSnippets(out []Snippet) {
