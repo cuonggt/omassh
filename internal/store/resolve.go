@@ -9,6 +9,12 @@ type Resolved struct {
 	UserFrom      string
 	IdentityFrom  string
 	ProxyJumpFrom string
+	// Cred is the credential that applied: the host's own if it named one,
+	// otherwise the nearest one up the group chain. It is kept whole rather
+	// than flattened away because how a host logs in is not only a user and a
+	// key — a password credential carries neither, and its id is what the
+	// askpass helper is told to look up.
+	Cred *Credential
 }
 
 // Resolver applies group inheritance to hosts, and turns a jump host named by
@@ -16,6 +22,7 @@ type Resolved struct {
 type Resolver struct {
 	byID    map[string]Group
 	byName  map[string]Host
+	byCred  map[string]Credential
 	maxHops int
 }
 
@@ -24,7 +31,7 @@ type Resolver struct {
 // pathological store from building an enormous command line.
 const maxJumpHops = 8
 
-func NewResolver(gs []Group, hosts []Host) Resolver {
+func NewResolver(gs []Group, hosts []Host, creds []Credential) Resolver {
 	m := make(map[string]Group, len(gs))
 	for _, g := range gs {
 		m[g.ID] = g
@@ -34,7 +41,11 @@ func NewResolver(gs []Group, hosts []Host) Resolver {
 		// Last one wins, which matches what the list shows for a duplicate.
 		n[strings.ToLower(h.Name)] = h
 	}
-	return Resolver{byID: m, byName: n, maxHops: maxJumpHops}
+	c := make(map[string]Credential, len(creds))
+	for _, cr := range creds {
+		c[cr.ID] = cr
+	}
+	return Resolver{byID: m, byName: n, byCred: c, maxHops: maxJumpHops}
 }
 
 // Resolve fills any attribute the host leaves empty from the nearest ancestor
@@ -77,6 +88,11 @@ func (r Resolver) jumpHost(name string, seen map[string]bool, depth int) *Host {
 func (r Resolver) inherit(h Host) Resolved {
 	out := Resolved{Host: h}
 
+	// The host's own credential comes before any group: after the fields
+	// typed onto the host itself, it is the most specific thing anyone said
+	// about how this host logs in.
+	r.fromCredential(&out, h.CredentialID)
+
 	seen := map[string]bool{}
 	for id := h.GroupID; id != "" && !seen[id]; {
 		seen[id] = true
@@ -93,7 +109,44 @@ func (r Resolver) inherit(h Host) Resolved {
 		if out.ProxyJump == "" && g.ProxyJump != "" {
 			out.ProxyJump, out.ProxyJumpFrom = g.ProxyJump, g.Name
 		}
+		// After the group's own fields, for the same reason a host's fields
+		// come before its credential: what was written here is more specific
+		// than what was written once and shared.
+		r.fromCredential(&out, g.CredentialID)
 		id = g.ParentID
 	}
 	return out
+}
+
+// fromCredential fills whatever is still empty from a credential.
+//
+// One attribute at a time, like the group walk around it, so the rules stay
+// the same wherever a value comes from: the nearest thing that sets it wins,
+// and the provenance recorded beside it is the credential's name — which is
+// what puts "← Prod deploy" in the detail pane through the machinery that
+// already draws "← Production".
+//
+// A credential that is not there is passed over rather than reported. It means
+// one was deleted in another window, and the host going on with whatever else
+// it has is better than the resolver inventing a failure for a list that is
+// about to be reloaded anyway.
+func (r Resolver) fromCredential(out *Resolved, id string) {
+	if id == "" {
+		return
+	}
+	c, ok := r.byCred[id]
+	if !ok {
+		return
+	}
+	// The nearest credential is the one that decides how this host logs in,
+	// even where it supplies no user or key of its own.
+	if out.Cred == nil {
+		out.Cred = &c
+	}
+	if out.User == "" && c.User != "" {
+		out.User, out.UserFrom = c.User, c.Name
+	}
+	if out.Identity == "" && c.Identity != "" {
+		out.Identity, out.IdentityFrom = c.Identity, c.Name
+	}
 }

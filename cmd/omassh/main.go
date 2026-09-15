@@ -354,15 +354,17 @@ func runExportSSHConfig(args []string) error {
 	// fatal, so the rest can still be written.
 	groups, gerr := st.Groups()
 	hosts, herr := st.Hosts()
-	for _, e := range []error{gerr, herr} {
+	creds, cerr := st.Credentials()
+	for _, e := range []error{gerr, herr, cerr} {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
 		}
 	}
 
-	// Written out resolved: ssh config has no notion of a group, so what a
-	// host inherits has to be spelled out on the host itself.
-	r := store.NewResolver(groups, hosts)
+	// Written out resolved: ssh config has no notion of a group or of a
+	// credential, so what a host takes from either has to be spelled out on
+	// the host itself.
+	r := store.NewResolver(groups, hosts, creds)
 	resolved := make([]store.Host, 0, len(hosts))
 	for _, h := range hosts {
 		resolved = append(resolved, r.Resolve(h).Host)

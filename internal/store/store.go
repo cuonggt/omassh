@@ -23,6 +23,10 @@ var (
 	// them has no such bucket. Open creates whatever is missing, which is why
 	// nothing here has to ask which version of Omassh wrote the file.
 	bucketForwards = []byte("forwards")
+
+	// Added after the first releases. Open creates whatever is missing, so a
+	// database written by an older build gains it on the next start.
+	bucketCredentials = []byte("credentials")
 )
 
 // Store is the on-disk database of locally-defined hosts and groups, plus
@@ -63,7 +67,7 @@ func Open(path string) (*Store, error) {
 	s := &Store{path: path}
 	// Made once, so every operation after this can take the buckets as given.
 	err := s.write(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketForwards} {
+		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketForwards, bucketCredentials} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -225,6 +229,151 @@ func unreadable(kind string, keys []string) error {
 }
 
 // PutGroup inserts or updates a group, assigning an id when absent.
+// Credentials lists every credential, by name.
+func (s *Store) Credentials() ([]Credential, error) {
+	var out []Credential
+	err := s.read(func(tx *bolt.Tx) error {
+		var err error
+		out, err = decodeCredentials(tx.Bucket(bucketCredentials))
+		return err
+	})
+	return out, err
+}
+
+func decodeCredentials(b *bolt.Bucket) ([]Credential, error) {
+	var out []Credential
+	if b == nil {
+		return out, nil
+	}
+	err := b.ForEach(func(k, v []byte) error {
+		var c Credential
+		if err := json.Unmarshal(v, &c); err != nil {
+			return fmt.Errorf("credential %s: %w", k, err)
+		}
+		out = append(out, c)
+		return nil
+	})
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+	return out, err
+}
+
+// PutCredential writes a credential, minting an id for a new one.
+//
+// The id is what the password is filed under in the keychain, so it is made
+// once and never reused: renaming a credential has to leave the password
+// where it is, and deleting one has to be able to take its password with it.
+func (s *Store) PutCredential(c Credential) (Credential, error) {
+	if err := c.Valid(); err != nil {
+		return c, err
+	}
+	update := c.ID != ""
+	if !update {
+		c.ID = NewID()
+	}
+	err := s.write(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketCredentials)
+		// As for a host or a group: one deleted in another window must not
+		// come back because this one still had it open.
+		if update && b.Get([]byte(c.ID)) == nil {
+			return ErrNoSuchCredential
+		}
+		if credNameTaken(b, c.ID, c.Name) {
+			return fmt.Errorf("another credential is already called %q — names are how records are matched, so they have to be unique", strings.TrimSpace(c.Name))
+		}
+		enc, err := json.Marshal(c)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(c.ID), enc)
+	})
+	return c, err
+}
+
+func credNameTaken(b *bolt.Bucket, id, name string) bool {
+	want := strings.ToLower(strings.TrimSpace(name))
+	taken := false
+	b.ForEach(func(k, v []byte) error {
+		if string(k) == id {
+			return nil
+		}
+		var c Credential
+		if json.Unmarshal(v, &c) == nil && strings.ToLower(strings.TrimSpace(c.Name)) == want {
+			taken = true
+		}
+		return nil
+	})
+	return taken
+}
+
+// DeleteCredential removes a credential and takes it off everything using it.
+//
+// In one transaction, like deleting a group: what is cleared is decided from
+// the state it is written into. A host left naming a credential that is gone
+// would resolve to nothing at all and give no sign why — the confirmation
+// says how many are about to lose it, and this is what makes that true.
+//
+// The password behind it is not this package's to remove; the interface does
+// that through internal/secret, because only it knows whether the keychain
+// answered.
+func (s *Store) DeleteCredential(id string) error {
+	return s.write(func(tx *bolt.Tx) error {
+		cb, gb, hb := tx.Bucket(bucketCredentials), tx.Bucket(bucketGroups), tx.Bucket(bucketHosts)
+		groups, _ := decodeGroups(gb)
+		hosts, _ := decodeHosts(hb)
+
+		for _, g := range groups {
+			if g.CredentialID != id {
+				continue
+			}
+			g.CredentialID = ""
+			b, err := json.Marshal(g)
+			if err != nil {
+				return err
+			}
+			if err := gb.Put([]byte(g.ID), b); err != nil {
+				return err
+			}
+		}
+		for _, h := range hosts {
+			if h.CredentialID != id {
+				continue
+			}
+			h.CredentialID = ""
+			b, err := json.Marshal(h)
+			if err != nil {
+				return err
+			}
+			if err := hb.Put([]byte(h.ID), b); err != nil {
+				return err
+			}
+		}
+		return cb.Delete([]byte(id))
+	})
+}
+
+// CredentialUses reports how many hosts and groups name a credential, so the
+// confirmation can say what deleting it costs.
+func (s *Store) CredentialUses(id string) (hosts, groups int) {
+	s.read(func(tx *bolt.Tx) error {
+		hs, _ := decodeHosts(tx.Bucket(bucketHosts))
+		for _, h := range hs {
+			if h.CredentialID == id {
+				hosts++
+			}
+		}
+		gs, _ := decodeGroups(tx.Bucket(bucketGroups))
+		for _, g := range gs {
+			if g.CredentialID == id {
+				groups++
+			}
+		}
+		return nil
+	})
+	return hosts, groups
+}
+
 func (s *Store) PutGroup(g Group) (Group, error) {
 	update := g.ID != ""
 	if !update {
@@ -439,7 +588,9 @@ func mergedHosts(stored, incoming []Host) []Host {
 // loopingHosts is every host whose jump hosts lead back to it, and the path
 // each one takes to get there.
 func loopingHosts(groups []Group, hosts []Host) map[string][]string {
-	r := NewResolver(groups, hosts)
+	// No credentials: one supplies a user and a key, never a jump host, so it
+	// cannot put a host into a loop or take it out of one.
+	r := NewResolver(groups, hosts, nil)
 	out := map[string][]string{}
 	for _, h := range hosts {
 		if loop, ok := jumpChain(r, h); ok {
@@ -475,10 +626,12 @@ func jumpChain(r Resolver, start Host) ([]string, bool) {
 }
 
 // ErrNoSuchHost is why a rule or an edit was refused: the host it is for is
-// not there. ErrNoSuchGroup says the same of a group.
+// not there. ErrNoSuchGroup and ErrNoSuchCredential say the same of a group
+// and of a credential.
 var (
-	ErrNoSuchHost  = errors.New("that host no longer exists")
-	ErrNoSuchGroup = errors.New("that group no longer exists")
+	ErrNoSuchHost       = errors.New("that host no longer exists")
+	ErrNoSuchGroup      = errors.New("that group no longer exists")
+	ErrNoSuchCredential = errors.New("that credential no longer exists")
 )
 
 // PutForward inserts or updates a forwarding rule, assigning an id when

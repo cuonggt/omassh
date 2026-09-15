@@ -890,7 +890,7 @@ func (m Model) inheritanceLost(g store.Group) string {
 	// that have to be resolved: handed the original, the resolver follows a
 	// GroupID that no longer names anything and reports every attribute lost.
 	moved := m.hostsWithout(g)
-	after := store.NewResolver(m.groupsWithout(g), moved)
+	after := store.NewResolver(m.groupsWithout(g), moved, m.d.creds)
 	byID := make(map[string]store.Host, len(moved))
 	for _, h := range moved {
 		byID[h.ID] = h

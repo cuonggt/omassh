@@ -18,6 +18,7 @@ const UngroupedID = "__ungrouped"
 type data struct {
 	groups   []store.Group // persisted groups only
 	hosts    []store.Host  // persisted hosts plus config-sourced hosts
+	creds    []store.Credential
 	stats    map[string]store.Stat
 	tree     []store.GroupNode // display order, including synthetic groups
 	resolver store.Resolver
@@ -58,6 +59,8 @@ func load(s *store.Store) (data, error) {
 	note(err)
 	d.hosts, err = s.Hosts()
 	note(err)
+	d.creds, err = s.Credentials()
+	note(err)
 	d.stats, err = s.Stats()
 	note(err)
 	d.forwards, err = s.Forwards()
@@ -96,7 +99,7 @@ func load(s *store.Store) (data, error) {
 		}
 	}
 
-	d.resolver = store.NewResolver(d.groups, d.hosts)
+	d.resolver = store.NewResolver(d.groups, d.hosts, d.creds)
 	d.tree = store.FlattenGroups(d.groups)
 
 	ungrouped := 0

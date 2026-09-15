@@ -565,7 +565,7 @@ func TestJumpChainFollowsInheritedJumpHostsAtEveryHop(t *testing.T) {
 	app := Host{ID: "h1", Name: "app", ProxyJump: "bastion"}
 	bastion := Host{ID: "h2", Name: "bastion", GroupID: "g1"} // takes "app" from edge
 
-	r := NewResolver([]Group{edge}, []Host{app, bastion})
+	r := NewResolver([]Group{edge}, []Host{app, bastion}, nil)
 	loop, ok := jumpChain(r, app)
 	if !ok {
 		t.Fatal("the chain app → bastion → (edge) → app was not followed round")
@@ -953,5 +953,144 @@ func TestAGroupLoopAlreadyStoredDoesNotBlockUnrelatedEdits(t *testing.T) {
 	mended.ParentID = ""
 	if _, err := s.PutGroup(mended); err != nil {
 		t.Errorf("the looping group could not be mended: %v", err)
+	}
+}
+
+func TestPutCredentialMintsAnIdAndKeepsIt(t *testing.T) {
+	s := openTest(t)
+
+	c, err := s.PutCredential(Credential{Name: "Prod deploy", Kind: CredentialKey,
+		User: "deploy", Identity: "~/.ssh/prod"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ID == "" {
+		t.Fatal("no id was minted")
+	}
+
+	// The id is what the password is filed under in the keychain, so an edit
+	// has to keep it: a new one on every save would orphan the password and
+	// leave no way to find it again.
+	c.Name = "Prod deploy (renamed)"
+	again, err := s.PutCredential(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != c.ID {
+		t.Errorf("the id changed on edit: %q then %q", c.ID, again.ID)
+	}
+	got, _ := s.Credentials()
+	if len(got) != 1 {
+		t.Fatalf("%d credentials, want the one edited in place", len(got))
+	}
+}
+
+// Names are how records are matched across machines, so two cannot share one.
+func TestASecondCredentialByTheSameNameIsRefused(t *testing.T) {
+	s := openTest(t)
+	if _, err := s.PutCredential(Credential{Name: "Prod", Kind: CredentialAgent, User: "deploy"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.PutCredential(Credential{Name: "prod", Kind: CredentialAgent, User: "other"})
+	if err == nil {
+		t.Fatal("a second credential called prod was accepted")
+	}
+	if !strings.Contains(err.Error(), "already called") {
+		t.Errorf("err = %v, want it to say the name is taken", err)
+	}
+}
+
+// A credential has to say enough to be usable, and the complaint is what the
+// form shows.
+func TestACredentialThatSaysTooLittleIsRefused(t *testing.T) {
+	s := openTest(t)
+	for _, tc := range []struct {
+		name string
+		c    Credential
+		want string
+	}{
+		{"key with no key", Credential{Name: "a", Kind: CredentialKey}, "path to a private key"},
+		{"password with no user", Credential{Name: "b", Kind: CredentialPassword}, "needs a user"},
+		{"agent with no user", Credential{Name: "c", Kind: CredentialAgent}, "needs a user"},
+		{"no kind at all", Credential{Name: "d"}, "not a kind of credential"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := s.PutCredential(tc.c)
+			if err == nil {
+				t.Fatal("it was accepted")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("err = %q, want it to mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// Deleting one takes it off everything that named it. A host left pointing at
+// a credential that is gone would resolve to nothing and give no sign why.
+func TestDeletingACredentialTakesItOffWhatUsedIt(t *testing.T) {
+	s := openTest(t)
+	c, _ := s.PutCredential(Credential{Name: "Prod", Kind: CredentialKey, User: "deploy", Identity: "~/.ssh/k"})
+	s.PutGroup(Group{Name: "Production", CredentialID: c.ID})
+	s.PutHost(Host{Name: "web", Addr: "10.0.0.1", CredentialID: c.ID})
+	s.PutHost(Host{Name: "db", Addr: "10.0.0.2"}) // names no credential
+
+	if hosts, groups := s.CredentialUses(c.ID); hosts != 1 || groups != 1 {
+		t.Fatalf("uses = %d hosts, %d groups; want 1 and 1", hosts, groups)
+	}
+
+	if err := s.DeleteCredential(c.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	hosts, _ := s.Hosts()
+	for _, x := range hosts {
+		if x.CredentialID != "" {
+			t.Errorf("%s still names the deleted credential", x.Name)
+		}
+	}
+	groups, _ := s.Groups()
+	for _, x := range groups {
+		if x.CredentialID != "" {
+			t.Errorf("group %s still names it", x.Name)
+		}
+	}
+	// And nothing else was disturbed.
+	if len(hosts) != 2 {
+		t.Errorf("%d hosts, want both still there", len(hosts))
+	}
+}
+
+// A database written before credentials existed gains the bucket on the next
+// open, the same way forwards did — there is no version number anywhere and
+// this is why there does not need to be one.
+func TestADatabaseWithoutCredentialsGainsThem(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "old.db")
+
+	// A store opened, used and closed before the bucket existed.
+	first, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.PutHost(Host{Name: "web", Addr: "10.0.0.1"}); err != nil {
+		t.Fatal(err)
+	}
+	first.Close()
+
+	again, err := Open(path)
+	if err != nil {
+		t.Fatalf("reopening a database without the bucket: %v", err)
+	}
+	defer again.Close()
+	creds, err := again.Credentials()
+	if err != nil {
+		t.Fatalf("Credentials on an upgraded database: %v", err)
+	}
+	if len(creds) != 0 {
+		t.Errorf("%d credentials in a database that never had any", len(creds))
+	}
+	if _, err := again.PutCredential(Credential{Name: "New", Kind: CredentialAgent, User: "me"}); err != nil {
+		t.Errorf("writing into the new bucket: %v", err)
 	}
 }

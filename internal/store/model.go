@@ -2,9 +2,63 @@
 package store
 
 import (
+	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
+
+// CredentialKind is how a credential proves who you are.
+type CredentialKind string
+
+const (
+	// CredentialKey names a private key on disk, which becomes ssh -i.
+	CredentialKey CredentialKind = "key"
+	// CredentialAgent leaves the key to ssh-agent, and carries only a user.
+	CredentialAgent CredentialKind = "agent"
+	// CredentialPassword is a machine that takes no key at all. The password
+	// is not here: it lives in the system's own keychain, filed under this
+	// record's id — see internal/secret for why, and for what that costs.
+	CredentialPassword CredentialKind = "password"
+)
+
+// Credential is one way of logging in, named once and shared by many hosts.
+//
+// Everything in it was already expressible on a host — a user and a key path —
+// and the point is not to add power but to stop the same pair being typed onto
+// forty hosts, and to give it a name that means something when it changes.
+//
+// It holds no secret, and cannot: this record is written into the store, which
+// is an ordinary file, and into the export, which is meant for a dotfiles
+// repository. A password credential names a user and says "ask for a
+// password"; the password itself is the keychain's business.
+type Credential struct {
+	ID   string         `json:"id"`
+	Name string         `json:"name"`
+	Kind CredentialKind `json:"kind"`
+	User string         `json:"user,omitempty"`
+	// Identity is the path to a private key, for a key credential — the path,
+	// never the key.
+	Identity string `json:"identity,omitempty"`
+}
+
+// Valid reports what is wrong with a credential, in words the form can show.
+func (c Credential) Valid() error {
+	switch c.Kind {
+	case CredentialKey:
+		if strings.TrimSpace(c.Identity) == "" {
+			return errors.New("a key credential needs the path to a private key")
+		}
+	case CredentialAgent, CredentialPassword:
+		if strings.TrimSpace(c.User) == "" {
+			return errors.New("a " + string(c.Kind) + " credential needs a user")
+		}
+	default:
+		return fmt.Errorf("%q is not a kind of credential — they are key, agent and password", string(c.Kind))
+	}
+	return nil
+}
 
 // Group is a named collection of hosts. Groups nest, and a host inherits
 // User, Identity and ProxyJump from its group chain unless it sets its own.
@@ -16,6 +70,9 @@ type Group struct {
 	User      string `json:"user,omitempty"`
 	Identity  string `json:"identity,omitempty"`
 	ProxyJump string `json:"proxy_jump,omitempty"`
+	// CredentialID names a credential every host under this group logs in
+	// with, unless it says otherwise itself.
+	CredentialID string `json:"credential_id,omitempty"`
 }
 
 // Host is a single reachable machine.
@@ -29,6 +86,10 @@ type Host struct {
 	ProxyJump string   `json:"proxy_jump,omitempty"`
 	GroupID   string   `json:"group_id,omitempty"`
 	Tags      []string `json:"tags,omitempty"`
+	// CredentialID names how this host logs in. It supplies the user and the
+	// key the way a group does, and is the only thing that can say a host
+	// wants a password rather than a key.
+	CredentialID string `json:"credential_id,omitempty"`
 
 	// Jump is the resolved jump host, filled in at resolve time and never
 	// persisted. ssh -J passes only -l, -p and -v to the hop, so the jump
