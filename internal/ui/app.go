@@ -46,6 +46,7 @@ const (
 	modeForwards
 	modeCredentials
 	modeSnippets
+	modeSnippetRun
 )
 
 const (
@@ -206,6 +207,10 @@ type Model struct {
 	credIdx int
 	// snipIdx is the cursor in the snippet list.
 	snipIdx int
+	// running is the snippet run on screen, nil when there is none, and
+	// runToken tells its result from one belonging to a run already closed.
+	running  *snippetRun
+	runToken int
 	// secrets is where a password credential's password is kept, and
 	// secretsErr why there is nowhere to keep one. Opened once at startup:
 	// the cost is a look along PATH, and the answer cannot change while
@@ -314,6 +319,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case scriptEditedMsg:
 		return m.handleScriptEdited(msg)
+
+	case snippetDoneMsg:
+		return m.handleSnippetDone(msg)
 
 	case transferMsg:
 		m.transfer = msg
@@ -436,6 +444,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleCredentialsKey(msg)
 	case modeSnippets:
 		return m.handleSnippetsKey(msg)
+	case modeSnippetRun:
+		return m.handleSnippetRunKey(msg)
 	}
 	return m.handleBrowseKey(msg)
 }

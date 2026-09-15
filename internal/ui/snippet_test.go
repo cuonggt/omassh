@@ -1,12 +1,16 @@
 package ui
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 )
 
@@ -297,4 +301,258 @@ func TestHelpNamesTheSnippetKey(t *testing.T) {
 	h := newHarness(t)
 	h.press("?")
 	h.mustContain("snippets: scripts worth keeping")
+}
+
+// Running shows the script and the host first and waits. A long snippet is
+// listed by its size, so enter alone would run something the person pressing
+// it cannot see, on a machine they have to be right about.
+func TestRunningASnippetShowsWhatAndWhereFirst(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "restart nginx",
+		Script: "set -e\nsystemctl restart nginx\n"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	if h.m.mode != modeSnippetRun {
+		t.Fatalf("mode = %v, want the run screen", h.m.mode)
+	}
+	h.mustContain(`Run "restart nginx" on web-01?`)
+	// The whole script, not its size: this is where it is read before it runs.
+	h.mustContain("systemctl restart nginx")
+	h.mustContain("no terminal there")
+	h.mustContain("y run")
+
+	if h.m.running.started {
+		t.Error("the run started before it was confirmed")
+	}
+}
+
+// esc there runs nothing and goes back to the list.
+func TestEscapingTheRunScreenRunsNothing(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter", "esc")
+	if h.m.mode != modeSnippets {
+		t.Errorf("mode = %v, want back on the list", h.m.mode)
+	}
+	if h.m.running != nil {
+		t.Error("a run was left behind by cancelling")
+	}
+}
+
+// With no host there is nothing to run it on, and the list says so rather than
+// opening a screen that cannot go anywhere.
+func TestRunningWithNoHostSelectedSaysSo(t *testing.T) {
+	h := newHarness(t)
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "enter")
+	if h.m.mode != modeSnippets {
+		t.Fatalf("mode = %v, want to have stayed on the list", h.m.mode)
+	}
+	h.mustContain("no host to run it on")
+}
+
+// start puts the run in flight without actually spawning ssh: pressing y
+// returns the command that would, and the harness does not run commands.
+func (h *harness) startRun() {
+	h.t.Helper()
+	h.press("y")
+	if !h.m.running.started {
+		h.t.Fatal("y did not start the run")
+	}
+}
+
+func TestWhatAScriptSaidIsShownWhenItFinishes(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "disk free", Script: "df -h /"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.mustContain("running on web-01")
+	h.mustContain("esc stop")
+
+	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
+		Output:   "Filesystem  Size  Used\n/dev/sda1   40G   12G\n",
+		Duration: 2 * time.Second,
+	}})
+	h.mustContain("disk free on web-01")
+	h.mustContain("ok in 2s")
+	h.mustNotContain("exit ")
+	h.mustContain("/dev/sda1   40G   12G")
+	h.mustContain("esc back")
+}
+
+// A script that failed says so with its own status, and what it wrote is
+// still what is on screen — that is where the reason is.
+func TestAFailedScriptShowsItsStatusAndWhatItSaid(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("db-01", "10.0.2.1")
+	h.addSnippet(store.Snippet{Name: "restart nginx", Script: "systemctl restart nginx"})
+	h.selectHost("db-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
+		Output:   "sudo: a password is required\n",
+		ExitCode: 1,
+	}})
+	h.mustContain("exit 1")
+	h.mustContain("sudo: a password is required")
+}
+
+// A run stopped from here is not the script failing, and the screen says
+// stopped rather than putting a status on it.
+func TestAStoppedRunSaysStoppedRatherThanFailed(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "slow", Script: "sleep 300"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.press("esc")
+	if h.m.mode != modeSnippetRun {
+		t.Fatalf("esc left the screen, taking what it had already said with it")
+	}
+	h.mustContain("esc again to leave without waiting")
+	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
+		Output: "still going\n",
+		Err:    context.Canceled,
+	}})
+	h.mustContain("stopped")
+	h.mustContain("still going")
+	h.mustNotContain("exit ")
+}
+
+// A result belonging to a run already closed is ignored. Its ssh was still on
+// its way back when the screen was shut, and nothing on screen is its.
+func TestAResultFromAClosedRunIsIgnored(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	stale := h.m.runToken
+	// The first esc stops it; the second leaves without waiting for a result
+	// that may never come.
+	h.press("esc", "esc")
+	if h.m.mode != modeSnippets {
+		t.Fatalf("mode = %v, want to have left the run screen", h.m.mode)
+	}
+	h.press("enter")
+
+	h.send(snippetDoneMsg{token: stale, result: sshx.Result{Output: "from the run that was closed"}})
+	h.mustNotContain("from the run that was closed")
+	if h.m.running.result != nil {
+		t.Error("a stale result was taken as this run's")
+	}
+}
+
+// Output longer than the screen scrolls, and what is not on it is accounted
+// for rather than simply absent.
+func TestLongOutputScrollsAndSaysHowMuchIsLeft(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "lots", Script: "seq 100"})
+	h.selectHost("web-01")
+
+	var sb strings.Builder
+	for i := 1; i <= 100; i++ {
+		fmt.Fprintf(&sb, "line %d\n", i)
+	}
+	h.press("S", "enter")
+	h.startRun()
+	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{Output: sb.String()}})
+
+	h.mustContain("line 1")
+	h.mustContain("more line")
+	top := h.screen()
+	h.press("j", "j", "j")
+	if h.screen() == top {
+		t.Error("j did not scroll the output")
+	}
+	h.press("g")
+	if h.m.running.scroll != 0 {
+		t.Errorf("scroll = %d, want g to go back to the top", h.m.running.scroll)
+	}
+}
+
+// Output past what omassh keeps is said to be missing rather than quietly
+// ending mid-line.
+func TestTruncatedOutputSaysSo(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "lots", Script: "cat /dev/urandom"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
+		Output: "the beginning\n", Truncated: true,
+	}})
+	h.mustContain("more than omassh keeps")
+}
+
+// A script that said nothing at all says that, rather than leaving an empty
+// box that looks like something went wrong on the way back.
+func TestAScriptThatSaidNothingSaysSo(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "quiet", Script: "true"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{}})
+	h.mustContain("it said nothing")
+}
+
+// A run whose result never comes back must not hold the screen. Cancelling
+// kills ssh, but Wait does not return until the output pipes close, and a
+// background process the script started keeps them open after ssh is gone.
+func TestASecondEscLeavesARunThatWillNotComeBack(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "daemonises", Script: "(sleep 300 &)"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.press("esc")
+	if h.m.mode != modeSnippetRun {
+		t.Fatal("the first esc left rather than stopping")
+	}
+	h.press("esc")
+	if h.m.mode != modeSnippets {
+		t.Errorf("mode = %v, want to be back on the list with no result", h.m.mode)
+	}
+	if h.m.running != nil {
+		t.Error("the run was left behind")
+	}
+}
+
+// A script that finished in under a second says "ok", not "ok in 0s" — which
+// reads as a measurement that failed rather than as a script that was quick.
+func TestAQuickScriptDoesNotReportZeroSeconds(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+	h.selectHost("web-01")
+
+	h.press("S", "enter")
+	h.startRun()
+	h.send(snippetDoneMsg{token: h.m.runToken, result: sshx.Result{
+		Output: "up 3 days\n", Duration: 120 * time.Millisecond,
+	}})
+	h.mustContain("uptime on web-01  ·  ok")
+	h.mustNotContain("0s")
 }

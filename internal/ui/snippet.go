@@ -42,6 +42,8 @@ func (m Model) handleSnippetsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if s, ok := m.selectedSnippet(); ok {
 			return m.openSnippetForm(s)
 		}
+	case "enter":
+		return m.openSnippetRun()
 	case "d":
 		return m.askDeleteSnippet()
 	}
@@ -244,6 +246,6 @@ func (m Model) snippetsBody(w, content int) string {
 		lines = append(lines, theme.Fg(colour).Render("  "+mark+ansi.Truncate(row, max(w-6, 8), "…")))
 	}
 
-	lines = append(lines, "", theme.Dim.Render("  n/e/d new/edit/delete  ·  esc close"))
+	lines = append(lines, "", theme.Dim.Render("  ↵ run  ·  n/e/d new/edit/delete  ·  esc close"))
 	return strings.Join(lines, "\n")
 }

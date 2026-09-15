@@ -145,6 +145,9 @@ func (m Model) dialog(content int) (string, bool) {
 		title := "Snippets" +
 			listPosition(m.snipIdx, len(m.d.snippets), m.snippetListRows(content))
 		return box(title, true, w, dialogHeight(body, content), body), true
+	case modeSnippetRun:
+		body := m.snippetRunBody(w-4, content)
+		return box(m.snippetRunTitle(), true, w, dialogHeight(body, content), body), true
 	case modeTheme:
 		// Narrower than the rest: a dialog this size leaves more of the
 		// coloured interface showing behind it, which is the thing actually
@@ -635,7 +638,7 @@ func (m Model) statusBar() string {
 		// The file browser keeps its keys on the transfer strip, which has a
 		// whole row for them; repeating a shorter version here said the same
 		// thing twice and named different keys each time.
-	case modeForwards, modeCredentials, modeSnippets:
+	case modeForwards, modeCredentials, modeSnippets, modeSnippetRun:
 		// Likewise: these dialogs carry their own keys, and the status is
 		// where what just happened to a tunnel, a credential or a snippet is
 		// reported.
