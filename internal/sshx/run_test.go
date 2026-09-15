@@ -3,10 +3,12 @@ package sshx
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -214,5 +216,121 @@ func TestARunAsksForNoTerminal(t *testing.T) {
 	}
 	if args[len(args)-2] != "10.0.0.1" {
 		t.Errorf("the script does not follow the destination: %v", args)
+	}
+}
+
+// Every host gets a word, including the ones a stop caught still queued. A
+// host that simply vanishes from a list of results is indistinguishable from
+// one the list never had.
+func TestRunAllReportsEveryHostEvenWhenStopped(t *testing.T) {
+	h, opts := runHost(t)
+	hosts := make([]store.Host, 6)
+	for i := range hosts {
+		hosts[i] = h
+		hosts[i].Name = fmt.Sprintf("host-%d", i)
+		hosts[i].ID = fmt.Sprintf("h%d", i)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	done := make(chan struct{})
+	go func() {
+		RunAll(ctx, hosts, "sleep 20", 2, RunEvents{
+			Done: func(host store.Host, r Result) {
+				mu.Lock()
+				seen[host.ID] = true
+				mu.Unlock()
+			},
+		}, opts...)
+		close(done)
+	}()
+	time.Sleep(time.Second)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("cancelling did not stop the sweep")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != len(hosts) {
+		t.Errorf("%d hosts reported, want all %d — the ones still queued said nothing",
+			len(seen), len(hosts))
+	}
+}
+
+// The limit is a limit. A run is a whole ssh session plus whatever the script
+// does on the far end, so a sweep that ignored this would start eight package
+// upgrades at once on a machine asked for three.
+//
+// Counted in the server, which is the only place that can see how many were
+// genuinely in flight: report fires when a host has already finished.
+func TestRunAllRunsNoMoreThanTheLimitAtOnce(t *testing.T) {
+	if _, err := exec.LookPath("ssh"); err != nil {
+		t.Skip("no ssh on this machine")
+	}
+	dir := t.TempDir()
+	hostKey := genRunKey(t, filepath.Join(dir, "host"))
+
+	var mu sync.Mutex
+	inFlight, peak := 0, 0
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := &gssh.Server{
+		PublicKeyHandler: func(gssh.Context, gssh.PublicKey) bool { return true },
+		Handler: func(s gssh.Session) {
+			mu.Lock()
+			inFlight++
+			peak = max(peak, inFlight)
+			mu.Unlock()
+			time.Sleep(300 * time.Millisecond)
+			mu.Lock()
+			inFlight--
+			mu.Unlock()
+			s.Exit(0)
+		},
+	}
+	if err := gssh.HostKeyFile(hostKey)(srv); err != nil {
+		t.Fatal(err)
+	}
+	go srv.Serve(l)
+	t.Cleanup(func() { srv.Close(); l.Close() })
+
+	base := store.Host{Name: "testsrv", Addr: "127.0.0.1",
+		Port: l.Addr().(*net.TCPAddr).Port, User: "tester",
+		Identity: genRunKey(t, filepath.Join(dir, "client"))}
+	hosts := make([]store.Host, 8)
+	for i := range hosts {
+		hosts[i] = base
+		hosts[i].ID = fmt.Sprintf("h%d", i)
+	}
+	opts := []string{"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"}
+
+	n, begun := 0, 0
+	RunAll(context.Background(), hosts, "true", 3, RunEvents{
+		Began: func(store.Host) { begun++ },
+		Done:  func(store.Host, Result) { n++ },
+	}, opts...)
+
+	if n != len(hosts) {
+		t.Errorf("%d hosts reported, want %d", n, len(hosts))
+	}
+	// Began fires as each one is let through the limit, which is what lets a
+	// table say which hosts are queued rather than calling them all running.
+	if begun != len(hosts) {
+		t.Errorf("%d hosts said to have begun, want %d", begun, len(hosts))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if peak > 3 {
+		t.Errorf("%d connections at once, want no more than the limit of 3", peak)
+	}
+	if peak < 2 {
+		t.Errorf("peak was %d — nothing ran alongside anything, so the limit proves nothing", peak)
 	}
 }

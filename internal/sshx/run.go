@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cuonggt/omassh/internal/store"
@@ -141,4 +142,60 @@ func (c *capped) Write(b []byte) (int, error) {
 		c.over = true
 	}
 	return len(b), nil
+}
+
+// Workers is how many hosts a run touches at once.
+//
+// Far fewer than a probe's, deliberately. A probe is one TCP connection and
+// nothing else; this is a whole ssh session plus whatever the script does at
+// the other end, and thirty simultaneous package upgrades is not something to
+// start by accident. Four keeps a sweep of a dozen hosts brisk while leaving
+// what is happening small enough to follow.
+const Workers = 4
+
+// RunEvents is how a sweep reports itself.
+//
+// Began exists because of the limit: with four workers and forty hosts, most
+// of them have not started, and a screen that shows every one as running is
+// describing forty ssh sessions that are not open. Either may be nil.
+type RunEvents struct {
+	Began func(store.Host)
+	Done  func(store.Host, Result)
+}
+
+// RunAll runs script on every host, reporting each as it starts and finishes.
+//
+// The callbacks run on each worker, so they have to be safe to call from
+// several goroutines at once — the interface sends down a channel, and
+// anything writing to a map of its own needs a lock. Results arrive in the
+// order they finish, which is not the order they were started in; putting them
+// back in the caller's order is the caller's business.
+//
+// Cancelling stops the ones running and turns the ones still queued into
+// results of their own rather than silence: every host gets a word, because a
+// host that vanishes from a list of results is indistinguishable from one the
+// list never had.
+func RunAll(ctx context.Context, hosts []store.Host, script string, limit int, on RunEvents, opts ...string) {
+	if limit < 1 {
+		limit = Workers
+	}
+	sem := make(chan struct{}, limit)
+	var wg sync.WaitGroup
+
+	for _, h := range hosts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if on.Began != nil {
+				on.Began(h)
+			}
+			r := Run(ctx, h, script, opts...)
+			if on.Done != nil {
+				on.Done(h, r)
+			}
+		}()
+	}
+	wg.Wait()
 }
