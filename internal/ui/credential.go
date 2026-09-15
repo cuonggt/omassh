@@ -155,6 +155,41 @@ func (m *Model) reshapeCredentialForm() {
 	m.form.focusCurrent()
 }
 
+// refreshCredentialHints makes a host or group form say where User and
+// Identity would come from once a credential is picked, rather than going on
+// offering "inherited from group" for a field something else is now filling.
+//
+// Only the placeholders move. What has been typed into either field is the
+// host's own and still wins over the credential, so touching the values here
+// would overwrite a deliberate answer with a suggestion.
+func (m *Model) refreshCredentialHints() {
+	f := m.form
+	if f == nil || (f.kind != formHost && f.kind != formGroup) {
+		return
+	}
+	user, identity := "", ""
+	if cr, ok := m.credentialByName(f.value("Credential")); ok {
+		user, identity = cr.User, cr.Identity
+	}
+	inherited := "inherited from group"
+	if f.kind == formGroup {
+		inherited = "applies to hosts below"
+	}
+	for i := range f.fields {
+		switch f.fields[i].label {
+		case "User":
+			setHint(&f.fields[i], credHint(user, inherited))
+		case "Identity":
+			setHint(&f.fields[i], credHint(identity, "path to a private key"))
+		}
+	}
+}
+
+func setHint(f *field, hint string) {
+	f.hint = hint
+	f.input.Placeholder = hint
+}
+
 func labels(fs []field) []string {
 	out := make([]string, 0, len(fs))
 	for _, f := range fs {
@@ -355,3 +390,35 @@ func (m Model) credentialWarning() string {
 
 // secretProblem is what the keychain said, kept short enough for the row.
 func secretProblem(err error) string { return "the keychain said: " + err.Error() }
+
+// credentialNames is what the picker on a host or group form offers, led by
+// the empty choice — which is how such a field is cleared without deleting
+// characters, the same as the pickers beside it.
+func (m Model) credentialNames() []string {
+	out := []string{noChoice}
+	for _, c := range m.d.creds {
+		out = append(out, c.Name)
+	}
+	return out
+}
+
+// credentialByName finds one by the name a picker offered.
+func (m Model) credentialByName(name string) (store.Credential, bool) {
+	want := strings.ToLower(strings.TrimSpace(name))
+	for _, c := range m.d.creds {
+		if strings.ToLower(strings.TrimSpace(c.Name)) == want {
+			return c, true
+		}
+	}
+	return store.Credential{}, false
+}
+
+// credentialName is what to show in the form for an id already saved.
+func (m Model) credentialName(id string) string {
+	for _, c := range m.d.creds {
+		if c.ID == id {
+			return c.Name
+		}
+	}
+	return ""
+}

@@ -217,3 +217,97 @@ func TestWithNoKeychainTheFormSaysSoRatherThanLosingThePassword(t *testing.T) {
 		t.Errorf("problem = %q, want it to say there is nowhere to keep one", h.m.form.problem)
 	}
 }
+
+// A host form offers the credentials there are, and says what the chosen one
+// would supply rather than leaving the fields looking empty.
+func TestTheHostFormOffersCredentialsAndSaysWhatTheyFill(t *testing.T) {
+	h := newHarness(t)
+	h.addCredential(store.Credential{Name: "Prod deploy", Kind: store.CredentialKey,
+		User: "deploy", Identity: "~/.ssh/prod"})
+	h.addHost("web", "10.0.1.1")
+	h.selectHost("web")
+
+	h.press("e")
+	h.mustContain("Credential")
+
+	h.m.form.fields[3].input.SetValue("Prod deploy")
+	h.m.refreshCredentialHints()
+	h.mustContain("from credential: deploy")
+	h.mustContain("from credential: ~/.ssh/prod")
+}
+
+// Saving with a credential named stores the id behind it, and the detail pane
+// says where the values came from — through the machinery that already writes
+// "← Production" for a group.
+func TestAHostSavedWithACredentialSaysWhereItsValuesCameFrom(t *testing.T) {
+	h := newHarness(t)
+	h.addCredential(store.Credential{Name: "Prod deploy", Kind: store.CredentialKey,
+		User: "deploy", Identity: "~/.ssh/prod"})
+	h.addHost("web", "10.0.1.1")
+	h.selectHost("web")
+
+	h.press("e")
+	h.m.form.fields[3].input.SetValue("Prod deploy")
+	h.press("enter")
+	if h.m.form != nil {
+		t.Fatalf("refused: %q", h.m.form.problem)
+	}
+
+	hosts, _ := h.store.Hosts()
+	if len(hosts) != 1 || hosts[0].CredentialID == "" {
+		t.Fatalf("the host does not name a credential: %+v", hosts)
+	}
+	h.selectHost("web")
+	h.mustContain("← Prod deploy")
+	h.mustContain("deploy@10.0.1.1")
+}
+
+// A name that is not a credential is refused rather than created. A group is
+// made from a typo on purpose; a credential made from one could not log in
+// anywhere, and the host would point at it silently.
+func TestAnUnknownCredentialNameIsRefusedRatherThanCreated(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web", "10.0.1.1")
+	h.selectHost("web")
+
+	h.press("e")
+	h.m.form.fields[3].input.SetValue("Prod delpoy")
+	h.press("enter")
+
+	if h.m.form == nil {
+		t.Fatal("a host was saved naming a credential that does not exist")
+	}
+	if !strings.Contains(h.m.form.problem, "no credential named") {
+		t.Errorf("problem = %q", h.m.form.problem)
+	}
+	if creds, _ := h.store.Credentials(); len(creds) != 0 {
+		t.Errorf("%d credentials were invented from a typo", len(creds))
+	}
+}
+
+// A group can carry one for everything under it.
+func TestAGroupCanCarryACredential(t *testing.T) {
+	h := newHarness(t)
+	c := h.addCredential(store.Credential{Name: "Prod deploy", Kind: store.CredentialKey,
+		User: "deploy", Identity: "~/.ssh/prod"})
+	g := h.addGroup("Production", "")
+	h.addGroupedHost("web", g.ID)
+
+	h.m.focus = panelGroups
+	h.selectGroup("Production")
+	h.press("e")
+	h.m.form.fields[2].input.SetValue("Prod deploy")
+	h.press("enter")
+	if h.m.form != nil {
+		t.Fatalf("refused: %q", h.m.form.problem)
+	}
+
+	groups, _ := h.store.Groups()
+	for _, x := range groups {
+		if x.Name == "Production" && x.CredentialID != c.ID {
+			t.Errorf("the group does not name the credential")
+		}
+	}
+	h.selectHost("web")
+	h.mustContain("← Prod deploy")
+}

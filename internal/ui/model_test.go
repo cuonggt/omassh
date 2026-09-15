@@ -956,7 +956,7 @@ func TestTagChoicesAreTheTagsInUse(t *testing.T) {
 	h.type_("prod, api")
 	h.press("enter")
 
-	got := h.m.hostChoices("").tags
+	got := h.m.hostChoices("", "").tags
 	want := []string{"api", "prod", "web"}
 	if !slices.Equal(got, want) {
 		t.Errorf("tags = %v, want %v", got, want)
@@ -2328,7 +2328,7 @@ func TestTheParentPickerLeavesOutWhatWouldLoop(t *testing.T) {
 	h.addGroup("Zulu", "")
 	h.m.reload()
 
-	got := h.m.groupChoices(top.ID).parents
+	got := h.m.groupChoices(top.ID, "").parents
 	for _, unwanted := range []string{"Top", "Middle", "Bottom"} {
 		if slices.Contains(got, unwanted) {
 			t.Errorf("the parent picker offers %q, which would put Top under itself: %v", unwanted, got)

@@ -652,6 +652,7 @@ func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// Choosing is the ordinary way a kind is set, and it returns from
 			// here rather than falling through to the reshape below.
 			m.reshapeCredentialForm()
+			m.refreshCredentialHints()
 			return m, nil
 		case "esc":
 			m.form.closePicker()
@@ -686,6 +687,7 @@ func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// Password box, or a password credential a path to a private key, invites
 	// someone to fill in a field that will be thrown away on save.
 	m.reshapeCredentialForm()
+	m.refreshCredentialHints()
 	return m, cmd
 }
 
@@ -771,14 +773,14 @@ func (m Model) connect() (tea.Model, tea.Cmd) {
 
 func (m Model) openNewForm() (tea.Model, tea.Cmd) {
 	if m.focus == panelGroups {
-		m.form = newGroupForm(store.Group{}, "", m.groupChoices(""))
+		m.form = newGroupForm(store.Group{}, "", m.groupChoices("", ""))
 	} else {
 		g, _ := m.currentGroup()
 		name := ""
 		if g.ID != UngroupedID {
 			name = g.Name
 		}
-		m.form = newHostForm(store.Host{}, name, m.hostChoices(""))
+		m.form = newHostForm(store.Host{}, name, m.hostChoices("", ""))
 	}
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
@@ -791,7 +793,7 @@ func (m Model) openEditForm() (tea.Model, tea.Cmd) {
 			m.setStatus("that group is generated, not stored")
 			return m, nil
 		}
-		m.form = newGroupForm(g.Group, m.d.groupName(g.ParentID), m.groupChoices(g.ID))
+		m.form = newGroupForm(g.Group, m.d.groupName(g.ParentID), m.groupChoices(g.ID, g.CredentialID))
 		m.returnTo, m.mode = backFor(m.mode), modeForm
 		return m, m.form.focusCurrent()
 	}
@@ -800,7 +802,7 @@ func (m Model) openEditForm() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
-	m.form = newHostForm(h, m.d.groupName(h.GroupID), m.hostChoices(h.ID))
+	m.form = newHostForm(h, m.d.groupName(h.GroupID), m.hostChoices(h.ID, h.CredentialID))
 	m.returnTo, m.mode = backFor(m.mode), modeForm
 	return m, m.form.focusCurrent()
 }
@@ -1050,6 +1052,14 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 			User: f.value("User"), Identity: f.value("Identity"),
 			ProxyJump: f.value("Jump host"),
 		}
+		if cname := f.value("Credential"); cname != "" {
+			cr, ok := m.credentialByName(cname)
+			if !ok {
+				f.problem = "no credential named " + cname
+				return m, nil
+			}
+			g.CredentialID = cr.ID
+		}
 		if p := f.value("Parent"); p != "" {
 			parent, ok := m.d.groupByName(p)
 			if !ok {
@@ -1093,6 +1103,17 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 		ProxyJump: f.value("Jump host"),
 		Tags:      splitTags(f.value("Tags")),
 	}
+	// Named rather than created, unlike a group: a credential is a way of
+	// logging in, and inventing an empty one from a typo would leave a host
+	// pointing at something that cannot log in anywhere.
+	if cname := f.value("Credential"); cname != "" {
+		cr, ok := m.credentialByName(cname)
+		if !ok {
+			f.problem = "no credential named " + cname + " — C to make one"
+			return m, nil
+		}
+		h.CredentialID = cr.ID
+	}
 	// Typing an unknown group name creates it, so adding a host to a new group
 	// never means backing out to make the group first.
 	created := ""
@@ -1130,6 +1151,14 @@ type hostChoices struct {
 	jumpHosts []string
 	groups    []string
 	tags      []string
+	// credential is the name of the one this host already uses, and
+	// credentials every name that could be picked. credUser and credIdentity
+	// are what the chosen one supplies, shown as the placeholder on the
+	// fields it fills.
+	credential   string
+	credentials  []string
+	credUser     string
+	credIdentity string
 }
 
 func newHostForm(h store.Host, groupName string, c hostChoices) *form {
@@ -1147,8 +1176,9 @@ func newHostForm(h store.Host, groupName string, c hostChoices) *form {
 			newField("Name", "prod-web-01", h.Name),
 			newField("Address", "10.0.1.14", h.Addr),
 			newField("Port", "22", port),
-			newField("User", "inherited from group", h.User),
-			newField("Identity", "path to a private key", h.Identity),
+			asSuggestion(withChoices(newField("Credential", "none — ↓ to pick", c.credential), c.credentials)),
+			newField("User", credHint(c.credUser, "inherited from group"), h.User),
+			newField("Identity", credHint(c.credIdentity, "path to a private key"), h.Identity),
 			asSuggestion(withChoices(newField("Jump host", "inherited from group — ↓ to pick", h.ProxyJump), c.jumpHosts)),
 			asList(withChoices(newField("Tags", "prod, web — ↓ to pick", strings.Join(h.Tags, ", ")), c.tags)),
 			asSuggestion(withChoices(newField("Group", "↓ to pick, or type to create", groupName), c.groups)),
@@ -1166,6 +1196,7 @@ func newGroupForm(g store.Group, parentName string, c groupChoices) *form {
 		fields: []field{
 			newField("Name", "Production", g.Name),
 			asSuggestion(withChoices(newField("Parent", "none — ↓ to pick", parentName), c.parents)),
+			asSuggestion(withChoices(newField("Credential", "none — ↓ to pick", c.credential), c.credentials)),
 			newField("User", "applies to hosts below", g.User),
 			newField("Identity", "path to a private key", g.Identity),
 			asSuggestion(withChoices(newField("Jump host", "applies to hosts below — ↓ to pick", g.ProxyJump), c.jumpHosts)),
@@ -1175,8 +1206,19 @@ func newGroupForm(g store.Group, parentName string, c groupChoices) *form {
 
 // groupChoices are the values a group form offers to fill itself in from.
 type groupChoices struct {
-	parents   []string
-	jumpHosts []string
+	parents     []string
+	jumpHosts   []string
+	credential  string
+	credentials []string
+}
+
+// credHint is the placeholder for a field a credential is already supplying,
+// so the form says where the value would come from rather than looking empty.
+func credHint(from, otherwise string) string {
+	if from == "" {
+		return otherwise
+	}
+	return "from credential: " + from
 }
 
 // groupChoices lists what a group's parent and jump host can be set to.
@@ -1185,10 +1227,12 @@ type groupChoices struct {
 // neither can anything already beneath it, so both are left out: the store
 // refuses such a tree anyway, and a picker that offers a choice it will not
 // accept is worse than one that does not offer it.
-func (m Model) groupChoices(excludeID string) groupChoices {
+func (m Model) groupChoices(excludeID, credID string) groupChoices {
 	c := groupChoices{
-		parents:   []string{noChoice},
-		jumpHosts: []string{noChoice},
+		parents:     []string{noChoice},
+		jumpHosts:   []string{noChoice},
+		credentials: m.credentialNames(),
+		credential:  m.credentialName(credID),
 	}
 	// A group cannot go under itself, and withDescendants includes it.
 	below := m.d.withDescendants(excludeID)
@@ -1311,13 +1355,20 @@ func strOr(s, fallback string) string {
 // through itself, and offering it would only produce a connection that hangs.
 // Groups come from the store, so the synthetic "Ungrouped" heading is not
 // among them — leaving a host ungrouped is what the empty choice is for.
-func (m Model) hostChoices(excludeID string) hostChoices {
+func (m Model) hostChoices(excludeID, credID string) hostChoices {
 	// A single-value picker leads with the empty choice, which is how such a
 	// field is cleared without deleting characters. A set has no use for it:
 	// toggling every entry off is what emptying it means.
 	c := hostChoices{
-		jumpHosts: []string{noChoice},
-		groups:    []string{noChoice},
+		jumpHosts:   []string{noChoice},
+		groups:      []string{noChoice},
+		credentials: m.credentialNames(),
+		credential:  m.credentialName(credID),
+	}
+	// What the chosen credential supplies, so the fields it fills say where
+	// their value would come from instead of looking empty.
+	if cr, ok := m.credentialByName(c.credential); ok {
+		c.credUser, c.credIdentity = cr.User, cr.Identity
 	}
 	for _, h := range m.d.hosts {
 		if h.ID == excludeID {
