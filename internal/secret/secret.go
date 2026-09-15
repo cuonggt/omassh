@@ -65,6 +65,31 @@ type Store interface {
 // never reaches the argument list.
 type runner func(name string, args []string, stdin string) (string, error)
 
+// exitError is a command that failed: what it said, and how it ended.
+//
+// The code matters because the two tools use it to mean different things.
+// secret-tool says "there is no such item" with exit 1 and nothing on stderr,
+// which is indistinguishable from a real failure unless the code is kept.
+type exitError struct {
+	code int
+	msg  string
+}
+
+func (e *exitError) Error() string {
+	if e.msg != "" {
+		return e.msg
+	}
+	return fmt.Sprintf("exit status %d", e.code)
+}
+
+// quietFailure reports whether a command failed with a given code and said
+// nothing about it — which is how secret-tool reports an item that is not
+// there, and how it does not report anything that actually went wrong.
+func quietFailure(err error, code int) bool {
+	var e *exitError
+	return errors.As(err, &e) && e.code == code && e.msg == ""
+}
+
 func execRun(name string, args []string, stdin string) (string, error) {
 	cmd := exec.Command(name, args...)
 	if stdin != "" {
@@ -91,9 +116,12 @@ func execRun(name string, args []string, stdin string) (string, error) {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
 			// The tools write their reason to stderr and nothing useful to
-			// stdout, so that is the half worth keeping.
-			if msg := strings.TrimSpace(string(ee.Stderr)); msg != "" {
-				return "", errors.New(msg)
+			// stdout, so that is the half worth keeping — along with the code,
+			// which is the only thing separating "no such item" from a failure
+			// on the tool that reports both in silence.
+			return "", &exitError{
+				code: ee.ExitCode(),
+				msg:  strings.TrimSpace(string(ee.Stderr)),
 			}
 		}
 		return "", err

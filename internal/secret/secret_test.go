@@ -77,14 +77,57 @@ func TestAMissingPasswordIsNotAFailure(t *testing.T) {
 			t.Errorf("err = %v, want ErrNotFound", err)
 		}
 	})
-	// secret-tool says nothing at all and still exits zero, so the empty
-	// answer is what a missing item looks like there.
+	// secret-tool exits 1 and says nothing at all — for a lookup and for a
+	// clear alike. Measured by running it, after this package first shipped
+	// believing it exited zero with empty output, which made every missing
+	// password on Linux read as a broken keyring.
 	t.Run("secret-tool", func(t *testing.T) {
-		r := &recorder{out: ""}
+		r := &recorder{err: &exitError{code: notFound}}
 		if _, err := (&secretTool{run: r.run}).Get("cred-1"); !errors.Is(err, ErrNotFound) {
 			t.Errorf("err = %v, want ErrNotFound", err)
 		}
+		if err := (&secretTool{run: r.run}).Delete("cred-1"); err != nil {
+			t.Errorf("Delete = %v, want it to pass quietly", err)
+		}
 	})
+}
+
+// Silence and a failing code are also what a real problem looks like from
+// outside, so the two are told apart by the code and the absence of a message
+// together — not by either alone.
+func TestSecretToolTellsAMissingItemFromABrokenKeyring(t *testing.T) {
+	t.Run("a keyring that is not answering", func(t *testing.T) {
+		r := &recorder{err: &exitError{code: 1, msg: "Cannot autolaunch D-Bus without X11 $DISPLAY"}}
+		_, err := (&secretTool{run: r.run}).Get("cred-1")
+		if errors.Is(err, ErrNotFound) {
+			t.Error("a keyring that cannot be reached was reported as no password being stored")
+		}
+		if !strings.Contains(err.Error(), "D-Bus") {
+			t.Errorf("err = %v, want what the tool said", err)
+		}
+	})
+	t.Run("some other failing code", func(t *testing.T) {
+		r := &recorder{err: &exitError{code: 2}}
+		if _, err := (&secretTool{run: r.run}).Get("cred-1"); errors.Is(err, ErrNotFound) {
+			t.Error("exit 2 was read as no such item")
+		}
+	})
+}
+
+// secret-tool returns the secret exactly as it was given, with no newline of
+// its own — unlike security(1), which adds one. Trimming here would hand ssh
+// something the person never typed.
+func TestSecretToolTrimsNothing(t *testing.T) {
+	for _, want := range []string{"trail\n", "spaces  ", "plain"} {
+		r := &recorder{out: want}
+		got, err := (&secretTool{run: r.run}).Get("cred-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("got %q, want %q exactly", got, want)
+		}
+	}
 }
 
 // Deleting what is not there is what the caller asked for: they wanted it
