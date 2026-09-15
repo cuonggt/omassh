@@ -841,14 +841,22 @@ func TestPastingWithNoSessionSaysWhichKeyOpensOne(t *testing.T) {
 	h.mustContain(h.m.keys.Key(keymap.Pane))
 }
 
+// stillConnected skips the rest of a test whose session has ended underneath
+// it. openSession dials a port that answers nothing, so the pane is alive for
+// a moment and then is not; anything asserting on a live one has to say so
+// next to the assertion rather than at the top of the test.
+func (h *harness) stillConnected() {
+	h.t.Helper()
+	if h.m.attached == nil || !h.m.attached.Alive() {
+		h.t.Skip("the session ended before this could reach it")
+	}
+}
+
 // Pasting leaves you looking at the session, because reading what arrived is
 // the point of pasting rather than running.
 func TestPastingLeavesYouLookingAtTheSession(t *testing.T) {
 	h := newHarness(t)
 	h.openSession("alpha")
-	if !h.m.attached.Alive() {
-		t.Skip("the session ended before anything could be pasted into it")
-	}
 	// Back to the list first: a focused session takes every key, so S there
 	// is typed at the remote rather than opening anything. That is the route
 	// a person takes too.
@@ -856,6 +864,10 @@ func TestPastingLeavesYouLookingAtTheSession(t *testing.T) {
 	h.press("w")
 	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime\n"})
 
+	// Checked here rather than at the top: this session is a connection to a
+	// port that answers nothing, so it ends on its own, and everything above
+	// is time for it to do so. Under -race that is long enough.
+	h.stillConnected()
 	h.press("S", "p")
 	if h.m.mode != modeBrowse {
 		t.Errorf("mode = %v, want the snippet list closed", h.m.mode)

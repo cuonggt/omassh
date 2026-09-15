@@ -311,12 +311,17 @@ func TestRunAllRunsNoMoreThanTheLimitAtOnce(t *testing.T) {
 	opts := []string{"-o", "StrictHostKeyChecking=no",
 		"-o", "UserKnownHostsFile=/dev/null", "-o", "LogLevel=ERROR"}
 
+	// Under the same lock the server uses: these fire on each worker, which
+	// is what RunEvents says of them, and counting without one is a race the
+	// detector finds before any of the assertions below do.
 	n, begun := 0, 0
 	RunAll(context.Background(), hosts, "true", 3, RunEvents{
-		Began: func(store.Host) { begun++ },
-		Done:  func(store.Host, Result) { n++ },
+		Began: func(store.Host) { mu.Lock(); begun++; mu.Unlock() },
+		Done:  func(store.Host, Result) { mu.Lock(); n++; mu.Unlock() },
 	}, opts...)
 
+	mu.Lock()
+	defer mu.Unlock()
 	if n != len(hosts) {
 		t.Errorf("%d hosts reported, want %d", n, len(hosts))
 	}
@@ -325,8 +330,6 @@ func TestRunAllRunsNoMoreThanTheLimitAtOnce(t *testing.T) {
 	if begun != len(hosts) {
 		t.Errorf("%d hosts said to have begun, want %d", begun, len(hosts))
 	}
-	mu.Lock()
-	defer mu.Unlock()
 	if peak > 3 {
 		t.Errorf("%d connections at once, want no more than the limit of 3", peak)
 	}
