@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
 )
@@ -802,4 +803,100 @@ func TestAStoppedSweepIsCountedAsStoppedNotFailed(t *testing.T) {
 
 	h.mustContain("1 ok, 2 stopped")
 	h.mustNotContain("failed")
+}
+
+// --- pasting into a session --------------------------------------------
+
+// The script reaches the shell's edit buffer without the trailing newline an
+// editor leaves behind. With it, a remote that has not turned bracketed paste
+// on runs the last line the moment it arrives — which is the one surprise
+// this half of the feature exists to avoid.
+func TestWhatIsPastedDoesNotEndInANewline(t *testing.T) {
+	for _, tc := range []struct{ in, want string }{
+		{"uptime", "uptime"},
+		{"uptime\n", "uptime"},
+		{"set -e\nsystemctl restart nginx\n", "set -e\nsystemctl restart nginx"},
+		{"echo one\n\n\n", "echo one"},
+		// Leading and inner whitespace is the script's own business.
+		{"  indented\n", "  indented"},
+	} {
+		if got := pasteText(tc.in); got != tc.want {
+			t.Errorf("pasteText(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+// With no session open there is nowhere to paste it, and the list says which
+// key opens one rather than doing nothing.
+func TestPastingWithNoSessionSaysWhichKeyOpensOne(t *testing.T) {
+	h := newHarness(t)
+	h.addHost("web-01", "10.0.1.1")
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime"})
+
+	h.press("S", "p")
+	if h.m.mode != modeSnippets {
+		t.Fatalf("mode = %v, want to have stayed on the list", h.m.mode)
+	}
+	h.mustContain("no session in the pane")
+	h.mustContain(h.m.keys.Key(keymap.Pane))
+}
+
+// Pasting leaves you looking at the session, because reading what arrived is
+// the point of pasting rather than running.
+func TestPastingLeavesYouLookingAtTheSession(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	if !h.m.attached.Alive() {
+		t.Skip("the session ended before anything could be pasted into it")
+	}
+	// Back to the list first: a focused session takes every key, so S there
+	// is typed at the remote rather than opening anything. That is the route
+	// a person takes too.
+	h.send(tea.KeyPressMsg{Code: '\\', Mod: tea.ModCtrl})
+	h.press("w")
+	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime\n"})
+
+	h.press("S", "p")
+	if h.m.mode != modeBrowse {
+		t.Errorf("mode = %v, want the snippet list closed", h.m.mode)
+	}
+	if h.m.focus != panelSession {
+		t.Errorf("focus = %v, want the session", h.m.focus)
+	}
+	// The model's own status rather than the rendered line: a session whose
+	// ssh has already exited has a message of its own that the view shows
+	// instead, and that is a different piece of behaviour from this one.
+	if !strings.Contains(h.m.status, "pasted into alpha") {
+		t.Errorf("status = %q, want it to say where the script went", h.m.status)
+	}
+	if !strings.Contains(h.m.status, "press enter to run it") {
+		t.Errorf("status = %q, want it to say the script has not been run", h.m.status)
+	}
+	if h.m.statusCtx != "uptime" {
+		t.Errorf("statusCtx = %q, want the snippet's name", h.m.statusCtx)
+	}
+}
+
+// What a multi-line paste does depends on the shell at the far end, and
+// omassh cannot see which it is. Claiming it is waiting to be run — and being
+// wrong, on a shell whose readline predates bracketed paste, which is what
+// macOS ships — is how a snippet gets run by surprise.
+func TestAMultiLinePasteDoesNotClaimItIsWaiting(t *testing.T) {
+	one := pasteResult("uptime", "web-01")
+	if !strings.Contains(one, "press enter to run it") {
+		t.Errorf("one line: %q, want it to say enter runs it", one)
+	}
+
+	many := pasteResult("set -e\ncertbot renew", "web-01")
+	if strings.Contains(many, "press enter to run it") {
+		t.Errorf("several lines: %q, which promises something that is not known", many)
+	}
+	if !strings.Contains(many, "may have run it already") {
+		t.Errorf("several lines: %q, want it to say to go and look", many)
+	}
+	for _, got := range []string{one, many} {
+		if !strings.Contains(got, "web-01") {
+			t.Errorf("%q does not say where it went", got)
+		}
+	}
 }

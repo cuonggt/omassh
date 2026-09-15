@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
@@ -44,6 +45,8 @@ func (m Model) handleSnippetsKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter":
 		return m.openSnippetRun()
+	case "p":
+		return m.pasteSnippet()
 	case "d":
 		return m.askDeleteSnippet()
 	}
@@ -205,6 +208,65 @@ func (m Model) askDeleteSnippet() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// pasteSnippet types a snippet into the session in the pane, and stops there.
+//
+// This is the escape hatch for everything a run cannot do. A run allocates no
+// terminal, so sudo asking for a password, anything full-screen, anything that
+// wants a keyboard at all, fails rather than waits — and those are exactly the
+// scripts you want in a session you are sitting in front of. Between the two
+// there is nothing a snippet cannot be.
+//
+// It is pasted and not run. The script arrives in the shell's edit buffer
+// where it can be read and changed before enter, which is the whole difference
+// between this and the other half of the feature.
+func (m Model) pasteSnippet() (tea.Model, tea.Cmd) {
+	s, ok := m.selectedSnippet()
+	if !ok {
+		return m, nil
+	}
+	if m.attached == nil || !m.attached.Alive() {
+		m.setStatus("no session in the pane — " + m.keys.Key(keymap.Pane) + " opens one")
+		return m, nil
+	}
+
+	script := pasteText(s.Script)
+	name := m.attached.Host.Name
+
+	out, cmd := m.toRemote(func() { m.attached.Paste(script) })
+	m = out.(Model)
+
+	// Looking at what was just pasted, since reading it is the point — and
+	// because of what the second message has to admit.
+	m.mode, m.focus = modeBrowse, panelSession
+	m.setStatusOf(s.Name, pasteResult(script, name))
+	return m, cmd
+}
+
+// pasteText is the script as it should arrive in a shell's edit buffer.
+//
+// Without the trailing newline an editor leaves behind. A remote that has
+// turned bracketed paste on would take it as one more line of the buffer,
+// which is merely untidy; one that has not takes the whole paste as typing,
+// and that newline runs the last line on the spot. Trimming it is what makes
+// "pasted, not run" true in both cases.
+func pasteText(script string) string { return strings.TrimRight(script, "\n") }
+
+// pasteResult says what to expect of the script now sitting in the shell.
+//
+// One line waits wherever it lands, because what would run it is the newline
+// pasteText took off. More than one depends on the shell: one that understands
+// bracketed paste holds the whole of it for editing, and one that does not
+// runs every line but the last as it arrives. Which of those happened cannot
+// be known from here — see term.Pane.Paste — so it is not claimed. Saying "it
+// is waiting for you" and being wrong is how a snippet gets run by surprise;
+// saying to look, next to a pane this has just put in front of you, is not.
+func pasteResult(script, host string) string {
+	if strings.Contains(script, "\n") {
+		return "pasted into " + host + " — an older shell may have run it already"
+	}
+	return "pasted into " + host + " — press enter to run it"
+}
+
 func (m *Model) selectSnippet(s store.Snippet) {
 	for i, x := range m.d.snippets {
 		if x.ID == s.ID {
@@ -246,6 +308,6 @@ func (m Model) snippetsBody(w, content int) string {
 		lines = append(lines, theme.Fg(colour).Render("  "+mark+ansi.Truncate(row, max(w-6, 8), "…")))
 	}
 
-	lines = append(lines, "", theme.Dim.Render("  ↵ run  ·  n/e/d new/edit/delete  ·  esc close"))
+	lines = append(lines, "", theme.Dim.Render("  ↵ run  ·  p paste  ·  n/e/d new/edit/delete  ·  esc close"))
 	return strings.Join(lines, "\n")
 }
