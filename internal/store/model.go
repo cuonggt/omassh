@@ -76,6 +76,62 @@ func (c Credential) Valid() error {
 	return nil
 }
 
+// Snippet is a named script, so a command worth keeping is typed once rather
+// than remembered.
+//
+// It is the one record here with no relationships to keep straight: nothing
+// names a snippet and a snippet names nothing, so deleting one cannot leave
+// anything pointing at a gap, and importing one cannot depend on what else
+// arrived in the same file.
+//
+// The script is stored as it was written and exported as it was written.
+// Nothing here substitutes, quotes or evaluates any part of it, so what runs
+// on the far end is what is on the screen. A password does not belong in one,
+// for the reason it does not belong on a host: this record goes into the
+// export, which is meant for a dotfiles repository. A credential is where
+// that goes.
+type Snippet struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Script string `json:"script"`
+}
+
+// Lines is how long the script is, ignoring a trailing newline. An editor
+// leaves one behind, and a snippet that grew a line by being saved would be
+// describing the editor rather than itself.
+func (s Snippet) Lines() int {
+	script := strings.TrimRight(s.Script, "\n")
+	if script == "" {
+		return 0
+	}
+	return strings.Count(script, "\n") + 1
+}
+
+// Describe is the snippet in one line, for the row beside its name: the
+// command itself where there is only one, and the size where there is more.
+// Fitting it to the row is the caller's business, since only it knows the
+// width.
+func (s Snippet) Describe() string {
+	switch n := s.Lines(); n {
+	case 0:
+		return ""
+	case 1:
+		return strings.TrimSpace(s.Script)
+	default:
+		return fmt.Sprintf("%d lines", n)
+	}
+}
+
+// Valid reports what is wrong with a snippet, in words the form can show. The
+// name is the form's business, as it is for everything else here; what makes
+// this record meaningless is having nothing to run.
+func (s Snippet) Valid() error {
+	if strings.TrimSpace(s.Script) == "" {
+		return errors.New("a snippet with no script would do nothing")
+	}
+	return nil
+}
+
 // Group is a named collection of hosts. Groups nest, and a host inherits
 // User, Identity and ProxyJump from its group chain unless it sets its own.
 type Group struct {

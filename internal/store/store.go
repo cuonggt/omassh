@@ -27,6 +27,9 @@ var (
 	// Added after the first releases. Open creates whatever is missing, so a
 	// database written by an older build gains it on the next start.
 	bucketCredentials = []byte("credentials")
+
+	// Later still, and the same applies.
+	bucketSnippets = []byte("snippets")
 )
 
 // Store is the on-disk database of locally-defined hosts and groups, plus
@@ -67,7 +70,7 @@ func Open(path string) (*Store, error) {
 	s := &Store{path: path}
 	// Made once, so every operation after this can take the buckets as given.
 	err := s.write(func(tx *bolt.Tx) error {
-		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketForwards, bucketCredentials} {
+		for _, b := range [][]byte{bucketGroups, bucketHosts, bucketStats, bucketForwards, bucketCredentials, bucketSnippets} {
 			if _, err := tx.CreateBucketIfNotExists(b); err != nil {
 				return err
 			}
@@ -226,6 +229,98 @@ func unreadable(kind string, keys []string) error {
 	}
 	return fmt.Errorf("skipped %d unreadable %s (%s) — everything else is here",
 		len(keys), noun, list)
+}
+
+// Snippets lists every snippet, by name.
+func (s *Store) Snippets() ([]Snippet, error) {
+	var out []Snippet
+	var bad []string
+	err := s.read(func(tx *bolt.Tx) error {
+		out, bad = decodeSnippets(tx.Bucket(bucketSnippets))
+		return nil
+	})
+	sortSnippets(out)
+	if err == nil {
+		err = unreadable("snippet", bad)
+	}
+	return out, err
+}
+
+func decodeSnippets(b *bolt.Bucket) (out []Snippet, bad []string) {
+	if b == nil {
+		return nil, nil
+	}
+	b.ForEach(func(k, v []byte) error {
+		var s Snippet
+		if json.Unmarshal(v, &s) != nil {
+			bad = append(bad, string(k))
+			return nil
+		}
+		out = append(out, s)
+		return nil
+	})
+	return out, bad
+}
+
+func sortSnippets(out []Snippet) {
+	sort.Slice(out, func(i, j int) bool {
+		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
+	})
+}
+
+// PutSnippet writes a snippet, minting an id for a new one.
+func (s *Store) PutSnippet(sn Snippet) (Snippet, error) {
+	if err := sn.Valid(); err != nil {
+		return sn, err
+	}
+	update := sn.ID != ""
+	if !update {
+		sn.ID = NewID()
+	}
+	err := s.write(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketSnippets)
+		// As for a credential: one deleted in another window must not come
+		// back because this one still had it open.
+		if update && b.Get([]byte(sn.ID)) == nil {
+			return ErrNoSuchSnippet
+		}
+		if snippetNameTaken(b, sn.ID, sn.Name) {
+			return fmt.Errorf("another snippet is already called %q — names are how records are matched, so they have to be unique", strings.TrimSpace(sn.Name))
+		}
+		enc, err := json.Marshal(sn)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(sn.ID), enc)
+	})
+	return sn, err
+}
+
+func snippetNameTaken(b *bolt.Bucket, id, name string) bool {
+	want := strings.ToLower(strings.TrimSpace(name))
+	taken := false
+	b.ForEach(func(k, v []byte) error {
+		if string(k) == id {
+			return nil
+		}
+		var s Snippet
+		if json.Unmarshal(v, &s) == nil && strings.ToLower(strings.TrimSpace(s.Name)) == want {
+			taken = true
+		}
+		return nil
+	})
+	return taken
+}
+
+// DeleteSnippet removes a snippet.
+//
+// One transaction and nothing else to clear, unlike a credential: no host or
+// group refers to a snippet, so there is nothing that deleting one can leave
+// pointing at a gap.
+func (s *Store) DeleteSnippet(id string) error {
+	return s.write(func(tx *bolt.Tx) error {
+		return tx.Bucket(bucketSnippets).Delete([]byte(id))
+	})
 }
 
 // PutGroup inserts or updates a group, assigning an id when absent.
@@ -632,6 +727,7 @@ var (
 	ErrNoSuchHost       = errors.New("that host no longer exists")
 	ErrNoSuchGroup      = errors.New("that group no longer exists")
 	ErrNoSuchCredential = errors.New("that credential no longer exists")
+	ErrNoSuchSnippet    = errors.New("that snippet no longer exists")
 )
 
 // PutForward inserts or updates a forwarding rule, assigning an id when
