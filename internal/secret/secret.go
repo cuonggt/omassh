@@ -26,6 +26,15 @@ import (
 // the keychain can be told from everything else there.
 const Service = "omassh"
 
+// EnvLive turns on the tests that use the real keychain rather than a fake.
+//
+// They are off by default because they cannot be isolated: security(1) takes a
+// named keychain only where the password would have to go in the argument
+// list, so a test that writes one writes it into the keychain of whoever ran
+// the suite. Here rather than in a test file because more than one package
+// needs to name it.
+const EnvLive = "OMASSH_KEYCHAIN_TEST"
+
 var (
 	// ErrNotFound is a credential the store has never been told about. It is
 	// not a failure of the store: a credential can exist in the list with no

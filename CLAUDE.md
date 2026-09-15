@@ -37,17 +37,30 @@ goreleaser release --snapshot --clean  # archives, checksums and cask locally, p
 
 ### What the tests need from the machine
 
-- **tmux.** `internal/term` and `internal/ui` open real tmux-backed panes. Those
-  tests skip cleanly where tmux is absent, so such a machine still gets a green
-  run while covering less.
-- **Isolation is mandatory.** Both packages' `TestMain` point
+- **tmux.** `internal/term`, `internal/ui` and `internal/smoke` open real
+  tmux-backed panes. Those tests skip cleanly where tmux is absent, so such a
+  machine still gets a green run while covering less.
+- **Isolation is mandatory.** Those packages' `TestMain` point
   `OMASSH_TMUX_SOCKET` and `TMUX_TMPDIR` at per-pid values under `/tmp`, because
   the suite kills servers wholesale and once did it on the socket real sessions
   live on. `TestTheSuiteLeavesNothingBehind` fails if that ever stops happening.
   Any new package that shells out to tmux needs the same `TestMain`.
 - **No Docker and no external hosts.** Anything needing a server runs
   `gliderlabs/ssh` in-process on loopback — `internal/sftpx/session_test.go`,
-  `internal/term/pane_test.go`, `internal/term/forward_test.go`.
+  `internal/term/pane_test.go`, `internal/term/forward_test.go`,
+  `internal/smoke`.
+- **`internal/smoke` drives the built binary**, not the packages: it compiles
+  omassh, runs it in a tmux-backed terminal and presses keys at it. It is there
+  because two bugs shipped through a green suite — `security(1)` prompting on a
+  terminal the unit tests never had, and an environment set on an `exec.Cmd`
+  that the tmux path then replaced. Both are invisible to a test that calls the
+  function and reads what it returns.
+- **The keychain is opt-in.** `OMASSH_KEYCHAIN_TEST=1` turns on the tests that
+  use the real one, in `internal/secret` and `internal/smoke`. They are off by
+  default because they cannot be isolated: `security(1)` takes a named keychain
+  only where the password would have to go in the argument list, so a test that
+  stores one stores it in the keychain of whoever ran the suite. They clean up
+  after themselves; everything else uses `secret.Memory()`.
 - UI tests drive the Bubble Tea `Model` value directly via
   `internal/ui/harness_test.go`; `Update`/`View` are pure, so there is no fake
   terminal. Assertions read text back out of `View()`.

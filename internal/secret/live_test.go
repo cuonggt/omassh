@@ -7,9 +7,6 @@ import (
 	"testing"
 )
 
-// EnvLive is what turns the test below on.
-const EnvLive = "OMASSH_KEYCHAIN_TEST"
-
 // The real keychain, exercised only when asked for.
 //
 // Off by default, and deliberately so: this is the one test in the suite that
