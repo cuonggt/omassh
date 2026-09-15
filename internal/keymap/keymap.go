@@ -26,6 +26,7 @@ const (
 	Probe       Action = "probe"
 	SFTP        Action = "sftp"
 	Forward     Action = "forward"
+	Credentials Action = "credentials"
 	Theme       Action = "theme"
 	Pane        Action = "pane"
 	NextPanel   Action = "next-panel"
@@ -42,7 +43,8 @@ var defaults = map[Action]string{
 	NewItem: "n", Edit: "e", Delete: "d", Reload: "r", Probe: "p",
 	Redraw: "ctrl+l",
 	SFTP:   "s", Pane: "t", Theme: "T", Forward: "f",
-	NextPanel: "tab", PrevPanel: "shift+tab",
+	Credentials: "C",
+	NextPanel:   "tab", PrevPanel: "shift+tab",
 	PanelGroups: "1", PanelHosts: "2",
 	Up: "k", Down: "j",
 }

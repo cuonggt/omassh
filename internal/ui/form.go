@@ -17,6 +17,7 @@ const (
 	formHost formKind = iota
 	formGroup
 	formForward
+	formCredential
 	formMkdir
 	formRename
 	formChmod
@@ -59,6 +60,12 @@ type form struct {
 	// so.
 	picking bool
 	pickIdx int
+
+	// passwordStored is whether the keychain already holds one for the
+	// credential being edited, which is what lets an empty field mean "as it
+	// was" rather than "there is none". Kept here so rebuilding the fields
+	// when the kind changes does not lose it.
+	passwordStored bool
 }
 
 // newSecretField is a masked input for passphrases and passwords.

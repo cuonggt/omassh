@@ -16,6 +16,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/cuonggt/omassh/internal/keymap"
+	"github.com/cuonggt/omassh/internal/secret"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
 )
@@ -72,6 +73,11 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 	}
 
 	h := &harness{t: t, store: st, dbPath: dbPath, m: New(st, o)}
+	// Never the real keychain. New opens whatever this machine has, and a test
+	// that stored a password would put it in the keychain of whoever ran the
+	// suite — the same objection the tmux tests answer with a socket of their
+	// own. A test that wants to see what happens without one sets it to nil.
+	h.m.secrets, h.m.secretsErr = secret.Memory(), nil
 	t.Cleanup(func() { h.m.Close() })
 	h.send(tea.WindowSizeMsg{Width: testW, Height: testH})
 	return h

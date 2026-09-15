@@ -135,6 +135,11 @@ func (m Model) dialog(content int) (string, bool) {
 		title := "Forwards on " + m.forwardHost.Name +
 			listPosition(m.forwardIdx, len(m.d.forwardsFor(m.forwardHost.ID)), m.forwardListRows(content))
 		return box(title, true, w, dialogHeight(body, content), body), true
+	case modeCredentials:
+		body := m.credentialsBody(w-4, content)
+		title := "Credentials" +
+			listPosition(m.credIdx, len(m.d.creds), m.credentialListRows(content))
+		return box(title, true, w, dialogHeight(body, content), body), true
 	case modeTheme:
 		// Narrower than the rest: a dialog this size leaves more of the
 		// coloured interface showing behind it, which is the thing actually
@@ -623,9 +628,9 @@ func (m Model) statusBar() string {
 		// The file browser keeps its keys on the transfer strip, which has a
 		// whole row for them; repeating a shorter version here said the same
 		// thing twice and named different keys each time.
-	case modeForwards:
-		// Likewise: the forwards dialog carries its own keys, and the status
-		// is where what just happened to a tunnel is reported.
+	case modeForwards, modeCredentials:
+		// Likewise: these dialogs carry their own keys, and the status is
+		// where what just happened to a tunnel or a credential is reported.
 	default:
 		switch {
 		case m.prefixArmed:

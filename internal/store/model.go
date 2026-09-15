@@ -43,6 +43,22 @@ type Credential struct {
 	Identity string `json:"identity,omitempty"`
 }
 
+// Describe is the credential in one line, for the row beside its name: the
+// user it logs in as, and the key if there is one. A password credential has
+// nothing more to show — the password is not omassh's to display, and saying
+// "password" twice beside the kind column would fill the row with nothing.
+func (c Credential) Describe() string {
+	switch c.Kind {
+	case CredentialKey:
+		if c.User == "" {
+			return c.Identity
+		}
+		return c.User + " · " + c.Identity
+	default:
+		return c.User
+	}
+}
+
 // Valid reports what is wrong with a credential, in words the form can show.
 func (c Credential) Valid() error {
 	switch c.Kind {

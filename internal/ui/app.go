@@ -16,6 +16,7 @@ import (
 
 	"github.com/cuonggt/omassh/internal/keymap"
 	"github.com/cuonggt/omassh/internal/probe"
+	"github.com/cuonggt/omassh/internal/secret"
 	"github.com/cuonggt/omassh/internal/sftpx"
 	"github.com/cuonggt/omassh/internal/sshx"
 	"github.com/cuonggt/omassh/internal/store"
@@ -43,6 +44,7 @@ const (
 	modeSFTP
 	modeTheme
 	modeForwards
+	modeCredentials
 )
 
 const (
@@ -199,6 +201,15 @@ type Model struct {
 	// copying is the stop button for the transfer in flight, if there is one.
 	copying *copying
 
+	// credIdx is the cursor in the credential list.
+	credIdx int
+	// secrets is where a password credential's password is kept, and
+	// secretsErr why there is nowhere to keep one. Opened once at startup:
+	// the cost is a look along PATH, and the answer cannot change while
+	// omassh is running.
+	secrets    secret.Store
+	secretsErr error
+
 	status string
 	// statusCtx names what the status is about — which rule, which host. It
 	// is dropped first when the bar is short of room, the same trade the
@@ -227,6 +238,11 @@ func New(st *store.Store, opts Options) Model {
 		focus: panelHosts, filter: ti,
 		transfers: make(chan transferMsg, 32), copying: &copying{},
 		probeCh: make(chan probeEvent, 64), probes: map[string]probe.State{}}
+	// Asked for once, and remembered either way: a machine with no keychain
+	// is a fact about the machine, and the form has to be able to say so at
+	// the moment someone types a password rather than after saving one.
+	m.secrets, m.secretsErr = secret.Open()
+
 	m.reload()
 	if m.status == "" {
 		m.status = fmt.Sprintf("%d host%s", len(m.d.hosts), plural(len(m.d.hosts)))
@@ -410,6 +426,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleThemeKey(msg)
 	case modeForwards:
 		return m.handleForwardsKey(msg)
+	case modeCredentials:
+		return m.handleCredentialsKey(msg)
 	}
 	return m.handleBrowseKey(msg)
 }
@@ -511,6 +529,8 @@ func (m Model) handleBrowseKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openSFTP()
 	case keymap.Forward:
 		return m.openForwards()
+	case keymap.Credentials:
+		return m.openCredentials()
 	case keymap.Pane:
 		return m.attachSession()
 	case keymap.Redraw:
@@ -629,6 +649,9 @@ func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			}
 		case "enter", "tab":
 			m.form.choosePicked()
+			// Choosing is the ordinary way a kind is set, and it returns from
+			// here rather than falling through to the reshape below.
+			m.reshapeCredentialForm()
 			return m, nil
 		case "esc":
 			m.form.closePicker()
@@ -657,7 +680,13 @@ func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "enter":
 		return m.saveForm()
 	}
-	return m, m.form.update(msg)
+	cmd := m.form.update(msg)
+	// A credential shows only the fields its kind actually uses, so changing
+	// the kind changes the form under you. Offering a key credential a
+	// Password box, or a password credential a path to a private key, invites
+	// someone to fill in a field that will be thrown away on save.
+	m.reshapeCredentialForm()
+	return m, cmd
 }
 
 // --- selection ---------------------------------------------------------
@@ -1007,6 +1036,8 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 		return m.saveFileForm()
 	case formForward:
 		return m.saveForwardForm()
+	case formCredential:
+		return m.saveCredentialForm()
 	}
 	if f.kind == formGroup {
 		name := f.value("Name")
@@ -1177,7 +1208,7 @@ func (m Model) groupChoices(excludeID string) groupChoices {
 // A modal opened from another modal still returns to the underlying view.
 func backFor(current mode) mode {
 	switch current {
-	case modeSFTP, modeForwards:
+	case modeSFTP, modeForwards, modeCredentials:
 		return current
 	default:
 		return modeBrowse
