@@ -18,7 +18,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 		{ID: "h2", Name: "bastion", Addr: "edge.example.com", User: "ops"},
 	}
 
-	raw, err := Export(groups, hosts, nil, nil).YAML()
+	raw, err := Export(groups, hosts, nil, nil, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Merge(d, nil, nil, nil, nil)
+	p, err := Merge(d, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestAStoreSurvivesTheRoundTrip(t *testing.T) {
 }
 
 func TestExportLeavesOutSessionHistory(t *testing.T) {
-	raw, err := Export(nil, []store.Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}, nil, nil).YAML()
+	raw, err := Export(nil, []store.Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}, nil, nil, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestImportMatchesByNameAndKeepsTheID(t *testing.T) {
 	existing := []store.Host{{ID: "keep-me", Name: "web", Addr: "10.0.0.1"}}
 	d := Document{Version: Version, Hosts: []Host{{Name: "WEB", Addr: "10.0.0.9"}}}
 
-	p, err := Merge(d, nil, existing, nil, nil)
+	p, err := Merge(d, nil, existing, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestImportFillsInWithoutBlanking(t *testing.T) {
 	// What ssh_config knows nothing about must survive a second import.
 	d := Document{Version: Version, Hosts: []Host{{Name: "web", Addr: "10.0.0.1"}}}
 
-	p, err := Merge(d, nil, existing, nil, nil)
+	p, err := Merge(d, nil, existing, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestImportFillsInWithoutBlanking(t *testing.T) {
 func TestImportCreatesAGroupAHostNames(t *testing.T) {
 	d := Document{Version: Version, Hosts: []Host{{Name: "web", Addr: "10.0.0.1", Group: "Homelab"}}}
 
-	p, err := Merge(d, nil, nil, nil, nil)
+	p, err := Merge(d, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,7 +230,7 @@ func TestImportRejectsWhatItCannotApply(t *testing.T) {
 	}
 	for name, d := range cases {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Merge(d, nil, nil, nil, nil); err == nil {
+			if _, err := Merge(d, nil, nil, nil, nil, nil); err == nil {
 				t.Fatalf("merged a document with %s", name)
 			}
 		})
@@ -242,7 +242,7 @@ func TestAParentListedAfterItsChildStillResolves(t *testing.T) {
 		{Name: "EU", Parent: "Production"},
 		{Name: "Production"},
 	}}
-	p, err := Merge(d, nil, nil, nil, nil)
+	p, err := Merge(d, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +281,7 @@ func TestEveryRecordIsAccountedForExactlyOnce(t *testing.T) {
 		{Name: "b", Addr: "10.0.0.2", Group: "Work"},
 	}}
 
-	first, err := Merge(d, nil, nil, nil, nil)
+	first, err := Merge(d, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -290,7 +290,7 @@ func TestEveryRecordIsAccountedForExactlyOnce(t *testing.T) {
 	}
 
 	// Applied, the same document is a no-op — and still speaks for all three.
-	second, err := Merge(d, first.Groups, first.Hosts, nil, nil)
+	second, err := Merge(d, first.Groups, first.Hosts, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestAKeyThatIsNotAFieldIsNamedInOmasshsWords(t *testing.T) {
 // them is accepted — a list that drifted would name a key as wrong in the very
 // message meant to help.
 func TestEveryKeyTheComplaintOffersIsAccepted(t *testing.T) {
-	full := `version: 2
+	full := `version: 3
 credentials:
   - name: c
     kind: key
@@ -385,13 +385,16 @@ hosts:
       - kind: local
         listen: "1"
         dest: "d:2"
+snippets:
+  - name: s
+    script: echo hello
 `
 	if _, err := Parse([]byte(full)); err != nil {
 		t.Errorf("a document using every offered key was refused: %v", err)
 	}
 
 	// And the document above really does use them all, or it proves nothing.
-	for _, typ := range []string{"portable.Document", "portable.Group", "portable.Host", "portable.Forward", "portable.Credential"} {
+	for _, typ := range []string{"portable.Document", "portable.Group", "portable.Host", "portable.Forward", "portable.Credential", "portable.Snippet"} {
 		for _, f := range fieldsOf(typ) {
 			if !strings.Contains(full, f+":") {
 				t.Errorf("%s is offered as a key of %s but never tried here", f, typ)
@@ -428,7 +431,7 @@ func TestACredentialCrossesWithoutItsPassword(t *testing.T) {
 	hosts := []store.Host{{ID: "h1", Name: "web", Addr: "10.0.1.1", CredentialID: "c1"}}
 	groups := []store.Group{{ID: "g1", Name: "Production", CredentialID: "c2"}}
 
-	raw, err := Export(groups, hosts, nil, creds).YAML()
+	raw, err := Export(groups, hosts, nil, creds, nil).YAML()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -464,12 +467,12 @@ func TestACredentialRoundTripsWithoutChanging(t *testing.T) {
 	}
 	hosts := []store.Host{{ID: "h1", Name: "web", Addr: "10.0.1.1", CredentialID: "c1"}}
 
-	raw, _ := Export(nil, hosts, nil, creds).YAML()
+	raw, _ := Export(nil, hosts, nil, creds, nil).YAML()
 	d, err := Parse(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := Merge(d, nil, hosts, nil, creds)
+	p, err := Merge(d, nil, hosts, nil, creds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +489,7 @@ func TestAHostNamingAnUnknownCredentialIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = Merge(d, nil, nil, nil, nil)
+	_, err = Merge(d, nil, nil, nil, nil, nil)
 	if err == nil {
 		t.Fatal("the import went ahead naming a credential that does not exist")
 	}
@@ -502,7 +505,7 @@ func TestACredentialTheDocumentGetsWrongIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Merge(d, nil, nil, nil, nil); err == nil {
+	if _, err := Merge(d, nil, nil, nil, nil, nil); err == nil {
 		t.Fatal("a key credential with no key was accepted")
 	} else if !strings.Contains(err.Error(), "private key") {
 		t.Errorf("err = %v, want it to say what is missing", err)

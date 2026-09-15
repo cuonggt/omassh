@@ -278,7 +278,7 @@ func TestPutAllWritesTheLot(t *testing.T) {
 	gs := []Group{{ID: "g1", Name: "Production"}, {ID: "g2", Name: "EU", ParentID: "g1"}}
 	hs := []Host{{ID: "h1", Name: "web", Addr: "10.0.0.1", GroupID: "g2"}}
 
-	if err := s.PutAll(gs, hs, nil, nil); err != nil {
+	if err := s.PutAll(gs, hs, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	groups, _ := s.Groups()
@@ -298,7 +298,7 @@ func TestPutAllRefusesACycleAndWritesNothing(t *testing.T) {
 	err := s.PutAll([]Group{
 		{ID: "a", Name: "A", ParentID: "b"},
 		{ID: "b", Name: "B", ParentID: "a"},
-	}, []Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}, nil, nil)
+	}, []Host{{ID: "h1", Name: "web", Addr: "10.0.0.1"}}, nil, nil, nil)
 
 	if err == nil {
 		t.Fatal("a cycle was accepted")
@@ -325,7 +325,7 @@ func TestPutAllSeesTheGroupsAlreadyThere(t *testing.T) {
 	if err := s.PutAll([]Group{
 		{ID: "b", Name: "B", ParentID: a.ID},
 		a,
-	}, nil, nil, nil); err == nil {
+	}, nil, nil, nil, nil); err == nil {
 		t.Error("a cycle formed against the stored groups was accepted")
 	}
 }
@@ -465,7 +465,7 @@ func TestAnImportCannotBringInALoop(t *testing.T) {
 	err := s.PutAll(nil, []Host{
 		{ID: NewID(), Name: "a", Addr: "10.0.0.1", ProxyJump: "b"},
 		{ID: NewID(), Name: "b", Addr: "10.0.0.2", ProxyJump: "a"},
-	}, nil, nil)
+	}, nil, nil, nil)
 	if err == nil {
 		t.Fatal("an import brought in two hosts jumping through each other")
 	}

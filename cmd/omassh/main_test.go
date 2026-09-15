@@ -238,3 +238,50 @@ func TestACommandLineOptionOutranksTheConfigFile(t *testing.T) {
 		t.Errorf("the caller's slice was written through: %v", cmd)
 	}
 }
+
+// A store holding snippets and no hosts exports a document import refused,
+// which is the round trip failing on a file omassh had just written a moment
+// earlier. The wrong-file guard asked for hosts or groups, and a library of
+// scripts has neither.
+func TestASnippetLibraryWithNoHostsInItSurvivesTheRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	db, out := filepath.Join(dir, "x.db"), filepath.Join(dir, "out.yaml")
+	in := filepath.Join(dir, "in.yaml")
+	const doc = "version: 3\nsnippets:\n  - name: uptime\n    script: uptime\n"
+	if err := os.WriteFile(in, []byte(doc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	resetFlags()
+	if err := run([]string{"import", "-db", db, in}); err != nil {
+		t.Fatalf("importing a library of snippets: %v", err)
+	}
+	resetFlags()
+	if err := run([]string{"export", "-db", db, "-o", out}); err != nil {
+		t.Fatal(err)
+	}
+	resetFlags()
+	if err := run([]string{"import", "-db", filepath.Join(dir, "again.db"), out}); err != nil {
+		t.Fatalf("importing what export had just written: %v", err)
+	}
+}
+
+// The guard still has to catch the thing it is for: valid YAML that is not a
+// host list parses into an empty document, and reporting a tidy no-op for the
+// wrong file is what it exists to prevent.
+func TestAFileThatIsNotAHostListIsStillRefused(t *testing.T) {
+	dir := t.TempDir()
+	empty := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(empty, []byte("# nothing but a comment\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	resetFlags()
+	err := run([]string{"import", "-db", filepath.Join(dir, "x.db"), "-n", empty})
+	if err == nil {
+		t.Fatal("a file with nothing in it was accepted")
+	}
+	if !strings.Contains(err.Error(), "omassh export") {
+		t.Errorf("err = %v, want it to ask whether this is an omassh export", err)
+	}
+}

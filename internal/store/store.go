@@ -773,12 +773,20 @@ func (s *Store) DeleteForward(id string) error {
 // took the better part of a minute, saying nothing while it went. One
 // transaction is also all-or-nothing, so a disk that fills up halfway leaves
 // the store as it was rather than holding part of a list.
-func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward, cs []Credential) error {
+func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward, cs []Credential, sn []Snippet) error {
 	for i := range cs {
 		if cs[i].ID == "" {
 			cs[i].ID = NewID()
 		}
 		if err := cs[i].Valid(); err != nil {
+			return err
+		}
+	}
+	for i := range sn {
+		if sn[i].ID == "" {
+			sn[i].ID = NewID()
+		}
+		if err := sn[i].Valid(); err != nil {
 			return err
 		}
 	}
@@ -813,6 +821,19 @@ func (s *Store) PutAll(gs []Group, hs []Host, fs []Forward, cs []Credential) err
 			}
 			if err := cb.Put([]byte(c.ID), b); err != nil {
 				return err
+			}
+		}
+		// Snippets anywhere, strictly speaking: nothing in this transaction
+		// refers to one. Beside the credentials because both are records the
+		// hosts below are written against rather than the other way round.
+		snb := tx.Bucket(bucketSnippets)
+		for _, s := range sn {
+			b, err := json.Marshal(s)
+			if err != nil {
+				return err
+			}
+			if err := snb.Put([]byte(s.ID), b); err != nil {
+				return fmt.Errorf("snippet %s: %w", s.Name, err)
 			}
 		}
 		// Checked once over the whole tree, rather than each group re-reading

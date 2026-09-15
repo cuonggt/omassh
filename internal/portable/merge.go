@@ -19,7 +19,7 @@ const (
 
 // Change describes one record an import would write.
 type Change struct {
-	Kind   string // "group", "host" or "forward"
+	Kind   string // "credential", "group", "host", "forward" or "snippet"
 	Name   string
 	Action Action
 }
@@ -37,6 +37,7 @@ type Plan struct {
 	Groups      []store.Group
 	Hosts       []store.Host
 	Forwards    []store.Forward
+	Snippets    []store.Snippet
 	Changes     []Change
 	Unchanged   int
 }
@@ -66,7 +67,7 @@ func (p Plan) Counts() (added, updated int) {
 // ssh_config be imported twice without the second pass wiping a user or a tag
 // added here in between, and the cost is that a field cannot be cleared by
 // importing — which the interface does instead.
-func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []store.Forward, creds []store.Credential) (Plan, error) {
+func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []store.Forward, creds []store.Credential, snips []store.Snippet) (Plan, error) {
 	if err := d.validate(); err != nil {
 		return Plan{}, err
 	}
@@ -223,6 +224,34 @@ func Merge(d Document, groups []store.Group, hosts []store.Host, forwards []stor
 		}
 	}
 
+	// Snippets last, and on their own: nothing above names one and a snippet
+	// names nothing, so there is no order to get right and no reference to
+	// resolve. This is the whole of folding them in.
+	snipByName := make(map[string]store.Snippet, len(snips)+len(d.Snippets))
+	for _, s := range snips {
+		snipByName[key(s.Name)] = s
+	}
+	for _, in := range d.Snippets {
+		k := key(in.Name)
+		was, exists := snipByName[k]
+		now := was
+		now.Name = in.Name
+		now.Script = pick(in.Script, was.Script)
+		if err := now.Valid(); err != nil {
+			return Plan{}, fmt.Errorf("snippet %q: %w", in.Name, err)
+		}
+		switch {
+		case !exists:
+			now.ID = store.NewID()
+			p.addSnippet(now, Add)
+		case now != was:
+			p.addSnippet(now, Update)
+		default:
+			p.Unchanged++
+		}
+		snipByName[k] = now
+	}
+
 	// PutGroup checks for cycles against the store, which cannot see groups
 	// this plan has not written yet, so the document's own tree is checked
 	// here instead of failing halfway through applying it.
@@ -287,6 +316,11 @@ func (p *Plan) addHost(h store.Host, a Action) {
 	p.Changes = append(p.Changes, Change{Kind: "host", Name: h.Name, Action: a})
 }
 
+func (p *Plan) addSnippet(s store.Snippet, a Action) {
+	p.Snippets = append(p.Snippets, s)
+	p.Changes = append(p.Changes, Change{Kind: "snippet", Name: s.Name, Action: a})
+}
+
 // acyclic rejects a group tree that loops, naming a group on the cycle.
 func acyclic(byName map[string]store.Group) error {
 	byID := make(map[string]store.Group, len(byName))
@@ -334,6 +368,16 @@ func (d Document) validate() error {
 			return fmt.Errorf("host %q appears twice; names are how records are matched, so they have to be unique", h.Name)
 		}
 		hosts[key(h.Name)] = true
+	}
+	snippets := map[string]bool{}
+	for _, s := range d.Snippets {
+		if strings.TrimSpace(s.Name) == "" {
+			return fmt.Errorf("a snippet has no name")
+		}
+		if snippets[key(s.Name)] {
+			return fmt.Errorf("snippet %q appears twice; names are how records are matched, so they have to be unique", s.Name)
+		}
+		snippets[key(s.Name)] = true
 	}
 	return nil
 }

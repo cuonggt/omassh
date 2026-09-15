@@ -247,13 +247,14 @@ func runExport(args []string) error {
 	hosts, herr := st.Hosts()
 	forwards, ferr := st.Forwards()
 	creds, cerr := st.Credentials()
-	for _, e := range []error{gerr, herr, ferr, cerr} {
+	snippets, serr := st.Snippets()
+	for _, e := range []error{gerr, herr, ferr, cerr, serr} {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
 		}
 	}
 
-	raw, err := portable.Export(groups, hosts, forwards, creds).YAML()
+	raw, err := portable.Export(groups, hosts, forwards, creds, snippets).YAML()
 	if err != nil {
 		return err
 	}
@@ -264,9 +265,9 @@ func runExport(args []string) error {
 	if err := os.WriteFile(*out, raw, 0o600); err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "wrote %d host%s, %d group%s and %d credential%s to %s\n",
+	fmt.Fprintf(os.Stderr, "wrote %d host%s, %d group%s, %d credential%s and %d snippet%s to %s\n",
 		len(hosts), plural(len(hosts)), len(groups), plural(len(groups)),
-		len(creds), plural(len(creds)), *out)
+		len(creds), plural(len(creds)), len(snippets), plural(len(snippets)), *out)
 	return nil
 }
 
@@ -291,8 +292,13 @@ func runImport(args []string) error {
 	}
 	// Valid YAML that is not a host list parses into nothing at all, and
 	// would otherwise report a tidy no-op for what is really the wrong file.
-	if len(d.Hosts) == 0 && len(d.Groups) == 0 {
-		return fmt.Errorf("%s holds no hosts or groups — is it an omassh export?", source(fs.Arg(0)))
+	//
+	// Every section, not only hosts and groups: a store holding snippets and
+	// no hosts exports a document this refused to import, which is the round
+	// trip failing on a file omassh had just written. Credentials were in the
+	// same position before them.
+	if len(d.Hosts) == 0 && len(d.Groups) == 0 && len(d.Credentials) == 0 && len(d.Snippets) == 0 {
+		return fmt.Errorf("%s holds nothing omassh can import — is it an omassh export?", source(fs.Arg(0)))
 	}
 	return apply(*db, d, *dry)
 }
@@ -450,13 +456,14 @@ func apply(db string, d portable.Document, dry bool) error {
 	hosts, herr := st.Hosts()
 	forwards, ferr := st.Forwards()
 	creds, cerr := st.Credentials()
-	for _, e := range []error{gerr, herr, ferr, cerr} {
+	snippets, serr := st.Snippets()
+	for _, e := range []error{gerr, herr, ferr, cerr, serr} {
 		if e != nil {
 			fmt.Fprintln(os.Stderr, "omassh: "+e.Error())
 		}
 	}
 
-	plan, err := portable.Merge(d, groups, hosts, forwards, creds)
+	plan, err := portable.Merge(d, groups, hosts, forwards, creds, snippets)
 	if err != nil {
 		return err
 	}
@@ -473,7 +480,7 @@ func apply(db string, d portable.Document, dry bool) error {
 	// One transaction for the lot: a record at a time meant a trip to the disk
 	// each, which took the better part of a minute for a few thousand of them
 	// and left part of a list behind if the disk filled up on the way.
-	if err := st.PutAll(plan.Groups, plan.Hosts, plan.Forwards, plan.Credentials); err != nil {
+	if err := st.PutAll(plan.Groups, plan.Hosts, plan.Forwards, plan.Credentials, plan.Snippets); err != nil {
 		return err
 	}
 	fmt.Println(summary)

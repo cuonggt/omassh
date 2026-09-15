@@ -38,7 +38,7 @@ import (
 // only knows 1 rejects an unknown field outright — with the name of a Go type
 // and no hint that upgrading is the answer, which is exactly what this number
 // is for.
-const Version = 2
+const Version = 3
 
 // versionFor is the lowest version that can read a document.
 //
@@ -46,6 +46,14 @@ const Version = 2
 // forwarding rules in it goes on being readable by an older omassh. Only one
 // that would genuinely be misread announces the newer format.
 func versionFor(d Document) int {
+	// Credentials and snippets are sections an older omassh has no field for,
+	// and an unknown key is refused before the version is read. A file
+	// carrying either announced version 1 and was answered with "snippets is
+	// not something a host list has" — which reads as a typo in the file
+	// rather than as the one thing that fixes it, which is a newer omassh.
+	if len(d.Credentials) > 0 || len(d.Snippets) > 0 {
+		return 3
+	}
 	for _, h := range d.Hosts {
 		if len(h.Forwards) > 0 {
 			return 2
@@ -63,6 +71,9 @@ type Document struct {
 	Credentials []Credential `yaml:"credentials,omitempty"`
 	Groups      []Group      `yaml:"groups,omitempty"`
 	Hosts       []Host       `yaml:"hosts,omitempty"`
+	// Snippets last, because nothing above refers to one. They are the only
+	// records here that stand entirely alone.
+	Snippets []Snippet `yaml:"snippets,omitempty"`
 }
 
 // Group is a group as text. Parent names another group rather than pointing
@@ -87,6 +98,17 @@ type Credential struct {
 	Kind     string `yaml:"kind"`
 	User     string `yaml:"user,omitempty"`
 	Identity string `yaml:"identity,omitempty"`
+}
+
+// Snippet is a named script as text.
+//
+// It travels for the reason a forwarding rule does: it says how you work with
+// your machines rather than anything about this one. The script crosses
+// verbatim, which is also the warning — whatever is in it is in the file, and
+// a file meant for a dotfiles repository is no place for a password.
+type Snippet struct {
+	Name   string `yaml:"name"`
+	Script string `yaml:"script"`
 }
 
 // Host is a host as text. The field is Jump rather than ProxyJump because
@@ -153,7 +175,7 @@ func asText(f store.Forward) Forward {
 // Session history is deliberately absent. "Last connected two hours ago" is a
 // fact about the machine that connected, and carrying it across would let a
 // laptop's history overwrite a desktop's on every import.
-func Export(gs []store.Group, hs []store.Host, fs []store.Forward, cs []store.Credential) Document {
+func Export(gs []store.Group, hs []store.Host, fs []store.Forward, cs []store.Credential, sn []store.Snippet) Document {
 	credName := make(map[string]string, len(cs))
 	for _, c := range cs {
 		credName[c.ID] = c.Name
@@ -202,10 +224,14 @@ func Export(gs []store.Group, hs []store.Host, fs []store.Forward, cs []store.Cr
 		}
 		d.Hosts = append(d.Hosts, out)
 	}
+	for _, s := range sn {
+		d.Snippets = append(d.Snippets, Snippet{Name: s.Name, Script: s.Script})
+	}
 	// Sorted so re-exporting an unchanged store produces an identical file,
 	// which is what makes the document reviewable in a diff.
 	sort.Slice(d.Groups, func(i, j int) bool { return less(d.Groups[i].Name, d.Groups[j].Name) })
 	sort.Slice(d.Hosts, func(i, j int) bool { return less(d.Hosts[i].Name, d.Hosts[j].Name) })
+	sort.Slice(d.Snippets, func(i, j int) bool { return less(d.Snippets[i].Name, d.Snippets[j].Name) })
 	d.Version = versionFor(d)
 	return d
 }
@@ -224,10 +250,16 @@ func (d Document) YAML() ([]byte, error) {
 	if err := enc.Close(); err != nil {
 		return nil, err
 	}
-	const header = "# omassh host list. Fold it into another machine with:\n" +
+	header := "# omassh host list. Fold it into another machine with:\n" +
 		"#   omassh import <this file>\n" +
 		"# Records match by name, so ids differing between machines does not matter.\n" +
 		"# No secrets here: identity is a path to a key, never the key.\n"
+	// Said only where there is a script to say it about. The line is a warning
+	// about what is below it, and a file with no snippets in it would be
+	// warning about nothing.
+	if len(d.Snippets) > 0 {
+		header += "# A snippet's script crosses verbatim, so keep passwords out of one.\n"
+	}
 	return append([]byte(header), body.Bytes()...), nil
 }
 
@@ -245,6 +277,7 @@ var words = yamlerr.Vocabulary{
 			"portable.Group":      "a group",
 			"portable.Forward":    "a forwarding rule",
 			"portable.Credential": "a credential",
+			"portable.Snippet":    "a snippet",
 		}[typ]
 		if known == "" {
 			return ""
@@ -259,10 +292,12 @@ var words = yamlerr.Vocabulary{
 			"portable.Group":        "a group",
 			"portable.Forward":      "a forwarding rule",
 			"portable.Credential":   "a credential",
+			"portable.Snippet":      "a snippet",
 			"[]portable.Credential": "a list of credentials",
 			"[]portable.Host":       "a list of hosts",
 			"[]portable.Group":      "a list of groups",
 			"[]portable.Forward":    "a list of forwarding rules",
+			"[]portable.Snippet":    "a list of snippets",
 			"[]string":              "a list",
 			"string":                "a single value",
 			"int":                   "a number",
@@ -282,6 +317,10 @@ func fieldsOf(typ string) []string {
 		t = reflect.TypeOf(Group{})
 	case "portable.Forward":
 		t = reflect.TypeOf(Forward{})
+	case "portable.Credential":
+		t = reflect.TypeOf(Credential{})
+	case "portable.Snippet":
+		t = reflect.TypeOf(Snippet{})
 	default:
 		return nil
 	}
