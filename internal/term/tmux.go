@@ -93,13 +93,22 @@ func confPath() (string, error) {
 
 // tmuxCommand wraps an ssh invocation in a persistent tmux session, attaching
 // to the existing one if it is already running.
-func tmuxCommand(h store.Host, sshArgs []string) (*exec.Cmd, string, error) {
+func tmuxCommand(h store.Host, sshArgs, env []string) (*exec.Cmd, string, error) {
 	conf, err := confPath()
 	if err != nil {
 		return nil, "", err
 	}
 	name := SessionName(h)
-	args := []string{"-L", tmuxSocket(), "-f", conf, "new-session", "-A", "-s", name, "ssh"}
+	args := []string{"-L", tmuxSocket(), "-f", conf, "new-session", "-A", "-s", name}
+	// Through env(1), as a forward does. Setting it on the exec.Cmd would put
+	// it on tmux rather than on the ssh tmux goes on to run — and the session
+	// outlives this process anyway, so it has to travel in the command tmux
+	// records, not in the environment of whoever started it.
+	if len(env) > 0 {
+		args = append(args, "env")
+		args = append(args, env...)
+	}
+	args = append(args, "ssh")
 	args = append(args, sshArgs...)
 	return exec.Command("tmux", args...), name, nil
 }

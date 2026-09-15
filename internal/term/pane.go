@@ -73,13 +73,17 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 	// Prefer a persistent tmux-backed session; fall back to a plain ssh child
 	// where tmux is not installed, which simply means sessions end with the UI.
 	sshArgs := sshx.Build(h)
+	env := sshx.Env(h)
 	cmd := exec.Command("ssh", sshArgs...)
-	if env := sshx.Env(h); len(env) > 0 {
+	if len(env) > 0 {
 		cmd.Env = append(os.Environ(), env...)
 	}
 	session := ""
 	if TmuxAvailable() {
-		if c, name, err := tmuxCommand(h, sshArgs); err == nil {
+		// The tmux command replaces the plain one above, environment and all,
+		// so what a password credential needs has to be built into it rather
+		// than set on the Cmd this discards.
+		if c, name, err := tmuxCommand(h, sshArgs, env); err == nil {
 			cmd, session = c, name
 		}
 	}
