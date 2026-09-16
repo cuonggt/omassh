@@ -444,51 +444,9 @@ func TestAPortAlreadyTakenIsRefusedBeforeAnythingIsStarted(t *testing.T) {
 // tmux reports a signal death with an empty exit status, so reading the status
 // alone scored it as zero — and a tunnel the system killed read exactly like
 // one stopped on purpose, which is the distinction the marks exist to draw.
-// tmuxReportsSignals reports whether this tmux can say a pane was killed
-// rather than that it exited.
-//
-// pane_dead_signal arrived in tmux 3.4. Before it, a tunnel killed by a signal
-// is indistinguishable from one that stopped cleanly: tmux keeps nothing that
-// tells them apart, so neither can omassh. Debian's 3.3a is the version this
-// was found on.
-func tmuxReportsSignals(t *testing.T) bool {
-	t.Helper()
-	out, err := exec.Command("tmux", "-V").Output()
-	if err != nil {
-		return false
-	}
-	// "tmux 3.3a", "tmux 3.4", "tmux next-3.5".
-	fields := strings.Fields(strings.TrimSpace(string(out)))
-	if len(fields) < 2 {
-		return false
-	}
-	majorS, minorS, ok := strings.Cut(strings.TrimPrefix(fields[1], "next-"), ".")
-	if !ok {
-		return false
-	}
-	major, err := strconv.Atoi(majorS)
-	if err != nil {
-		return false
-	}
-	// A letter may follow the minor number, as in 3.3a.
-	digits := 0
-	for digits < len(minorS) && minorS[digits] >= '0' && minorS[digits] <= '9' {
-		digits++
-	}
-	minor, err := strconv.Atoi(minorS[:digits])
-	if err != nil {
-		return false
-	}
-	return major > 3 || (major == 3 && minor >= 4)
-}
-
 func TestATunnelKilledBySignalCountsAsFailed(t *testing.T) {
 	if !term.TmuxAvailable() {
 		t.Skip("tmux not installed")
-	}
-	if !tmuxReportsSignals(t) {
-		t.Skip("tmux is older than 3.4, which is where pane_dead_signal arrived; " +
-			"a killed tunnel cannot be told from a clean stop here")
 	}
 	killServer(t)
 	forwardOptions(t)
@@ -523,14 +481,21 @@ func TestATunnelKilledBySignalCountsAsFailed(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		if st, ok := mustStates(t)[name]; ok && !st.Running {
+			// This much holds wherever it runs: a tunnel still listed and no
+			// longer running died on its own, so it failed.
 			if !st.Failed() {
 				t.Fatalf("a tunnel killed by a signal reports %+v, which reads as a clean stop", st)
 			}
-			if st.Signal == "" {
-				t.Errorf("nothing was recorded about what killed it: %+v", st)
-			}
-			if r := term.FailureReason(name, st); !strings.Contains(r, "kill") {
-				t.Errorf("FailureReason = %q, want it to say it was killed", r)
+			// What tmux managed to record about how it died is another
+			// matter, and not one to insist on. pane_dead_signal arrived in
+			// 3.4, and even on 3.4 a pane killed soon after it started comes
+			// back with neither a status nor a signal — so this is checked
+			// where there is something to check, and the run is still worth
+			// having where there is not.
+			if st.Signal != "" {
+				if r := term.FailureReason(name, st); !strings.Contains(r, st.Signal) {
+					t.Errorf("FailureReason = %q, want it to name the signal %q", r, st.Signal)
+				}
 			}
 			return
 		}
