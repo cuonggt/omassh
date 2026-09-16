@@ -59,8 +59,6 @@ type ForwardState struct {
 	Args string
 }
 
-// Failed reports whether a tunnel stopped because something went wrong, as
-// opposed to being stopped.
 // Failed reports whether a tunnel is one to look at rather than tick off.
 //
 // Any tunnel still listed and not running has failed. Stopping one takes its
