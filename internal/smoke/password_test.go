@@ -114,10 +114,12 @@ func TestAPasswordCredentialConnectsThroughTheKeychain(t *testing.T) {
 	p.mustNotSay("password data for new item")
 	p.mustNotSay("no password in the keychain")
 
-	// The dialog going, not the host's name arriving: the name is behind the
-	// dialog the whole time, so waiting for it proves nothing.
+	// The browser's own keys coming back, not the host's name arriving: the
+	// name is behind the dialog the whole time, and an absence can be
+	// satisfied by a half-drawn frame.
 	p.send("Escape")
 	p.waitGone("Credentials")
+	p.waitFor("enter connect")
 	p.send("2", "e")
 	p.waitFor("Edit box")
 	p.send("Tab", "Tab", "Tab", "Down", "Down", "Enter")
