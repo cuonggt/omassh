@@ -756,21 +756,36 @@ func TestASessionAndATunnelBothMarkTheRow(t *testing.T) {
 // A tunnel something killed is a tunnel that failed, and must not draw as one
 // that was stopped on purpose: tmux reports a signal death with an empty exit
 // status, which scored as a clean zero.
-func TestAKilledTunnelDrawsAsAFailure(t *testing.T) {
+// A tunnel still listed and not running draws as a failure, whatever tmux
+// managed to record about how it died.
+//
+// The old shape of this test had a stopped-on-purpose tunnel sitting in the
+// list with a clean exit, which is a state the program does not produce:
+// stopping one takes its whole session away, so anything still listed died on
+// its own. Reading the exit status to tell those apart made a refused key draw
+// as a benign stop, because tmux records no status at all for a pane that dies
+// that fast.
+func TestADeadTunnelDrawsAsAFailureWhateverTmuxRecorded(t *testing.T) {
 	h := newHarness(t)
 	host := h.addHost("db-01", "10.0.0.1")
 	f := h.addForward(host.ID, 5432, "localhost", 5432)
 	h.selectHost("db-01")
 	h.press("f")
 
-	// Stopped on purpose: a clean exit, no signal.
+	// Stopped on purpose: the session goes with it, so there is nothing left
+	// to report on.
+	h.m.d.fwd = map[string]term.ForwardState{}
+	h.mustContain("not running")
+	h.mustNotContain("stopped:")
+
+	// Died on its own with nothing recorded, which is what tmux hands back
+	// for a pane that fails as fast as a refused key does.
 	h.m.d.fwd = map[string]term.ForwardState{
 		term.ForwardSessionName(f): {Exit: 0},
 	}
-	h.mustContain("↵ starts it again")
-	h.mustNotContain("stopped:")
+	h.mustContain("stopped:")
 
-	// Killed: the same empty exit status, with a signal beside it.
+	// And with a signal beside it, which is named.
 	h.m.d.fwd = map[string]term.ForwardState{
 		term.ForwardSessionName(f): {Exit: 0, Signal: "kill"},
 	}

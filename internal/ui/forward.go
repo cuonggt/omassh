@@ -510,8 +510,6 @@ func (m Model) forwardDetail() []string {
 		// session away. "Not started" was a small lie the moment after you
 		// pressed stop, and this is true of both.
 		return []string{theme.Dim.Render("not running  ·  ↵ starts it")}
-	case !st.Failed():
-		return []string{theme.Dim.Render("stopped  ·  ↵ starts it again")}
 	}
 
 	reason := term.FailureReason(term.ForwardSessionName(f), st)

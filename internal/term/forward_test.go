@@ -211,12 +211,9 @@ func TestAFailedForwardSaysWhy(t *testing.T) {
 	if st.Running {
 		t.Error("a tunnel that failed is reported as running")
 	}
-	// Failed() rather than a non-zero exit status, because those are not the
-	// same question. tmux reports a status and a signal in separate fields
-	// and fills in only one: an ssh killed rather than exiting leaves
-	// pane_dead_status empty, which arrives here as exit 0. Asking for a
-	// status alone called that a clean stop, and did it only where the ssh
-	// happened to die by signal — green on macOS, red on Linux.
+	// Failed() rather than a non-zero exit status: tmux records no status at
+	// all for a pane that dies as fast as a refused key does, so asking for
+	// one called a failed tunnel a clean stop wherever the machine was quick.
 	if !st.Failed() {
 		t.Errorf("a tunnel that failed reads as a clean stop: %+v", st)
 	}

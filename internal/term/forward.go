@@ -61,9 +61,21 @@ type ForwardState struct {
 
 // Failed reports whether a tunnel stopped because something went wrong, as
 // opposed to being stopped.
-func (s ForwardState) Failed() bool {
-	return !s.Running && (s.Exit != 0 || s.Signal != "")
-}
+// Failed reports whether a tunnel is one to look at rather than tick off.
+//
+// Any tunnel still listed and not running has failed. Stopping one takes its
+// whole session away, so a dead pane that is still here died on its own — and
+// a tunnel exists to go on carrying, so there is no way out of one that counts
+// as a clean stop.
+//
+// Deliberately not read from the exit status, which tmux does not reliably
+// have. A pane whose command dies almost at once is sometimes recorded with no
+// status and no signal at all: three identical runs on tmux 3.3a gave a status
+// twice and nothing the third time, and the same on 3.4. A refused key fails
+// that fast, so asking the status whether a tunnel had failed called it a
+// clean stop about a third of the time — on whichever machine was quick
+// enough, which was never the one this was written on.
+func (s ForwardState) Failed() bool { return !s.Running }
 
 // argsOption is where a tunnel keeps the fingerprint of what it was started
 // with. A tmux pane option: it belongs to the running thing rather than to the
@@ -289,7 +301,13 @@ func forwardFailure(name string, st ForwardState) string {
 	if reason := ForwardReason(name); reason != "" {
 		return reason
 	}
-	return fmt.Sprintf("ssh exited %d without saying why", st.Exit)
+	// Only when there is a status worth naming. tmux records none at all for
+	// a pane that dies quickly enough, and "ssh exited 0 without saying why"
+	// would be inventing a number for something that never reported one.
+	if st.Exit != 0 {
+		return fmt.Sprintf("ssh exited %d without saying why", st.Exit)
+	}
+	return "ssh stopped without saying why"
 }
 
 // FailureReason is what to say about a stopped tunnel, for the interface.
