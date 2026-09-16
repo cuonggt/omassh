@@ -218,6 +218,28 @@ func (p *pane) waitFor(want string) string {
 	return ""
 }
 
+// waitGone blocks until the screen stops saying something.
+//
+// Needed because a dialog here is drawn over the host list rather than
+// instead of it, so waiting for a host's name to prove a dialog has closed
+// proves nothing: the name was already showing behind it. Pressing escape and
+// then waiting for "box" passed the instant it was called, and the keys meant
+// for the list went to a dialog that was still open — which edited the
+// credential instead of the host, on whichever machine was slow enough.
+func (p *pane) waitGone(bad string) {
+	p.t.Helper()
+	deadline := time.Now().Add(waitTimeout)
+	var last string
+	for time.Now().Before(deadline) {
+		last = p.screen()
+		if !strings.Contains(last, bad) {
+			return
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	p.t.Fatalf("waited %s for %q to go; the screen says:\n%s", waitTimeout, bad, last)
+}
+
 // mustNotSay fails if something is on screen that should never be.
 func (p *pane) mustNotSay(bad string) {
 	p.t.Helper()

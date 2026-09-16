@@ -47,9 +47,10 @@ func TestACredentialMadeInTheInterfaceReachesTheConnection(t *testing.T) {
 	// hangs — so the screen is the place to catch it.
 	p.mustNotSay("password data for new item")
 
-	// Point the host at it.
+	// Point the host at it. Waited on the dialog going rather than on the
+	// host's name arriving: the name is behind the dialog the whole time.
 	p.send("Escape")
-	p.waitFor("box")
+	p.waitGone("Credentials")
 	p.send("2", "e")
 	p.waitFor("Edit box")
 	p.send("Tab", "Tab", "Tab", "Down", "Down", "Enter")
