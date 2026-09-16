@@ -33,10 +33,24 @@ func main() {
 		identity = os.Args[3]
 	}
 
-	prodGroup := store.Group{Name: "Production", User: "deploy", ProxyJump: "bastion.corp"}
+	// A credential rather than a user and a key written onto the group: it is
+	// what makes the detail pane say "← Prod deploy" beside the values a host
+	// inherits, which is the half of the feature worth seeing. An agent
+	// credential where there is no key to name, since a key one without a
+	// path is refused.
+	cred := store.Credential{Name: "Prod deploy", Kind: store.CredentialAgent, User: "deploy"}
+	if identity != "" {
+		cred.Kind, cred.Identity = store.CredentialKey, identity
+	}
+	prodCred, err := st.PutCredential(cred)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	prodGroup := store.Group{Name: "Production", CredentialID: prodCred.ID, ProxyJump: "bastion.corp"}
 	if demoPort > 0 {
 		// A jump host would make these unreachable for the recording.
-		prodGroup = store.Group{Name: "Production", User: "deploy", Identity: identity}
+		prodGroup = store.Group{Name: "Production", CredentialID: prodCred.ID}
 	}
 	prod, _ := st.PutGroup(prodGroup)
 	stg, _ := st.PutGroup(store.Group{Name: "Staging", User: "deploy"})
@@ -79,6 +93,19 @@ func main() {
 		}
 		if h.Name == "db-01" {
 			dbHost = saved
+		}
+	}
+
+	// Scripts worth keeping, for the part of the recording that runs one
+	// across a whole group at once. "disk free" sorts first, so it is the one
+	// the tape reaches by pressing S and then enter.
+	for _, sn := range []store.Snippet{
+		{Name: "disk free", Script: "df -h / | tail -1"},
+		{Name: "restart nginx", Script: "set -e\nsystemctl restart nginx\nsystemctl status nginx --no-pager\n"},
+		{Name: "uptime", Script: "uptime"},
+	} {
+		if _, err := st.PutSnippet(sn); err != nil {
+			log.Fatal(err)
 		}
 	}
 

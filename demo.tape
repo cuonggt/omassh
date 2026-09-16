@@ -26,9 +26,14 @@ Type "1"     Sleep 600ms
 Type "j"     Sleep 1200ms
 Type "2"     Sleep 900ms
 
-# editing a host: jump host, group and tags are all picked from a list
+# editing a host: jump host, group and tags are all picked from a list.
+# Six tabs is what reaches Jump host, and the count has to follow the form:
+# the Credential field arrived between two recordings and left this a field
+# short, on Identity, which has no list to open — so the Down below did
+# nothing and the Escape cancelled the whole form instead of a picker. The
+# rest of the tape then played into the host list, where Enter connects.
 Type "e"     Sleep 1200ms
-Tab Tab Tab Tab Tab
+Tab Tab Tab Tab Tab Tab
 Sleep 600ms
 Down         Sleep 1600ms
 Escape       Sleep 400ms
@@ -49,14 +54,17 @@ Sleep 1800ms
 Ctrl+\
 Type "w"     Sleep 1800ms
 
-# another host takes the pane
-Type "j"     Sleep 600ms
-Type "t"     Sleep 3000ms
-Type "df -h /" Enter
-Sleep 2000ms
+# the credentials a host logs in with, named once and shared
+Type "C"     Sleep 2000ms
+Escape       Sleep 600ms
 
-Ctrl+\
-Type "w"     Sleep 1500ms
+# a snippet: a script kept once, run across every host in the group at once
+Type "S"     Sleep 1500ms
+Enter        Sleep 1400ms
+Type "j"     Sleep 1000ms
+Type "y"     Sleep 3500ms
+Escape       Sleep 600ms
+Escape       Sleep 900ms
 
 Type "?"     Sleep 2500ms
 Escape       Sleep 500ms
