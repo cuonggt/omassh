@@ -1,0 +1,150 @@
+# Runs what a person used to have to remember to run.
+#
+# Every release before this one was cut from a suite checked by hand, on one
+# Mac, and it showed: a smoke test that passed only because a key happened to
+# sit in that Mac's ~/.ssh shipped inside v0.14.0, and was found a day later
+# only because the Linux script was run by hand. Both halves run here now, on
+# every push.
+name: test
+
+on:
+  push:
+  workflow_dispatch:
+
+# A second push to the same branch makes the first run pointless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      # Both platforms always run: the whole point is that they disagree, and
+      # stopping at the first failure is how the other one's news gets lost.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install tmux
+        run: |
+          if command -v tmux >/dev/null; then exit 0; fi
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq --no-install-recommends tmux
+          else
+            brew install tmux
+          fi
+
+      # internal/term, internal/ui and internal/smoke skip cleanly where tmux
+      # is absent, so a runner without it goes green while covering far less.
+      # A suite that is quietly weaker than it looks is the exact thing this
+      # workflow exists to stop, so what it needs is asserted rather than
+      # hoped for.
+      - name: Check the machine has what the suite needs
+        run: |
+          for c in tmux ssh ssh-keygen; do
+            if ! command -v "$c" >/dev/null; then
+              echo "missing: $c — the suite would skip rather than fail" >&2
+              exit 1
+            fi
+          done
+          tmux -V
+
+      # gofmt and go vet are the whole of the linting here; there is no
+      # linter configuration to run.
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "not gofmt'd:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      # -count=1 because setup-go restores the build cache, and a cached
+      # pass is not a run.
+      - name: go test
+        run: go test -count=1 ./...
+
+  race:
+    name: race
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install tmux
+        run: |
+          if command -v tmux >/dev/null; then exit 0; fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends tmux
+
+      # The whole tree rather than the packages with goroutines in them. The
+      # race that was found the day this was written was in a test's own
+      # counters, in a package nobody would have thought to name.
+      - name: go test -race
+        run: go test -race -count=1 ./...
+
+  keyring:
+    name: keyring (libsecret)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install tmux and a keyring
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends \
+            tmux libsecret-tools gnome-keyring dbus-x11
+
+      # security(1) and secret-tool(1) are different programs with different
+      # opinions, and three bugs once lived in the one nobody here could run:
+      # it exits 1 for an item that is not there, and adds no newline of its
+      # own. A fake runner agrees with whatever it is told.
+      #
+      # The keyring has to be running before the tests start and needs a
+      # session bus to run on, so the whole dance and the tests are one step.
+      # Unlocked with an empty password, which is what a throwaway runner's
+      # keyring is worth.
+      - name: Run the keychain tests against a real keyring
+        run: |
+          eval "$(dbus-launch --sh-syntax)"
+          printf "\n" | gnome-keyring-daemon --unlock --components=secrets >/dev/null 2>&1 &
+          sleep 2
+          eval "$(printf "\n" | gnome-keyring-daemon --start --components=secrets 2>/dev/null)"
+          export GNOME_KEYRING_CONTROL
+
+          # Proven before the tests rather than after: without a keyring
+          # answering, every password test skips and the job goes green
+          # having checked nothing.
+          if ! printf "probe" | secret-tool store --label=probe service omassh-probe account probe 2>/dev/null; then
+            echo "the keyring is not answering; the password tests would skip" >&2
+            exit 1
+          fi
+          secret-tool clear service omassh-probe account probe
+
+          # Opt-in everywhere else because they write into the keyring of
+          # whoever runs them. Here the keyring is the runner.
+          export OMASSH_KEYCHAIN_TEST=1
+          go test -count=1 ./internal/secret ./internal/smoke
