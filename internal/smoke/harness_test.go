@@ -191,12 +191,21 @@ func (p *pane) screen() string {
 	return strings.ReplaceAll(string(out), "\t", " ")
 }
 
+// waitTimeout is how long a step waits for the screen to say something.
+//
+// Generous, because this drives a built binary through a real terminal on
+// whatever machine is running it, and every wait is bounded by the slowest of
+// them rather than the usual one. At twenty seconds a shared CI runner failed
+// to reach an edit form in time — a test that goes red for being on a busy
+// machine teaches nothing, and teaches people to disbelieve it.
+const waitTimeout = 45 * time.Second
+
 // waitFor blocks until the screen says something, rather than sleeping for a
 // guess. Connecting takes as long as it takes, and a fixed wait is either
 // slower than it needs to be or flaky on a loaded machine.
 func (p *pane) waitFor(want string) string {
 	p.t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(waitTimeout)
 	var last string
 	for time.Now().Before(deadline) {
 		last = p.screen()
@@ -205,7 +214,7 @@ func (p *pane) waitFor(want string) string {
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	p.t.Fatalf("waited 20s for %q; the screen says:\n%s", want, last)
+	p.t.Fatalf("waited %s for %q; the screen says:\n%s", waitTimeout, want, last)
 	return ""
 }
 

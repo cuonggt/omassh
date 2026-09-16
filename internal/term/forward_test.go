@@ -211,8 +211,14 @@ func TestAFailedForwardSaysWhy(t *testing.T) {
 	if st.Running {
 		t.Error("a tunnel that failed is reported as running")
 	}
-	if st.Exit == 0 {
-		t.Error("a tunnel that failed exited 0")
+	// Failed() rather than a non-zero exit status, because those are not the
+	// same question. tmux reports a status and a signal in separate fields
+	// and fills in only one: an ssh killed rather than exiting leaves
+	// pane_dead_status empty, which arrives here as exit 0. Asking for a
+	// status alone called that a clean stop, and did it only where the ssh
+	// happened to die by signal — green on macOS, red on Linux.
+	if !st.Failed() {
+		t.Errorf("a tunnel that failed reads as a clean stop: %+v", st)
 	}
 	if reason := term.ForwardReason(term.ForwardSessionName(f)); !strings.Contains(reason, "Permission denied") {
 		t.Errorf("ForwardReason = %q", reason)
@@ -441,9 +447,51 @@ func TestAPortAlreadyTakenIsRefusedBeforeAnythingIsStarted(t *testing.T) {
 // tmux reports a signal death with an empty exit status, so reading the status
 // alone scored it as zero — and a tunnel the system killed read exactly like
 // one stopped on purpose, which is the distinction the marks exist to draw.
+// tmuxReportsSignals reports whether this tmux can say a pane was killed
+// rather than that it exited.
+//
+// pane_dead_signal arrived in tmux 3.4. Before it, a tunnel killed by a signal
+// is indistinguishable from one that stopped cleanly: tmux keeps nothing that
+// tells them apart, so neither can omassh. Debian's 3.3a is the version this
+// was found on.
+func tmuxReportsSignals(t *testing.T) bool {
+	t.Helper()
+	out, err := exec.Command("tmux", "-V").Output()
+	if err != nil {
+		return false
+	}
+	// "tmux 3.3a", "tmux 3.4", "tmux next-3.5".
+	fields := strings.Fields(strings.TrimSpace(string(out)))
+	if len(fields) < 2 {
+		return false
+	}
+	majorS, minorS, ok := strings.Cut(strings.TrimPrefix(fields[1], "next-"), ".")
+	if !ok {
+		return false
+	}
+	major, err := strconv.Atoi(majorS)
+	if err != nil {
+		return false
+	}
+	// A letter may follow the minor number, as in 3.3a.
+	digits := 0
+	for digits < len(minorS) && minorS[digits] >= '0' && minorS[digits] <= '9' {
+		digits++
+	}
+	minor, err := strconv.Atoi(minorS[:digits])
+	if err != nil {
+		return false
+	}
+	return major > 3 || (major == 3 && minor >= 4)
+}
+
 func TestATunnelKilledBySignalCountsAsFailed(t *testing.T) {
 	if !term.TmuxAvailable() {
 		t.Skip("tmux not installed")
+	}
+	if !tmuxReportsSignals(t) {
+		t.Skip("tmux is older than 3.4, which is where pane_dead_signal arrived; " +
+			"a killed tunnel cannot be told from a clean stop here")
 	}
 	killServer(t)
 	forwardOptions(t)
