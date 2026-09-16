@@ -498,6 +498,29 @@ func TestAHostNamingAnUnknownCredentialIsRefused(t *testing.T) {
 	}
 }
 
+// A credential named twice is refused rather than merged, as a group, a host
+// and a snippet already are. It matters more here than the symmetry suggests:
+// the second record folds over the first instead of replacing it, so the two
+// below once landed as one agent credential still holding the key's path.
+func TestACredentialWithNoNameOrATwinIsRefused(t *testing.T) {
+	for _, tc := range []struct{ doc, want string }{
+		{"version: 3\ncredentials:\n  - kind: agent\n    user: deploy\n", "no name"},
+		{"version: 3\ncredentials:\n  - name: Prod deploy\n    kind: key\n    identity: /keys/old\n  - name: prod deploy\n    kind: agent\n    user: deploy\n", "twice"},
+	} {
+		d, err := Parse([]byte(tc.doc))
+		if err != nil {
+			t.Fatalf("%s: %v", tc.doc, err)
+		}
+		_, err = Merge(d, nil, nil, nil, nil, nil)
+		if err == nil {
+			t.Fatalf("%s was accepted", tc.doc)
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("err = %v, want it to say %q", err, tc.want)
+		}
+	}
+}
+
 // A credential the document describes badly is refused with the same words the
 // form would use, rather than being written and failing at the first use.
 func TestACredentialTheDocumentGetsWrongIsRefused(t *testing.T) {

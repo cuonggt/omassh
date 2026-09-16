@@ -346,6 +346,22 @@ func (d Document) validate() error {
 	if d.Version > Version {
 		return fmt.Errorf("document is version %d, this omassh understands %d — upgrade omassh", d.Version, Version)
 	}
+	// Credentials first, as Merge folds them in first. Left unchecked, a name
+	// twice did not overwrite: the second record is merged *over* the first by
+	// the same rule that lets a document leave a field out, so a key credential
+	// followed by an agent one of the same name landed as an agent credential
+	// still carrying the key's path — a record in neither the document nor the
+	// store, reported as an add and an update of something that did not exist.
+	creds := map[string]bool{}
+	for _, c := range d.Credentials {
+		if strings.TrimSpace(c.Name) == "" {
+			return fmt.Errorf("a credential has no name")
+		}
+		if creds[key(c.Name)] {
+			return fmt.Errorf("credential %q appears twice; names are how records are matched, so they have to be unique", c.Name)
+		}
+		creds[key(c.Name)] = true
+	}
 	groups := map[string]bool{}
 	for _, g := range d.Groups {
 		if strings.TrimSpace(g.Name) == "" {
