@@ -21,9 +21,9 @@ the user's real host list, and the default config is the file the theme picker
 writes back into.
 
 ```bash
-go test ./...                                     # ~13s, of which internal/ui is ~12s
+go test ./...                                     # ~26s; internal/ui and term dominate
 go test ./internal/ui -run TestPanelFocusCycles   # one test
-go test -race ./internal/term ./internal/ui       # the packages with goroutines (~21s)
+go test -race ./...                               # all of it; a race once hid in a test
 go vet ./...
 ```
 
@@ -58,15 +58,25 @@ goreleaser release --snapshot --clean  # archives, checksums and cask locally, p
   here for the same reason: `Update` returns a command and nothing in a unit
   test runs it, so a snippet's trip to `$EDITOR` is only ever exercised by a
   terminal it can actually be handed.
-- **Linux is checked with `hack/linux-smoke.sh`.** The suite itself needs no
-  Docker and must not grow a dependency on one; the script is a tool, not a
-  test. It builds a container with tmux, openssh-client and a real libsecret
-  keyring, and runs `internal/secret` and `internal/smoke` inside it with the
-  keychain tests turned on. It is there because `security(1)` and
-  `secret-tool(1)` are different programs with different opinions — the Linux
-  one exits 1 for an item that is not there and adds no newline of its own, and
-  neither was true of what this package first believed. A fake runner agrees
-  with whatever it is told; only running it disagrees.
+- **CI runs all of this** on Linux and macOS on every push, plus `-race` over
+  the whole tree and the keychain tests against a real libsecret keyring:
+  `.github/workflows/test.yml`. It asserts tmux, ssh and ssh-keygen are there
+  rather than hoping, because the packages below skip where tmux is absent and
+  a runner without it goes green while covering far less. It was written after
+  a test that passed only because of a key in one developer's `~/.ssh` shipped
+  inside a release, and on its first run it found five more of the same kind —
+  a hardcoded macOS errno string, a wait satisfied by what was drawn behind a
+  dialog, and an exit status tmux does not reliably record.
+- **Linux is checked in CI on every push, and locally with
+  `hack/linux-smoke.sh`.** The suite itself needs no Docker and must not grow a
+  dependency on one; the script is a tool, not a test. It builds a container
+  with tmux, openssh-client and a real libsecret keyring, and runs
+  `internal/secret` and `internal/smoke` inside it with the keychain tests
+  turned on. It is there because `security(1)` and `secret-tool(1)` are
+  different programs with different opinions — the Linux one exits 1 for an
+  item that is not there and adds no newline of its own, and neither was true
+  of what this package first believed. A fake runner agrees with whatever it
+  is told; only running it disagrees.
 - **The keychain is opt-in.** `OMASSH_KEYCHAIN_TEST=1` turns on the tests that
   use the real one, in `internal/secret` and `internal/smoke`. They are off by
   default because they cannot be isolated: `security(1)` takes a named keychain
@@ -80,10 +90,15 @@ goreleaser release --snapshot --clean  # archives, checksums and cask locally, p
 ## Architecture
 
 **`internal/sshx.Build` is the chokepoint.** Every ssh invocation Omassh makes —
-full-screen handoff, embedded pane, port forward, reachability probe, SFTP
-subsystem — builds its argv there, so connection behaviour cannot drift between
+full-screen handoff, embedded pane, port forward, SFTP subsystem, snippet
+run — builds its argv there, so connection behaviour cannot drift between
 paths. A new way to connect goes through `Build`. `SetGlobalOptions` is
 process-wide and set once in `main` before anything connects.
+
+The reachability probe is not in that list and never was: it opens a TCP
+connection and closes it. That is why it can say a port is answering and
+nothing at all about whether ssh would have been let in, and why a host behind
+a jump host is reported as skipped rather than dialled.
 
 **Two ways to run a session, deliberately.** `internal/sshx/session.go` hands the
 whole terminal to a real ssh through `tea.Exec` (`enter`) — emulation-free by
@@ -109,8 +124,9 @@ trims dashes off a host name, so nothing it produces can collide with a forward.
 which takes the file exclusively; holding it open for the life of the program
 meant a second Omassh could not start, which the full-screen handoff makes
 routine. `Open` creates whatever buckets are missing (`groups`, `hosts`,
-`stats`, `forwards`), so a database written by an older build upgrades without a
-version check anywhere. Ids are minted locally and mean nothing off this machine.
+`stats`, `forwards`, `credentials`, `snippets`), so a database written by an
+older build upgrades without a version check anywhere. Ids are minted locally
+and mean nothing off this machine.
 
 **Group inheritance lives in `store/resolve.go`, not in the UI.**
 `Resolver.Resolve` fills a host's empty attributes from the nearest ancestor
