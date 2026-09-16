@@ -27,9 +27,10 @@ func TestASnippetMadeInTheInterfaceRunsOnAHost(t *testing.T) {
 	bin := build(t)
 	srv := startServer(t, dir)
 	host, port, _ := strings.Cut(srv.addr, ":")
+	key := genKey(t, dir)
 	seed(t, bin, dir, fmt.Sprintf(
-		"version: 1\nhosts:\n  - name: box\n    addr: %s\n    port: %s\n    user: tester\n",
-		host, port))
+		"version: 1\nhosts:\n  - name: box\n    addr: %s\n    port: %s\n    user: tester\n    identity: %s\n",
+		host, port, key))
 
 	p := start(t, bin, dir)
 	p.waitFor("box")
@@ -67,10 +68,11 @@ func TestASnippetThatFailsShowsItsStatusAndItsStderr(t *testing.T) {
 	bin := build(t)
 	srv := startServer(t, dir)
 	host, port, _ := strings.Cut(srv.addr, ":")
+	key := genKey(t, dir)
 	seed(t, bin, dir, fmt.Sprintf(
-		"version: 1\nhosts:\n  - name: box\n    addr: %s\n    port: %s\n    user: tester\n"+
+		"version: 1\nhosts:\n  - name: box\n    addr: %s\n    port: %s\n    user: tester\n    identity: %s\n"+
 			"snippets:\n  - name: goes wrong\n    script: echo %s >&2; exit 3\n",
-		host, port, ran))
+		host, port, key, ran))
 
 	p := start(t, bin, dir)
 	p.waitFor("box")

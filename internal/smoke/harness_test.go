@@ -217,6 +217,24 @@ func (p *pane) mustNotSay(bad string) {
 	}
 }
 
+// genKey writes an unencrypted ed25519 key pair under dir and returns the
+// private key's path, for a host seed that needs a key to offer.
+//
+// The smoke server accepts any key, so what a test proves by pointing a host
+// at one is not that this key is right but that ssh has one at all. A host
+// left without said "(agent)" and leaned on whatever key happened to sit in
+// the developer's ~/.ssh — present on the Mac, absent in the container, so a
+// run that worked here failed there with "Permission denied (publickey)". A
+// key of the test's own is the same key wherever it runs.
+func genKey(t *testing.T, dir string) string {
+	t.Helper()
+	key := filepath.Join(dir, "id_test")
+	if out, err := exec.Command("ssh-keygen", "-t", "ed25519", "-f", key, "-N", "", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("ssh-keygen: %v\n%s", err, out)
+	}
+	return key
+}
+
 // seed writes a host list through omassh's own import, so the database is made
 // the way a person would make it rather than by reaching past the program.
 func seed(t *testing.T, bin, dir, yaml string) {
