@@ -143,7 +143,8 @@ multi-document files are refused rather than skipped past.
 
 **The UI is one model.** `internal/ui.Model` carries `focus panel` and
 `mode mode`; every screen is a mode, and `data` (`data.go`) is one snapshot of
-store plus tmux plus `~/.ssh/config`, rebuilt by `load()`. `view.go` draws.
+store plus tmux, rebuilt by `load()`. `~/.ssh/config` is not read there: its
+hosts reach the list only through `import-ssh-config`. `view.go` draws.
 
 **Config errors are reported, never ignored.** `internal/config` refuses a
 malformed file at startup — an unknown key, a bad palette colour name, a second

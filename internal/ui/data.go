@@ -14,10 +14,12 @@ import (
 const UngroupedID = "__ungrouped"
 
 // data is one consistent snapshot of everything the UI draws: the persisted
-// store plus whatever ~/.ssh/config currently says.
+// store, and what tmux says of the sessions and tunnels it is running.
+// ~/.ssh/config is not read here; its hosts reach the list only through
+// import-ssh-config.
 type data struct {
 	groups   []store.Group // persisted groups only
-	hosts    []store.Host  // persisted hosts plus config-sourced hosts
+	hosts    []store.Host  // persisted hosts only
 	creds    []store.Credential
 	snippets []store.Snippet
 	stats    map[string]store.Stat
