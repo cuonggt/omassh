@@ -27,7 +27,12 @@ jobs:
       # stopping at the first failure is how the other one's news gets lost.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # Ubuntu is pinned rather than -latest, which moves to a new release
+        # on GitHub's schedule — Ubuntu 26 from October 2026. A new release is
+        # where the packages the keyring job installs by name, and the daemons
+        # behind them, change under a suite that was green the day before, so
+        # moving on is a commit of its own rather than something that happens.
+        os: [ubuntu-24.04, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -82,7 +87,7 @@ jobs:
 
   race:
     name: race
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned, for the reason the test job gives
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
@@ -104,7 +109,7 @@ jobs:
 
   keyring:
     name: keyring (libsecret)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # pinned, for the reason the test job gives
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
