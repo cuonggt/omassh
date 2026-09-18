@@ -88,6 +88,116 @@ themes:
 	}
 }
 
+// The picker offers every palette in the file, so every one is checked, and
+// not only the one theme: names. A colour in a palette not in use was never
+// read at startup, and when the picker came to it, it quietly drew the
+// default's colour in its place.
+func TestAPaletteNotInUseIsCheckedToo(t *testing.T) {
+	for name, body := range map[string]string{
+		"with the default in use": "themes:\n  other:\n    accent: bleu\n",
+		"with another in use":     "theme: mine\nthemes:\n  mine:\n    accent: \"#ff8800\"\n  other:\n    accent: bleu\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := write(t, body)
+			_, err := Load(path)
+			if err == nil {
+				t.Fatal("Load accepted a palette with a colour it cannot draw")
+			}
+			for _, want := range []string{filepath.Base(path), `theme "other"`, `accent: "bleu" is not a colour`} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("does not say %s: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// yaml reads an unquoted # as the start of a comment, so accent: #ff8800 is an
+// accent with nothing after it — and nothing was taken as not setting it, so
+// the palette silently kept the terminal's colour. The complaint gives the
+// line, and the colour the way it has to be written.
+func TestAnUnquotedHexColourIsRefusedWithTheQuotesItNeeds(t *testing.T) {
+	path := write(t, "theme: mine\nthemes:\n  mine:\n    border: 8\n    accent: #ff8800\n")
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load accepted a colour yaml had read as a comment")
+	}
+	got := err.Error()
+	for _, want := range []string{filepath.Base(path), "line 5", `theme "mine"`, "accent has no value", `needs quotes: "#ff8800"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("does not say %s: %s", want, got)
+		}
+	}
+	// After the path, which ends config.yaml: and so says yaml: itself.
+	for _, leak := range []string{"!!null", "yaml:", "theme.Palette"} {
+		if strings.Contains(strings.TrimPrefix(got, path), leak) {
+			t.Errorf("leaks %q at the user: %s", leak, got)
+		}
+	}
+}
+
+// Any colour written with no value is refused, not only one whose value became
+// a comment: empty, ~ and null all left the colour unset while the file said
+// something about it. A real comment beside an empty value is a note rather
+// than a colour, and is not offered back as one.
+func TestAColourWrittenWithNoValueIsRefused(t *testing.T) {
+	for name, line := range map[string]string{
+		"empty":           "    text:\n",
+		"a tilde":         "    text: ~\n",
+		"null":            "    text: null\n",
+		"a note after it": "    text:   # pick one later\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := write(t, "themes:\n  mine:\n"+line)
+			_, err := Load(path)
+			if err == nil {
+				t.Fatal("Load accepted it")
+			}
+			got := err.Error()
+			for _, want := range []string{filepath.Base(path), "line 3", `theme "mine"`, "text has no value", "leave it out"} {
+				if !strings.Contains(got, want) {
+					t.Errorf("does not say %s: %s", want, got)
+				}
+			}
+			if strings.Contains(got, "needs quotes") {
+				t.Errorf("offers a comment back as a colour: %s", got)
+			}
+		})
+	}
+}
+
+// A colour with no value is found alongside whatever else yaml finds, and said
+// in the order of the file, so that a config with three mistakes in it takes
+// one start to hear about all of them rather than three.
+func TestAColourWithNoValueIsReportedWithTheFilesOtherMistakes(t *testing.T) {
+	_, err := Load(write(t, "themes:\n  mine:\n    bg: \"#101014\"\n    accent: #ff8800\nssh_option: [a]\n"))
+	if err == nil {
+		t.Fatal("Load accepted a file with three mistakes in it")
+	}
+	got := err.Error()
+	bg := strings.Index(got, `line 3: "bg" is not a palette colour`)
+	blank := strings.Index(got, "line 4: ")
+	ssh := strings.Index(got, `line 5: "ssh_option" is not a setting`)
+	if bg < 0 || blank < 0 || ssh < 0 {
+		t.Fatalf("not every mistake is reported: %s", got)
+	}
+	if bg > blank || blank > ssh {
+		t.Errorf("reported out of the file's order: %s", got)
+	}
+}
+
+// A key that is not a colour is refused as that, once. It has no value
+// either, but that is not what is wrong with it.
+func TestAKeyThatIsNotAColourIsNamedOnceEvenWithNoValue(t *testing.T) {
+	_, err := Load(write(t, "themes:\n  mine:\n    bg:\n"))
+	if err == nil {
+		t.Fatal("Load accepted it")
+	}
+	if got := err.Error(); !strings.Contains(got, `"bg" is not a palette colour`) || strings.Contains(got, "has no value") {
+		t.Errorf("want bg named as not a colour, and only that: %s", got)
+	}
+}
+
 // Keys the file omits must keep their defaults, not become zero values.
 func TestPartialConfigKeepsDefaults(t *testing.T) {
 	c, err := Load(write(t, "theme: nord\n"))

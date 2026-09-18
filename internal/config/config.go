@@ -3,11 +3,14 @@ package config
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -101,7 +104,10 @@ func Load(path string) (Config, error) {
 	// A file with nothing in it — empty, or only comments — decodes to EOF.
 	// That is a config that sets nothing, which is allowed and is what a
 	// fresh one looks like.
-	if err := dec.Decode(&c); err != nil && !errors.Is(err, io.EOF) {
+	if err = dec.Decode(&c); errors.Is(err, io.EOF) {
+		err = nil
+	}
+	if err := withBlankColours(err, raw); err != nil {
 		return Default(), fmt.Errorf("%s: %w", path, yamlerr.InWords(err, words))
 	}
 	// Decode reads one document, and a stream can hold several. A second ---
@@ -117,9 +123,114 @@ func Load(path string) (Config, error) {
 	return c, nil
 }
 
+// blankColours is a complaint about each palette colour written with no value.
+//
+// yaml reads an unquoted # as the start of a comment, so accent: #ff8800 is an
+// accent with nothing after it, and nothing was taken as not setting it: the
+// palette quietly kept the terminal's colour, while the #ff8800 in the file
+// said otherwise. The decoder cannot see the difference — a key with no value
+// and a key never written both leave the field empty — so the file is read
+// again as a tree, where the key is still there and the colour it was meant
+// to have is still beside it, as the comment.
+//
+// Only the palette's own colours are looked at. A key that is not one is
+// already refused by the decoder, and saying so twice about one line helps no
+// one.
+func blankColours(raw []byte) []string {
+	var doc yaml.Node
+	if yaml.Unmarshal(raw, &doc) != nil || len(doc.Content) == 0 {
+		return nil
+	}
+	themes := valueOf(doc.Content[0], "themes")
+	if themes == nil || themes.Kind != yaml.MappingNode {
+		return nil
+	}
+	var out []string
+	for i := 0; i+1 < len(themes.Content); i += 2 {
+		name, palette := themes.Content[i], themes.Content[i+1]
+		if palette.Kind != yaml.MappingNode {
+			continue
+		}
+		for j := 0; j+1 < len(palette.Content); j += 2 {
+			key, value := palette.Content[j], palette.Content[j+1]
+			if !slices.Contains(theme.PaletteKeys(), key.Value) ||
+				value.Kind != yaml.ScalarNode || value.ShortTag() != "!!null" {
+				continue
+			}
+			out = append(out, fmt.Sprintf("line %d: theme %q: %s has no value — %s",
+				key.Line, name.Value, key.Value, blankAdvice(key.LineComment)))
+		}
+	}
+	return out
+}
+
+// blankAdvice says what to do about a colour with no value, given the comment
+// that came after its key.
+//
+// A # with something straight after it is a colour that yaml took for the
+// start of a comment, since that is not how anyone begins a remark: a real one
+// is set off with a space.
+func blankAdvice(comment string) string {
+	if f := strings.Fields(comment); len(f) > 0 && len(f[0]) > 1 && f[0][0] == '#' && f[0][1] != '#' {
+		return fmt.Sprintf("a colour starting with # needs quotes: %q", f[0])
+	}
+	return "give it a colour, or leave it out to use the terminal palette's"
+}
+
+// valueOf is the value a mapping holds under key, or nil.
+func valueOf(m *yaml.Node, key string) *yaml.Node {
+	if m.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		if m.Content[i].Value == key {
+			return m.Content[i+1]
+		}
+	}
+	return nil
+}
+
+// withBlankColours adds blankColours' complaints to what the decoder said
+// about the file, in the order their lines come. They are the same kind of
+// mistake as the ones it finds — the file saying something other than was
+// meant — so one start reports them all, rather than one per attempt.
+func withBlankColours(err error, raw []byte) error {
+	blank := blankColours(raw)
+	if len(blank) == 0 {
+		return err
+	}
+	var te *yaml.TypeError
+	if err != nil && !errors.As(err, &te) {
+		// A file yaml cannot read at all is the thing to fix first.
+		return err
+	}
+	var all []string
+	if te != nil {
+		all = slices.Clone(te.Errors)
+	}
+	all = append(all, blank...)
+	slices.SortStableFunc(all, func(a, b string) int { return cmp.Compare(lineOf(a), lineOf(b)) })
+	return &yaml.TypeError{Errors: all}
+}
+
+// lineOf is the line a complaint names, or 0 for one that names none.
+func lineOf(complaint string) int {
+	var n int
+	fmt.Sscanf(complaint, "line %d:", &n)
+	return n
+}
+
 func (c Config) Validate() error {
 	if _, err := c.Palette(); err != nil {
 		return err
+	}
+	// Every palette, and not only the one in use. The picker offers them all,
+	// and a colour in one that was not in use at startup was never read until
+	// then — when the picker quietly drew the default's colour in its place.
+	for _, name := range slices.Sorted(maps.Keys(c.Themes)) {
+		if err := c.Themes[name].Validate(); err != nil {
+			return fmt.Errorf("theme %q: %w", name, err)
+		}
 	}
 	if _, err := c.Keymap(); err != nil {
 		return err
@@ -224,7 +335,8 @@ theme: terminal
 # terminal's own (0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta,
 # 6 cyan, 7 white, and 8 to 15 the same again brighter, 8 being grey), or
 # default: the terminal's text colour, or as selected_bg its own highlight.
-# Omitted colours come from the terminal palette. The colours are:
+# A hex colour needs its quotes, since a bare # starts a comment. Omitted
+# colours come from the terminal palette. The colours are:
 %s
 # themes:
 #   mine:

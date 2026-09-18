@@ -571,8 +571,12 @@ setting. `ssh_option` without its `s`, or a palette with `selected` where it
 means `selected_bg`, is named with its line rather than skipped past, since
 skipping looks exactly like the file not being read at all. More than one YAML
 document in the file is refused for the same reason, since only the first
-would take effect. Arrow keys and `ctrl+c` are reserved and always work, so no
-config can trap you in the program.
+would take effect. So is a hex colour without its quotes, which YAML reads as
+a comment: `accent: #ff8800` is an accent with nothing after it, and the
+complaint gives the colour back as `"#ff8800"`. Every palette under `themes:`
+is checked, not only the one in use, since the picker offers them all. Arrow
+keys and `ctrl+c` are reserved and always work, so no config can trap you in
+the program.
 
 `T` opens a theme picker that recolours the interface as you move through it,
 since a palette is something you judge by looking at it. Keeping one writes
