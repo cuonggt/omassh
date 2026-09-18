@@ -237,6 +237,7 @@ type Model struct {
 
 func New(st *store.Store, opts Options) Model {
 	ti := textinput.New()
+	ti.SetStyles(inputStyles())
 	ti.Prompt = ""
 	ti.Placeholder = "fuzzy search all hosts"
 

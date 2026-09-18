@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
 func writeFile(t *testing.T, body string) string {
@@ -169,7 +171,7 @@ func TestAFileThatSetsNothingIsFine(t *testing.T) {
 			if err != nil {
 				t.Fatalf("rejected a file that sets nothing: %v", err)
 			}
-			if cfg.ThemeName() != "tokyonight" || cfg.ProbeTimeout != "2s" {
+			if cfg.ThemeName() != theme.DefaultName || cfg.ProbeTimeout != "2s" {
 				t.Errorf("the defaults did not survive: %+v", cfg)
 			}
 		})

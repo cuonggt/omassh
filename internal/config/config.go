@@ -33,7 +33,7 @@ type Config struct {
 }
 
 func Default() Config {
-	return Config{Theme: "tokyonight", ProbeTimeout: "2s"}
+	return Config{Theme: theme.DefaultName, ProbeTimeout: "2s"}
 }
 
 func DefaultPath() (string, error) {
@@ -215,16 +215,21 @@ func commentList(names []string) string {
 
 const exampleBody = `# Every setting is optional; delete anything you do not want to change.
 
-# Built in: tokyonight, gruvbox, nord, mono. Or name one defined below.
-theme: tokyonight
+# terminal draws in your terminal's own colours, so it suits whatever scheme
+# the terminal has, light or dark. Also built in: gruvbox, mono, nord and
+# tokyonight. Or name one defined below.
+theme: terminal
 
-# Define your own palette. Omitted colours fall back to the default.
-# The colours are:
+# Define your own palette. A colour is "#rrggbb", a number for one of the
+# terminal's own (0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta,
+# 6 cyan, 7 white, and 8 to 15 the same again brighter, 8 being grey), or
+# default: the terminal's text colour, or as selected_bg its own highlight.
+# Omitted colours come from the terminal palette. The colours are:
 %s
 # themes:
 #   mine:
 #     accent: "#ff8800"
-#     border: "#444444"
+#     border: 8
 
 # Rebind any action. Arrow keys and ctrl+c are reserved and always work.
 # The actions are:

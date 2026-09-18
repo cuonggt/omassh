@@ -96,6 +96,7 @@ func withChoices(f field, choices []string) field {
 
 func newField(label, hint, value string) field {
 	ti := textinput.New()
+	ti.SetStyles(inputStyles())
 	ti.Prompt = ""
 	ti.Placeholder = hint
 	ti.SetValue(value)

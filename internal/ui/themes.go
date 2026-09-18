@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
@@ -70,22 +71,48 @@ func (m Model) palette(name string) theme.Palette {
 	return theme.Builtin[name]
 }
 
+// applyTheme recolours the interface. Apply rebuilds the styles the theme
+// package keeps; the filter is the one input that holds colours of its own and
+// lives through a trip to the picker, so it is handed the new ones here. A
+// form's inputs are built when it opens, and take them then.
+func (m *Model) applyTheme(p theme.Palette) {
+	theme.Apply(p)
+	m.filter.SetStyles(inputStyles())
+}
+
+// inputStyles colours a text input from the palette.
+//
+// bubbles gives an input colours of its own that no theme reached: the
+// terminal's white for every field not being typed in, and for its cursor, and
+// a fixed grey for a hint. On a light terminal white is the colour of the
+// page, so a form's values were next to invisible everywhere but under the
+// cursor — in the default palette, whose point is suiting that background.
+func inputStyles() textinput.Styles {
+	s := textinput.DefaultDarkStyles()
+	for _, st := range []*textinput.StyleState{&s.Focused, &s.Blurred} {
+		st.Text, st.Prompt = theme.Normal, theme.Normal
+		st.Placeholder, st.Suggestion = theme.Dim, theme.Dim
+	}
+	s.Cursor.Color = theme.Text
+	return s
+}
+
 func (m Model) handleThemeKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	p := m.themes
 	key := msg.String()
 	switch {
 	case m.keys.Lookup(key) == keymap.Down:
 		p.idx = (p.idx + 1) % len(p.names)
-		theme.Apply(m.palette(p.names[p.idx]))
+		m.applyTheme(m.palette(p.names[p.idx]))
 	case m.keys.Lookup(key) == keymap.Up:
 		p.idx = (p.idx - 1 + len(p.names)) % len(p.names)
-		theme.Apply(m.palette(p.names[p.idx]))
+		m.applyTheme(m.palette(p.names[p.idx]))
 	case key == "enter":
 		return m.keepTheme()
 	case key == "esc", key == "q":
 		// Put back what was showing before, including the case where the
 		// config names a palette this list resolved differently.
-		theme.Apply(m.palette(p.was))
+		m.applyTheme(m.palette(p.was))
 		m.themes, m.mode = nil, m.returnTo
 		m.setStatus("theme unchanged")
 	}

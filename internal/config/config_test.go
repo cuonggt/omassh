@@ -28,8 +28,63 @@ func TestMissingFileIsNotAnError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Theme != "tokyonight" {
+	if c.Theme != theme.DefaultName {
 		t.Errorf("defaults not applied: %+v", c)
+	}
+}
+
+// With nothing configured, the interface is drawn in the terminal's own
+// colours. It used to be tokyonight, a dark scheme drawn in hex over whatever
+// the terminal had — pale lavender text, on a light terminal, on white.
+func TestWithNothingConfiguredTheColoursAreTheTerminalsOwn(t *testing.T) {
+	for name, body := range map[string]string{
+		"no file":       "",
+		"no theme line": "probe_timeout: 5s\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "absent.yaml")
+			if body != "" {
+				path = write(t, body)
+			}
+			c, err := Load(path)
+			if err != nil {
+				t.Fatalf("Load: %v", err)
+			}
+			if c.ThemeName() != "terminal" {
+				t.Errorf("the theme is %q, want terminal", c.ThemeName())
+			}
+			p, err := c.Palette()
+			if err != nil {
+				t.Fatalf("Palette: %v", err)
+			}
+			if p != theme.Builtin["terminal"] {
+				t.Errorf("the palette is %+v, want the terminal's own", p)
+			}
+		})
+	}
+}
+
+// A palette can name the terminal's own colours as well as colours of its
+// own, and yaml hands a bare number over as text, so none of it needs quoting.
+func TestAPaletteCanNameTheTerminalsOwnColours(t *testing.T) {
+	c, err := Load(write(t, `theme: mine
+themes:
+  mine:
+    accent: 4
+    text: default
+    selected_bg: 236
+    border: "#444444"
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	p, err := c.Palette()
+	if err != nil {
+		t.Fatalf("Palette: %v", err)
+	}
+	want := theme.Palette{Accent: "4", Text: "default", Selected: "236", Border: "#444444"}
+	if p != want {
+		t.Errorf("the palette is %+v, want %+v", p, want)
 	}
 }
 
@@ -104,10 +159,15 @@ func TestBadConfigIsReported(t *testing.T) {
 		"malformed yaml": "theme: [unclosed\n",
 		"unknown theme":  "theme: neon-dreams\n",
 		"bad colour":     "theme: mine\nthemes:\n  mine:\n    accent: \"not-a-colour\"\n",
-		"unknown action": "keys:\n  teleport: t\n",
-		"reserved key":   "keys:\n  connect: ctrl+c\n",
-		"key conflict":   "keys:\n  connect: e\n",
-		"bad duration":   "probe_timeout: soon\n",
+		// A number the terminal has no colour for, and a colour by a name
+		// this does not read: lipgloss would have drawn the first as a
+		// 24-bit colour and the second as none, both without a word.
+		"colour past the palette": "theme: mine\nthemes:\n  mine:\n    accent: 256\n",
+		"colour by name":          "theme: mine\nthemes:\n  mine:\n    accent: blue\n",
+		"unknown action":          "keys:\n  teleport: t\n",
+		"reserved key":            "keys:\n  connect: ctrl+c\n",
+		"key conflict":            "keys:\n  connect: e\n",
+		"bad duration":            "probe_timeout: soon\n",
 		// Decode reads one document, so a second --- section would set
 		// nothing, as silently as a mistyped key would.
 		"two documents": "theme: nord\n---\ntheme: gruvbox\n",
@@ -123,7 +183,7 @@ func TestBadConfigIsReported(t *testing.T) {
 				t.Errorf("error does not name the file: %v", err)
 			}
 			// A rejected config must leave usable defaults behind.
-			if c.Theme != "tokyonight" {
+			if c.Theme != theme.DefaultName {
 				t.Errorf("config not reset to defaults after error: %+v", c)
 			}
 		})

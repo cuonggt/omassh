@@ -563,16 +563,16 @@ and leaves no interface to look the next host up in. Each window reads the
 store when something happens to it, so a host added in one appears in another
 on its next reload — `r` at any time.
 
-Themes (`tokyonight`, `gruvbox`, `nord`, `mono`, or your own palette), key
-bindings and ssh options all live there. A malformed config is reported at
-startup rather than ignored, because settings that silently do nothing are
-worse than an error that says why — and so is a key that is not a setting.
-`ssh_option` without its `s`, or a palette with `selected` where it means
-`selected_bg`, is named with its line rather than skipped past, since skipping
-looks exactly like the file not being read at all. More than one YAML document
-in the file is refused for the same reason, since only the first would take
-effect. Arrow keys and `ctrl+c` are reserved and always work, so no config can
-trap you in the program.
+Themes (`terminal`, `tokyonight`, `gruvbox`, `nord`, `mono`, or your own
+palette), key bindings and ssh options all live there. A malformed config is
+reported at startup rather than ignored, because settings that silently do
+nothing are worse than an error that says why — and so is a key that is not a
+setting. `ssh_option` without its `s`, or a palette with `selected` where it
+means `selected_bg`, is named with its line rather than skipped past, since
+skipping looks exactly like the file not being read at all. More than one YAML
+document in the file is refused for the same reason, since only the first
+would take effect. Arrow keys and `ctrl+c` are reserved and always work, so no
+config can trap you in the program.
 
 `T` opens a theme picker that recolours the interface as you move through it,
 since a palette is something you judge by looking at it. Keeping one writes
@@ -582,8 +582,23 @@ they were. So there is one place a theme comes from: what you pick and what
 you write by hand are the same setting, and neither quietly outranks the
 other. A palette defined under `themes:` is offered alongside the built-ins.
 
-Colours degrade automatically: on a terminal without truecolor the palettes
-render in 256 colours, and `mono` exists for terminals with less than that.
+The default, `terminal`, draws in your terminal's own colours: its text
+colour, the sixteen its scheme sets, and its own reverse video for the
+selection. So Omassh looks like the rest of the terminal, reads as well on a
+light background as on a dark one, and follows the terminal when its scheme
+changes. The other built-ins are colours of their own, in hex, made for a dark
+background; on a terminal without truecolor they render in 256 colours, and
+`mono` exists for terminals with less than that.
+
+In a palette of your own, a colour is `"#rrggbb"`, a number from the
+terminal's palette — `4` is its blue, `8` its grey, and anything up to `255`
+works — or `default`, the terminal's own text colour, which as `selected_bg`
+means its own highlight. Colours a palette leaves out come from `terminal`, so
+`accent: "#ff8800"` on its own is the terminal's colours with an orange
+accent. That is also the way out for a scheme whose grey is its background,
+as the original Solarized Dark's is. `terminal` draws dim text and borders in
+the grey, colour `8`, as most terminal programs do, so under that scheme they
+vanish; `text_dim: 10` and `border: 10` bring them back.
 
 ## If the screen goes blank
 
