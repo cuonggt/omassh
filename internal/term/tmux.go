@@ -85,10 +85,28 @@ func confPath() (string, error) {
 		"set -g status off\n" +
 		"set -g history-limit 10000\n" +
 		"set -g escape-time 10\n"
+	for _, c := range passKeysThrough {
+		body += strings.Join(c, " ") + "\n"
+	}
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 		return "", err
 	}
 	return p, nil
+}
+
+// passKeysThrough gives every key typed into a session to the session.
+//
+// tmux's own prefix was left on, so ctrl+b never reached the far side —
+// readline's back-a-character, vim's page-up, a tmux running there — and
+// ctrl+b then d detached the pane's client, which then reported a session
+// still running on the server as ended; the rest of tmux's bindings acted on
+// this server behind the user's back. omassh has a prefix of its own, ctrl+\,
+// and drives copy mode by command rather than by key, so tmux's bindings have
+// nothing left to do here. With neither prefix set no key can reach them, and
+// the root table holds only the status line's wheel, with the line turned off.
+var passKeysThrough = [][]string{
+	{"set-option", "-g", "prefix", "None"},
+	{"set-option", "-g", "prefix2", "None"},
 }
 
 // tmuxCommand wraps an ssh invocation in a persistent tmux session, attaching
@@ -99,7 +117,15 @@ func tmuxCommand(h store.Host, sshArgs, env []string) (*exec.Cmd, string, error)
 		return nil, "", err
 	}
 	name := SessionName(h)
-	args := []string{"-L", tmuxSocket(), "-f", conf, "new-session", "-A", "-s", name}
+	args := []string{"-L", tmuxSocket(), "-f", conf}
+	// The config is read only when the server starts, and one started by an
+	// older omassh is still running with tmux's prefix on. So the settings
+	// also go ahead of the session in this same command — no launch of their
+	// own, and a server just started from the config is merely told twice.
+	for _, c := range passKeysThrough {
+		args = append(append(args, c...), ";")
+	}
+	args = append(args, "new-session", "-A", "-s", name)
 	// Through env(1), as a forward does. Setting it on the exec.Cmd would put
 	// it on tmux rather than on the ssh tmux goes on to run — and the session
 	// outlives this process anyway, so it has to travel in the command tmux

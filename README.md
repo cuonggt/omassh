@@ -108,6 +108,9 @@ all.
 Once a session has focus every keystroke belongs to the remote, `ctrl+c`
 included — which is why the session commands sit behind a `ctrl+\` prefix, the
 way tmux uses `ctrl+b`. Press the prefix twice to send a literal one through.
+`ctrl+b` itself goes to the remote too: the tmux keeping the session has no
+prefix of its own, so the key reaches readline, vim or a tmux on the far side,
+and cannot detach the pane from underneath you.
 
 A jump host is named by picking one of your hosts, and the connection to it is
 spelled out rather than left to `ssh -J`. `-J` hands the hop only `-l`, `-p`
