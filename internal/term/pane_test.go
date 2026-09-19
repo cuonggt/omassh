@@ -260,15 +260,18 @@ func TestScrollback(t *testing.T) {
 	if strings.Contains(visible(p.Render()), "line-1\n") {
 		t.Fatal("line-1 should have scrolled off a 10-line viewport")
 	}
-	if off, avail := p.ScrollOffset(); off != 0 || avail == 0 {
-		t.Fatalf("offset/available = %d/%d, want 0 and a non-empty scrollback", off, avail)
+	if off, _ := p.ScrollOffset(); off != 0 {
+		t.Fatalf("offset = %d before scrolling, want the live view", off)
 	}
 
 	t.Run("scrolling up reveals earlier output", func(t *testing.T) {
 		p.ScrollUp(40)
-		off, _ := p.ScrollOffset()
-		if off == 0 {
-			t.Fatal("ScrollUp did not move the view")
+		// How many lines exist is asked for here rather than before scrolling:
+		// a tmux session answers it as of the last scroll, since that is the
+		// only time it is shown.
+		off, avail := p.ScrollOffset()
+		if off == 0 || avail == 0 {
+			t.Fatalf("offset/available = %d/%d after scrolling up, want both above 0", off, avail)
 		}
 		// Assert the intent rather than a specific line: whichever window the
 		// scroll lands on must be strictly earlier than the live one.
@@ -316,5 +319,20 @@ func TestScrollback(t *testing.T) {
 		if off, _ := p.ScrollOffset(); off != 0 {
 			t.Errorf("offset = %d after typing, want 0", off)
 		}
+	})
+
+	// And what is typed reaches the shell. Scrolled back under tmux is copy
+	// mode, where a key is a copy-mode command, so the view has to leave it
+	// before the key goes — and the pane no longer asks tmux whether it is
+	// scrolled, so this is where it would show if it lost track.
+	t.Run("what is typed after scrolling back reaches the shell", func(t *testing.T) {
+		p.SendKey(tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl}) // the x above
+		p.ScrollUp(30)
+		if off, _ := p.ScrollOffset(); off == 0 {
+			t.Fatal("ScrollUp did not move the view")
+		}
+		type_(p, "echo after-$((40+2))")
+		p.SendKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+		waitFor(t, p, "after-42", 15*time.Second)
 	})
 }

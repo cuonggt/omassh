@@ -59,9 +59,26 @@ type Pane struct {
 	closeOnce sync.Once
 	done      chan struct{}
 
+	// changed is signalled whenever output reaches the emulator, and closed
+	// once there will be no more. The emulator cannot say that the screen
+	// moved, but the goroutine feeding it can, so the interface redraws when
+	// there is something new rather than on a timer — which drew twenty times
+	// a second whether anything had happened or not, and showed a character
+	// typed a moment after a tick up to fifty milliseconds after it had come
+	// back. One slot: a burst of output is one redraw, not one per read.
+	changed chan struct{}
+
 	// session is the tmux session backing this pane, empty when running ssh
 	// directly. Persistent panes detach on close instead of ending.
 	session string
+
+	// tmuxOffset and tmuxHistory are how far back tmux has the view scrolled,
+	// and how much history it holds, as it said after the last scroll omassh
+	// made — the only thing that moves it. Asking is a process launch, around
+	// seven milliseconds, and it was asked twice for every key typed and once
+	// for every frame drawn; keys queued behind tmux launches, and an idle
+	// session launched twenty a second just to draw its title. Guarded by mu.
+	tmuxOffset, tmuxHistory int
 }
 
 // Open starts an ssh session for h inside a w x h pane.
@@ -92,12 +109,20 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 		w:       w,
 		h:       height,
 		done:    make(chan struct{}),
+		changed: make(chan struct{}, 1),
 	}
 	p.em.SetScrollbackSize(scrollback)
+	// A session being reattached can still be scrolled back from the window
+	// that last had it, and typing into that would land in tmux's copy mode.
+	if session != "" {
+		p.recordTmuxScroll()
+	}
 
 	// Remote output into the emulator, under the pane's lock so a concurrent
-	// scrollback read cannot observe a half-applied update.
+	// scrollback read cannot observe a half-applied update. This goroutine is
+	// the only one that signals changed, so it is also the one that closes it.
 	go func() {
+		defer close(p.changed)
 		buf := make([]byte, 32*1024)
 		for {
 			n, err := p.pty.Read(buf)
@@ -105,6 +130,10 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 				p.emMu.Lock()
 				p.em.Write(buf[:n])
 				p.emMu.Unlock()
+				select {
+				case p.changed <- struct{}{}:
+				default:
+				}
 			}
 			if err != nil {
 				return
@@ -289,6 +318,7 @@ func (p *Pane) Render() string {
 func (p *Pane) ScrollUp(lines int) {
 	if p.session != "" {
 		tmuxCopyScroll(p.session, true)
+		p.recordTmuxScroll()
 		return
 	}
 	p.emMu.RLock()
@@ -303,7 +333,10 @@ func (p *Pane) ScrollUp(lines int) {
 // ScrollDown moves the view back toward the live screen.
 func (p *Pane) ScrollDown(lines int) {
 	if p.session != "" {
+		// Paging down to the bottom leaves copy mode by itself, which is why
+		// tmux is asked where things stand rather than told.
 		tmuxCopyScroll(p.session, false)
+		p.recordTmuxScroll()
 		return
 	}
 	p.mu.Lock()
@@ -313,9 +346,20 @@ func (p *Pane) ScrollDown(lines int) {
 
 // ScrollToBottom returns to the live view. Sending input calls this, because a
 // terminal that stayed scrolled while you typed would hide your own output.
+//
+// For a tmux session that means leaving copy mode, which has to happen before
+// the key is sent — tmux would otherwise take it as a copy-mode command — but
+// only when the view is actually scrolled. It used to be done for every key,
+// scrolled or not, at the cost of a tmux launch each time.
 func (p *Pane) ScrollToBottom() {
 	if p.session != "" {
-		tmuxCopyCancel(p.session)
+		p.mu.Lock()
+		scrolled := p.tmuxOffset > 0
+		p.tmuxOffset = 0
+		p.mu.Unlock()
+		if scrolled {
+			tmuxCopyCancel(p.session)
+		}
 		return
 	}
 	p.mu.Lock()
@@ -323,10 +367,25 @@ func (p *Pane) ScrollToBottom() {
 	p.scroll = 0
 }
 
+// recordTmuxScroll asks tmux where the view now stands.
+func (p *Pane) recordTmuxScroll() {
+	off, avail := tmuxScrollPosition(p.session)
+	p.mu.Lock()
+	p.tmuxOffset, p.tmuxHistory = off, avail
+	p.mu.Unlock()
+}
+
 // ScrollOffset is how many lines back the view is, and how many exist.
+//
+// For a tmux session both are as tmux gave them after the last scroll omassh
+// made. Nothing else moves the view, and the count is only ever shown beside
+// a view that has just been scrolled, so it is not asked for in between —
+// that would be a tmux launch each time, which is what this avoids.
 func (p *Pane) ScrollOffset() (offset, available int) {
 	if p.session != "" {
-		return tmuxScrollPosition(p.session)
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.tmuxOffset, p.tmuxHistory
 	}
 	p.emMu.RLock()
 	available = p.em.ScrollbackLen()
@@ -374,6 +433,10 @@ func (p *Pane) Status() string {
 
 // Done is closed when the session ends.
 func (p *Pane) Done() <-chan struct{} { return p.done }
+
+// Changed receives when there is new output to draw, and is closed when the
+// output has ended — with the session, or with Close.
+func (p *Pane) Changed() <-chan struct{} { return p.changed }
 
 // Persistent reports whether the session outlives this pane.
 func (p *Pane) Persistent() bool { return p.session != "" }

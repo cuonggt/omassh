@@ -305,12 +305,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ready = true
 		// The search box lives in the sidebar, so size it to that, not the screen.
 		m.filter.SetWidth(max(m.sidebar()-8, 8))
+		// And the session to the pane it now has. A tick used to do this on
+		// its way past, twenty times a second; nothing else changes the size.
+		if m.attached != nil {
+			m.attached.Resize(m.sessionArea())
+		}
 
 	case probeEvent:
 		return m.handleProbeEvent(msg)
 
-	case paneTickMsg:
-		return m.handlePaneTick()
+	case paneOutputMsg:
+		return m.handlePaneOutput(msg)
 
 	case forwardTickMsg:
 		return m.handleForwardTick()

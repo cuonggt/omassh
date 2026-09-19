@@ -14,20 +14,65 @@ import (
 	"github.com/cuonggt/omassh/internal/ui/theme"
 )
 
-// paneFPS is how often a live session redraws. The emulator cannot say
-// "something changed", so this polls; 20 a second is smooth for a terminal and
-// cheap enough that an idle session costs nothing noticeable.
-const paneFPS = 50 * time.Millisecond
+// paneFrame is the least time between two redraws of a live session: sixty a
+// second, the rate the terminal is drawn at anyway.
+//
+// A session redraws when output arrives rather than on a timer. It used to
+// poll twenty times a second, so the echo of a key waited for the next tick —
+// up to fifty milliseconds on top of the round trip, in a pane meant to feel
+// like a terminal — and an idle session redrew all the same. The echo of a
+// key is drawn at once now; this only holds back a flood, a large file being
+// printed, which would otherwise draw the whole interface once per read.
+const paneFrame = time.Second / 60
 
 // prefixKey introduces a session command. While a session has focus every
 // keystroke belongs to the remote — ctrl+c included — so the commands need a
 // namespace of their own, the way tmux uses ctrl+b.
 const prefixKey = "ctrl+\\"
 
-type paneTickMsg struct{}
+// paneOutputMsg says a session has something new to show: output, or its
+// end. over is set once its output has stopped for good.
+type paneOutputMsg struct {
+	pane *term.Pane
+	over bool
+}
 
-func paneTick() tea.Cmd {
-	return tea.Tick(paneFPS, func(time.Time) tea.Msg { return paneTickMsg{} })
+// watchPane waits, off the event loop, for the session to have something new
+// to show. last is when it was last drawn for that reason.
+func watchPane(p *term.Pane, last time.Time) tea.Cmd {
+	return func() tea.Msg {
+		over := awaitOutput(p.Changed(), p.Done(), !p.Alive(), last)
+		return paneOutputMsg{pane: p, over: over}
+	}
+}
+
+// awaitOutput blocks until there is output to draw or the session ends, and
+// reports whether the output is over for good.
+//
+// Output after a quiet spell is answered at once, which is the case of a key
+// being echoed; output arriving faster than a frame is answered a frame after
+// the last. ended says the end has been reported already, after which only
+// output matters — done would answer every wait at once.
+func awaitOutput(changed, done <-chan struct{}, ended bool, last time.Time) (over bool) {
+	end := done
+	if ended {
+		end = nil
+	}
+	select {
+	case _, open := <-changed:
+		if !open {
+			// Wait for the process as well, so the session can already say
+			// how it ended when this is read.
+			<-done
+			return true
+		}
+	case <-end:
+		return false
+	}
+	if wait := paneFrame - time.Since(last); wait > 0 {
+		time.Sleep(wait)
+	}
+	return false
 }
 
 // --- opening -----------------------------------------------------------
@@ -73,7 +118,7 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 	m.focus = panelSession
 	m.prefixArmed = false
 	m.setStatusOf(h.Name, attachedMessage(shared))
-	return m, paneTick()
+	return m, watchPane(p, time.Time{})
 }
 
 // attachedMessage says what has just been connected to, and warns when the
@@ -325,25 +370,30 @@ func (m Model) closePanesForExit() {
 	}
 }
 
-func (m Model) handlePaneTick() (tea.Model, tea.Cmd) {
-	if m.attached == nil {
+// handlePaneOutput keeps watching the session. Bubble Tea draws after every
+// message, so the redraw itself needs nothing more from here.
+func (m Model) handlePaneOutput(msg paneOutputMsg) (tea.Model, tea.Cmd) {
+	// From a pane that has since been closed or replaced: its watcher ends.
+	if m.attached == nil || msg.pane != m.attached {
 		return m, nil
 	}
-	w, h := m.sessionArea()
-	m.attached.Resize(w, h)
 	if !m.attached.Alive() && m.focus == panelSession {
 		m.setStatus(endedMessage(m.attached))
 	}
-	return m, paneTick()
+	if msg.over {
+		return m, nil
+	}
+	return m, watchPane(m.attached, time.Now())
 }
 
 // endedMessage is what a session that has stopped says, and how to leave it.
 //
-// Written in one place because it is written from two, and the tick repeats
-// itself twenty times a second: the key handler's version — the one carrying
-// the way out — was replaced within fifty milliseconds by the tick's terser
-// one, so the line saying esc returns to the list could not be read at any
-// terminal width. A pane whose remote has gone owns the keyboard until it is
+// Written in one place because it is written from two: the key handler, and
+// whatever notices the end. That used to be a tick repeating itself twenty
+// times a second, and the key handler's version — the one carrying the way
+// out — was replaced within fifty milliseconds by the tick's terser one, so
+// the line saying esc returns to the list could not be read at any terminal
+// width. A pane whose remote has gone owns the keyboard until it is
 // dismissed, and nothing else on screen says how.
 func endedMessage(p *term.Pane) string {
 	return p.Host.Name + " " + p.Status() + " — esc to return to the list"

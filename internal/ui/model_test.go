@@ -3099,16 +3099,17 @@ func TestASessionThatHasEndedKeepsSayingHowToLeaveIt(t *testing.T) {
 	if !strings.Contains(h.m.status, "alpha") {
 		t.Errorf("the status does not say which session ended: %q", h.m.status)
 	}
-	// And it survives the tick that used to overwrite it.
-	h.send(paneTickMsg{})
+	// And it survives the redraw that follows, which is where the tick that
+	// used to overwrite it ran.
+	h.send(paneOutputMsg{pane: h.m.attached})
 	if !strings.Contains(h.m.status, way) {
-		t.Errorf("the tick replaced it with %q", h.m.status)
+		t.Errorf("the redraw replaced it with %q", h.m.status)
 	}
-	// The tick says it even when no key has been pressed at all.
+	// The redraw says it even when no key has been pressed at all.
 	h.m.setStatus("something else")
-	h.send(paneTickMsg{})
+	h.send(paneOutputMsg{pane: h.m.attached})
 	if !strings.Contains(h.m.status, way) {
-		t.Errorf("the tick alone says %q", h.m.status)
+		t.Errorf("the redraw alone says %q", h.m.status)
 	}
 }
 
