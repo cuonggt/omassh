@@ -19,13 +19,18 @@ func (m Model) View() tea.View {
 	v := tea.NewView(m.render())
 	v.AltScreen = true
 	v.WindowTitle = "omassh"
-	// Clicking selects a group, a host or the session pane. Reporting is on
-	// only where there is a list to click: a focused session needs the
-	// terminal's own selection more than it needs click-to-focus, and every
-	// terminal reverts to selecting text when the application is not asking
-	// for the mouse.
+	// Clicking selects a group, a host or the session pane, and the wheel
+	// goes back through a session's output.
+	//
+	// Reporting used to be off for a focused session, to leave the terminal's
+	// own text selection alone there. But the wheel is the other half of that
+	// bargain: with nobody asking for the mouse, a terminal on the alternate
+	// screen sends arrow keys for it, and a session answered a scroll with
+	// the last commands you ran. So the mouse is asked for wherever a session
+	// can be scrolled, and selecting text is the terminal's own modifier —
+	// shift, in most of them — as it is under tmux.
 	switch {
-	case m.mode == modeBrowse && m.focus != panelSession, m.mode == modeSFTP:
+	case m.mode == modeBrowse, m.mode == modeSFTP:
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	if m.mode == modeBrowse {

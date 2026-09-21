@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -121,5 +122,37 @@ func TestResizingTheWindowResizesTheSession(t *testing.T) {
 	wantW, wantH := h.m.sessionArea()
 	if w, ht := h.m.attached.Size(); w != wantW || ht != wantH {
 		t.Errorf("the session is %dx%d in a pane that is now %dx%d", w, ht, wantW, wantH)
+	}
+}
+
+// The wheel over a session goes back through what it has said. It reached
+// nothing before, and a wheel that reaches nothing is not harmless: a terminal
+// on the alternate screen sends arrow keys for it unless the application is
+// asking for the mouse, so scrolling a focused session typed up and down into
+// it, and the shell answered with the commands last run.
+func TestTheWheelOverASessionScrollsItRatherThanTypingIntoIt(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	h.m.focus = panelSession
+	h.m.setStatus("something else")
+
+	l := h.m.layout()
+	h.wheel(l.side+2, 1, true)
+
+	// A session this short has nothing to go back to, so it says where it is.
+	if !strings.Contains(h.m.status, "live view") {
+		t.Errorf("status = %q after a wheel over the session, so it never reached it", h.m.status)
+	}
+}
+
+// And the terminal has to be asked for the mouse while the session has the
+// keyboard, or the wheel never arrives as a wheel at all.
+func TestTheMouseIsAskedForWhileASessionIsFocused(t *testing.T) {
+	h := newHarness(t)
+	h.openSession("alpha")
+	h.m.focus = panelSession
+
+	if got := h.m.View().MouseMode; got != tea.MouseModeCellMotion {
+		t.Errorf("MouseMode = %v with a session focused; the terminal would send arrow keys for the wheel", got)
 	}
 }

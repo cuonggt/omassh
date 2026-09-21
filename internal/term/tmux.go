@@ -258,15 +258,19 @@ func KillSession(name string) error {
 // buffer. tmux redraws the whole screen on every change, so nothing ever
 // scrolls off the emulator and its scrollback stays empty — the history lives
 // in the tmux server, which is also where it survives a restart.
-func tmuxCopyScroll(session string, up bool) error {
-	cmd := "page-up"
+// tmuxCopyScroll moves a session's view by lines rather than by pages: a page
+// is what ctrl+\ k asks for, three lines is what a wheel notch asks for, and
+// page-up cannot tell the two apart.
+func tmuxCopyScroll(session string, up bool, lines int) error {
+	cmd := "scroll-up"
 	if !up {
-		cmd = "page-down"
+		cmd = "scroll-down"
 	}
 	// Entering copy mode is idempotent; -e leaves it automatically when
 	// scrolled back to the bottom.
 	exec.Command("tmux", "-L", tmuxSocket(), "copy-mode", "-e", "-t", session).Run()
-	return exec.Command("tmux", "-L", tmuxSocket(), "send-keys", "-t", session, "-X", cmd).Run()
+	return exec.Command("tmux", "-L", tmuxSocket(), "send-keys", "-t", session,
+		"-X", "-N", strconv.Itoa(max(lines, 1)), cmd).Run()
 }
 
 // tmuxCopyCancel leaves copy mode, returning to the live view.

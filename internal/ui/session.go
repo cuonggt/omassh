@@ -247,10 +247,10 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "X":
 		return m.killSession()
 	case "k", "up", "pgup":
-		m.scrollAttached(-1)
+		m.scrollAttached(-m.sessionPage())
 		m.prefixArmed, m.scrollArmed = true, true // so repeated presses page
 	case "j", "down", "pgdown":
-		m.scrollAttached(1)
+		m.scrollAttached(m.sessionPage())
 		m.prefixArmed, m.scrollArmed = true, true
 	case "G", "end":
 		m.attached.ScrollToBottom()
@@ -272,13 +272,20 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) scrollAttached(d int) {
+// sessionPage is how far the scrollback keys move: a screen less a line, so
+// something of what was read stays on it.
+func (m Model) sessionPage() int {
 	_, h := m.attached.Size()
-	page := max(h-1, 1)
-	if d < 0 {
-		m.attached.ScrollUp(page)
+	return max(h-1, 1)
+}
+
+// scrollAttached moves the session's view by lines: back through the
+// scrollback when they are negative, toward the live view when they are not.
+func (m *Model) scrollAttached(lines int) {
+	if lines < 0 {
+		m.attached.ScrollUp(-lines)
 	} else {
-		m.attached.ScrollDown(page)
+		m.attached.ScrollDown(lines)
 	}
 	if off, avail := m.attached.ScrollOffset(); off > 0 {
 		m.setStatus(fmt.Sprintf("scrolled back %d of %d lines — %s G for the live view", off, avail, prefixKey))

@@ -317,7 +317,7 @@ func (p *Pane) Render() string {
 // ScrollUp moves the view back through the scrollback.
 func (p *Pane) ScrollUp(lines int) {
 	if p.session != "" {
-		tmuxCopyScroll(p.session, true)
+		tmuxCopyScroll(p.session, true, lines)
 		p.recordTmuxScroll()
 		return
 	}
@@ -335,7 +335,7 @@ func (p *Pane) ScrollDown(lines int) {
 	if p.session != "" {
 		// Paging down to the bottom leaves copy mode by itself, which is why
 		// tmux is asked where things stand rather than told.
-		tmuxCopyScroll(p.session, false)
+		tmuxCopyScroll(p.session, false, lines)
 		p.recordTmuxScroll()
 		return
 	}

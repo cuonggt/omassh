@@ -336,3 +336,28 @@ func TestScrollback(t *testing.T) {
 		waitFor(t, p, "after-42", 15*time.Second)
 	})
 }
+
+// A pane moves by the lines it is asked for. tmux was told page-up whatever
+// the number was, so the scrollback keys and the wheel moved the same
+// distance: one notch of the wheel jumped a whole screen of output.
+func TestAPaneScrollsByTheLinesItIsAskedFor(t *testing.T) {
+	p := openPane(t)
+	type_(p, "for i in $(seq 1 60); do echo line-$i; done")
+	p.SendKey(tea.KeyPressMsg{Code: tea.KeyEnter})
+	waitFor(t, p, "line-60", 15*time.Second)
+
+	for _, step := range []struct {
+		name string
+		move func()
+		want int
+	}{
+		{"three lines back", func() { p.ScrollUp(3) }, 3},
+		{"three more", func() { p.ScrollUp(3) }, 6},
+		{"two forward", func() { p.ScrollDown(2) }, 4},
+	} {
+		step.move()
+		if off, _ := p.ScrollOffset(); off != step.want {
+			t.Errorf("after %s the view is %d lines back, want %d", step.name, off, step.want)
+		}
+	}
+}

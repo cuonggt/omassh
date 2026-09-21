@@ -18,7 +18,7 @@ for moving the list between machines or starting from `~/.ssh/config`.
 |---|---|
 | `j`/`k`, `tab`, `1`/`2` | move and switch panel |
 | click | select a group, host or file, or focus the session pane |
-| scroll | move through whichever list is under the pointer |
+| scroll | move through the list under the pointer, or back through a session's output |
 | double click | in sftp, enter the directory under the pointer |
 | `enter` | connect — `ssh` takes the whole terminal, exit returns here |
 | `/` | fuzzy search every host by name, address or tag |
@@ -95,11 +95,18 @@ waiting — press `t` to reattach. Without tmux, sessions are ephemeral as
 before. Those sessions live on their own server socket, so `tmux ls` in your
 shell is unaffected.
 
-Scrollback is `ctrl+\ k` and `ctrl+\ j` to page, `ctrl+\ G` to return live;
-typing anything snaps back on its own, since a terminal that stayed scrolled
-while you typed would hide your own output. For persistent sessions the history
-belongs to tmux — 10000 lines, surviving restarts — and those keys drive its
-copy mode. Without tmux the emulator keeps 2000 lines itself.
+Scrollback is `ctrl+\ k` and `ctrl+\ j` to page, the wheel for three lines at
+a time, and `ctrl+\ G` to return live; typing anything snaps back on its own,
+since a terminal that stayed scrolled while you typed would hide your own
+output. For persistent sessions the history belongs to tmux — 10000 lines,
+surviving restarts — and those keys drive its copy mode. Without tmux the
+emulator keeps 2000 lines itself.
+
+Omassh asks the terminal for the mouse while the browser is on screen, a
+session included, because a terminal left to itself sends arrow keys for a
+wheel on the alternate screen — so scrolling a session used to answer with the
+commands you last ran. Selecting text with the mouse is then the terminal's
+own modifier, `shift` in most of them, as it is under tmux.
 
 A pty runs `ssh`, its output feeds a VT emulator, and keys go back the other
 way, so the remote gets a real terminal the size of the pane, `SIGWINCH` and

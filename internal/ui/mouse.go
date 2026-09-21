@@ -15,6 +15,10 @@ import (
 // instead of keeping a parallel copy that could drift out of step with what is
 // actually drawn.
 
+// wheelLines is what one notch of the wheel is worth in a session's output,
+// the three lines a terminal scrolls for one.
+const wheelLines = 3
+
 // sidebarLayout is where the browser's boxes sit in the frame.
 type sidebarLayout struct {
 	side    int // sidebar width; the main pane starts here
@@ -111,7 +115,23 @@ func (m Model) handleMouseWheel(e tea.Mouse) (tea.Model, tea.Cmd) {
 		return m, nil // a dialog owns the screen, as it does for a click
 	}
 	l := m.layout()
-	if e.Y < 0 || e.Y >= l.content || e.X >= l.side || m.w < minWidth || l.content < minHeight {
+	if e.Y < 0 || e.Y >= l.content || m.w < minWidth || l.content < minHeight {
+		return m, nil
+	}
+
+	// The main pane, when a session is in it: the wheel goes back through
+	// what the session has said, which is the thing a wheel over a terminal
+	// has always done.
+	//
+	// It reached nothing here before, and the gesture did not simply do
+	// nothing: a terminal turns a wheel on the alternate screen into arrow
+	// keys unless the application is asking for the mouse, so a wheel over a
+	// focused session — where omassh was not asking — arrived as up and down,
+	// and a shell answered with the commands you last ran.
+	if e.X >= l.side {
+		if m.attached != nil {
+			m.scrollAttached(step * wheelLines)
+		}
 		return m, nil
 	}
 
