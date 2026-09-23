@@ -90,6 +90,15 @@ func testHost(t *testing.T) store.Host {
 // waitFor polls the pane's rendered screen until it contains want.
 func waitFor(t *testing.T, p *term.Pane, want string, d time.Duration) string {
 	t.Helper()
+	return waitUntil(t, p, strconv.Quote(want), func(screen string) bool {
+		return strings.Contains(screen, want)
+	}, d)
+}
+
+// waitUntil polls the pane's rendered screen until ok accepts it, and fails
+// naming what it was waiting for, beside the last screen it saw.
+func waitUntil(t *testing.T, p *term.Pane, what string, ok func(screen string) bool, d time.Duration) string {
+	t.Helper()
 	deadline := time.Now().Add(d)
 	var last string
 	for time.Now().Before(deadline) {
@@ -97,12 +106,12 @@ func waitFor(t *testing.T, p *term.Pane, want string, d time.Duration) string {
 		// query like "80" match digits inside an escape sequence, which passes
 		// while the screen shows nothing of the sort.
 		last = visible(p.Render())
-		if strings.Contains(last, want) {
+		if ok(last) {
 			return last
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
-	t.Fatalf("pane never showed %q; screen was:\n%s", want, last)
+	t.Fatalf("pane never showed %s; screen was:\n%s", what, last)
 	return ""
 }
 
@@ -274,15 +283,13 @@ func TestScrollback(t *testing.T) {
 			t.Fatalf("offset/available = %d/%d after scrolling up, want both above 0", off, avail)
 		}
 		// Assert the intent rather than a specific line: whichever window the
-		// scroll lands on must be strictly earlier than the live one.
-		screen := visible(p.Render())
-		nums := lineNumbers(screen)
-		if len(nums) == 0 {
-			t.Fatalf("scrolled view shows no output at all:\n%s", screen)
-		}
-		if highest := slices.Max(nums); highest >= 55 {
-			t.Errorf("scrolled view still shows recent output (highest line-%d):\n%s", highest, screen)
-		}
+		// scroll lands on must be strictly earlier than the live one. Waited
+		// for, like the way back down below, because tmux draws the scrolled
+		// view after the command asking for it has returned.
+		waitUntil(t, p, "a window of output earlier than the live one", func(screen string) bool {
+			nums := lineNumbers(screen)
+			return len(nums) > 0 && slices.Max(nums) < 55
+		}, 5*time.Second)
 	})
 
 	t.Run("the view stays the right height", func(t *testing.T) {
@@ -296,9 +303,14 @@ func TestScrollback(t *testing.T) {
 		if off, _ := p.ScrollOffset(); off != 0 {
 			t.Errorf("offset = %d, want 0", off)
 		}
-		if !strings.Contains(visible(p.Render()), "line-60") {
-			t.Error("live view does not show the newest output")
-		}
+		// Waited for rather than read at once. tmux draws the live view after
+		// the command that scrolled back down has returned — around ten
+		// milliseconds after, scrolling a line at a time — so reading the
+		// screen straight away raced that redraw against the one tmux call
+		// ScrollDown makes afterwards. On a busy CI runner under -race the
+		// redraw lost now and then, and a pane on its way to the live view
+		// failed for not being there yet.
+		waitFor(t, p, "line-60", 5*time.Second)
 	})
 
 	t.Run("scrolling up is clamped to what exists", func(t *testing.T) {
