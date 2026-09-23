@@ -17,21 +17,26 @@ import (
 // chains included. Only the flags that make a connection a tunnel are added:
 //
 //   - -N asks for no remote command, since a forward has nothing to run.
-//   - BatchMode refuses to prompt. The tunnel runs where nobody is watching,
-//     so a passphrase or host-key prompt would wait for an answer that is
-//     never coming. Failing says which key to add instead.
+//   - Unattended's options refuse to wait. The tunnel runs where nobody is
+//     watching, so a passphrase or host-key prompt would wait for an answer
+//     that is never coming; failing says which key to add instead. For a
+//     password credential that is a single attempt, answered by the askpass
+//     helper from the keychain. A plain BatchMode=yes stood here, and it
+//     refuses the helper along with every other prompt: every tunnel to a
+//     password host was refused, while sftp and snippet runs to the same
+//     host were let in.
 //   - ExitOnForwardFailure makes ssh give up when the port cannot be bound,
 //     rather than holding a connection that carries nothing.
 //   - The keepalives mean a connection whose network went away is noticed,
 //     instead of holding its port open indefinitely.
 //
-// The first two lead, ahead of the global -o settings, and ssh takes the first
-// value it is given for a setting — so they cannot be overridden. They are not
-// preferences competing with the user's: they are what makes "running" mean
-// "carrying". With BatchMode turned off from omassh's own command line, a
-// tunnel to a host that refused the key sat at a password prompt in a detached
-// pane, and the interface reported it as up — a tunnel binding nothing, with
-// nobody there to answer.
+// The unattended options and ExitOnForwardFailure lead, ahead of the global -o
+// settings, and ssh takes the first value it is given for a setting — so they
+// cannot be overridden. They are not preferences competing with the user's:
+// they are what makes "running" mean "carrying". With BatchMode turned off from
+// omassh's own command line, a tunnel to a host that refused the key sat at a
+// password prompt in a detached pane, and the interface reported it as up — a
+// tunnel binding nothing, with nobody there to answer.
 //
 // They go through BuildWith rather than in front of Build, so they reach the
 // jump host's own ssh as well. Given only to the outer one, a tunnel through a
@@ -41,10 +46,7 @@ import (
 // The keepalives are a preference, and follow the global settings so that
 // someone who has tuned their own still gets them.
 func ForwardArgs(h store.Host, f store.Forward) []string {
-	fixed := []string{
-		"-o", "BatchMode=yes",
-		"-o", "ExitOnForwardFailure=yes",
-	}
+	fixed := append(Unattended(h), "-o", "ExitOnForwardFailure=yes")
 	return BuildWith(fixed, h,
 		"-N",
 		"-o", "ServerAliveInterval=30",

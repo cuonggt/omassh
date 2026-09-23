@@ -52,8 +52,10 @@ detached session waits for an answer that is never coming, and a connection
 that could not bind its port carries nothing. Either way "up" would mean
 something other than a tunnel. They are not preferences competing with yours;
 they are what makes `▶` mean anything. `ssh-add` the key first, and connect
-once in a session to accept a host key ssh has not seen before. The keepalives
-are a preference, and stay yours to tune.
+once in a session to accept a host key ssh has not seen before. A
+[password credential](credentials.md#passwords) works all the same: for one,
+`BatchMode` gives way to a single password attempt, answered from the
+keychain. The keepalives are a preference, and stay yours to tune.
 
 ## When a tunnel fails
 

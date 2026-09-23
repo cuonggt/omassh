@@ -186,7 +186,8 @@ Hold your terminal's modifier — `shift` in most — to select as usual.
 **A tunnel, the file browser or a snippet run cannot log in.** Nobody is there
 to answer a prompt, so those connections never ask. `ssh-add` a key that has a
 passphrase, and connect once with `enter` to accept a host key ssh has not
-seen before.
+seen before. A password credential answers from the keychain; if the host
+refuses it, `C` to type the password again.
 
 **Something is still running.** Sessions and tunnels live on Omassh's own tmux
 server, apart from your own: `tmux -L omassh ls` lists them.

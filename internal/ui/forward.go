@@ -540,6 +540,14 @@ func (m Model) forwardAdvice(f store.Forward, reason string) string {
 	case strings.Contains(reason, "Host key verification failed"):
 		return reason + " — " + m.keys.Key(keymap.Connect) + " on the host once to accept its key"
 	case strings.Contains(reason, "Permission denied"), strings.Contains(reason, "publickey"):
+		// A host that logs in with a password has no key to add. A refused
+		// tunnel to one was told to ssh-add a key all the same, sending
+		// someone looking for a file that was never there; what was refused,
+		// or never stored, is the password in the keychain, and its credential
+		// is where that is typed.
+		if c := m.forwardTarget().Cred; c != nil && c.Kind == store.CredentialPassword {
+			return reason + " — " + m.keys.Key(keymap.Credentials) + " to type " + c.Name + "'s password"
+		}
 		return reason + " — ssh-add the key first"
 	}
 	return reason

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -46,12 +47,20 @@ func startGreeter(t *testing.T, greeting string) int {
 // which is the one thing a local forward needs of a host.
 func startForwardingServer(t *testing.T, hostKey string, accept bool) int {
 	t.Helper()
+	return serveTunnels(t, hostKey, func(srv *gssh.Server) {
+		srv.PublicKeyHandler = func(gssh.Context, gssh.PublicKey) bool { return accept }
+	})
+}
+
+// serveTunnels runs an SSH server that carries local forwards for whoever auth
+// lets in.
+func serveTunnels(t *testing.T, hostKey string, auth func(*gssh.Server)) int {
+	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := &gssh.Server{
-		PublicKeyHandler:            func(gssh.Context, gssh.PublicKey) bool { return accept },
 		LocalPortForwardingCallback: func(gssh.Context, string, uint32) bool { return true },
 		ChannelHandlers: map[string]gssh.ChannelHandler{
 			"direct-tcpip": gssh.DirectTCPIPHandler,
@@ -59,6 +68,7 @@ func startForwardingServer(t *testing.T, hostKey string, accept bool) int {
 		},
 		Handler: func(s gssh.Session) { s.Exit(0) },
 	}
+	auth(srv)
 	if err := gssh.HostKeyFile(hostKey)(srv); err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +86,20 @@ func forwardingHost(t *testing.T, accept bool) store.Host {
 	port := startForwardingServer(t, hk, accept)
 	return store.Host{ID: "fwd-host", Name: "tunnelbox", Addr: "127.0.0.1", Port: port,
 		User: "tester", Identity: ck}
+}
+
+// passwordTunnelHost is a host whose server takes one password and nothing
+// else, so a tunnel to it that carries traffic proves the password arrived: no
+// key could have let it in instead.
+func passwordTunnelHost(t *testing.T, password string) store.Host {
+	t.Helper()
+	hk := genKey(t, filepath.Join(t.TempDir(), "host"))
+	port := serveTunnels(t, hk, func(srv *gssh.Server) {
+		srv.PasswordHandler = func(_ gssh.Context, pw string) bool { return pw == password }
+	})
+	return store.Host{ID: "pw-host", Name: "passwordbox", Addr: "127.0.0.1", Port: port,
+		User: "tester", Cred: &store.Credential{ID: "cred-pw", Name: "box password",
+			Kind: store.CredentialPassword, User: "tester"}}
 }
 
 // freePort is a port nothing is listening on, for ssh to bind.
@@ -171,6 +195,50 @@ func TestForwardCarriesTraffic(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	t.Errorf("port %d is still held after stopping the forward", local)
+}
+
+// A tunnel to a host that takes nothing but a password comes up on the one the
+// askpass helper gives it. Every forward led with BatchMode=yes, which refuses
+// the helper before it is asked, so these were refused every time — while sftp
+// and snippet runs to the same host, which never had it, were let in.
+func TestATunnelToAPasswordHostComesUp(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed; forwards need it to outlive the interface")
+	}
+	killServer(t)
+	forwardOptions(t)
+
+	const greeting = "let in on a password"
+	target := startGreeter(t, greeting)
+	h := passwordTunnelHost(t, "hunter2")
+
+	// Omassh answers from the keychain, which a test cannot use without
+	// writing into the keychain of whoever runs it. A script stands in for
+	// omassh there; the rest of the environment is what omassh gives ssh.
+	askpass := filepath.Join(t.TempDir(), "askpass")
+	if err := os.WriteFile(askpass, []byte("#!/bin/sh\necho hunter2\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	env := sshx.Env(h)
+	i := slices.IndexFunc(env, func(e string) bool { return strings.HasPrefix(e, "SSH_ASKPASS=") })
+	if i < 0 {
+		t.Fatalf("no askpass program in the environment for a password host: %v", env)
+	}
+	env[i] = "SSH_ASKPASS=" + askpass
+
+	local := freePort(t)
+	f := store.Forward{
+		ID: "fwd-password", HostID: h.ID, Kind: store.ForwardLocal,
+		ListenPort: local, Dest: "127.0.0.1", DestPort: target,
+	}
+	if err := term.StartForward(f, sshx.ForwardArgs(h, f), env); err != nil {
+		t.Fatalf("StartForward: %v", err)
+	}
+	t.Cleanup(func() { term.StopForward(f) })
+
+	if got := readThrough(t, local, 15*time.Second); got != greeting {
+		t.Errorf("through the tunnel: %q, want %q", got, greeting)
+	}
 }
 
 // A tunnel that does not come up has to say why. The session is kept after ssh

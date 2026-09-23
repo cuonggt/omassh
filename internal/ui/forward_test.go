@@ -341,6 +341,36 @@ func TestAFailedTunnelSaysWhatToDo(t *testing.T) {
 	}
 }
 
+// A host that logs in with a password has no key to add, so a refused tunnel
+// to one says where its password is typed instead. It was told to ssh-add a
+// key like any other, which sent someone looking for a file that was never
+// there.
+func TestARefusedTunnelToAPasswordHostPointsAtItsCredential(t *testing.T) {
+	h := newHarness(t)
+	c := h.addCredential(store.Credential{Name: "Legacy", Kind: store.CredentialPassword, User: "admin"})
+	host := h.addHost("switch", "10.0.0.9")
+	host.CredentialID = c.ID
+	if _, err := h.store.PutHost(host); err != nil {
+		t.Fatalf("put host: %v", err)
+	}
+	h.reload()
+	h.addForward(host.ID, 8080, "localhost", 80)
+	h.selectHost("switch")
+	h.press("f")
+
+	reason := "admin@10.0.0.9: Permission denied (password,keyboard-interactive)."
+	got := h.m.forwardAdvice(store.Forward{}, reason)
+	if strings.Contains(got, "ssh-add") {
+		t.Errorf("a password host was told to add a key: %q", got)
+	}
+	if !strings.Contains(got, "C to type Legacy's password") {
+		t.Errorf("advice = %q, want it to point at the Legacy credential", got)
+	}
+	if !strings.HasPrefix(got, reason) {
+		t.Errorf("the advice dropped what ssh said: %q", got)
+	}
+}
+
 // Space is the other way to start a tunnel, and a key press for it stringifies
 // to "space" rather than to a literal space — so matching only the literal
 // left the key doing nothing at all.

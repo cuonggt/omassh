@@ -163,6 +163,36 @@ func TestAForwardsLoadBearingOptionsCannotBeOverridden(t *testing.T) {
 	}
 }
 
+// A tunnel to a host that logs in with a password is answered from the
+// keychain, as sftp and a snippet run to the same host are. Every forward led
+// with BatchMode=yes, which refuses the askpass helper along with every other
+// prompt, so each tunnel to a password host was refused before the password
+// was ever asked for.
+func TestATunnelToAPasswordHostIsAnsweredFromTheKeychain(t *testing.T) {
+	t.Cleanup(func() { SetGlobalOptions(nil) })
+	SetGlobalOptions([]string{"NumberOfPasswordPrompts=3"})
+
+	got := ForwardArgs(passwordHost(),
+		store.Forward{Kind: store.ForwardLocal, ListenPort: 5432, Dest: "db", DestPort: 5432})
+
+	if slices.Contains(got, "BatchMode=yes") {
+		t.Errorf("BatchMode=yes would refuse the askpass helper: %v", got)
+	}
+	if !slices.Contains(got, "ExitOnForwardFailure=yes") {
+		t.Errorf("ExitOnForwardFailure is missing from %v", got)
+	}
+	// What stands in for BatchMode is one attempt and then failure, ahead of
+	// anything -o says: a wrong password retried in a detached pane is a
+	// tunnel waiting on nobody, reported as up.
+	ours, theirs := slices.Index(got, "NumberOfPasswordPrompts=1"), slices.Index(got, "NumberOfPasswordPrompts=3")
+	if ours < 0 {
+		t.Fatalf("the single-attempt guard is missing from %v", got)
+	}
+	if theirs >= 0 && theirs < ours {
+		t.Errorf("-o NumberOfPasswordPrompts=3 comes first, so it wins: %v", got)
+	}
+}
+
 // ssh spells "every interface" with a star and Go spells it with nothing, so
 // the check has to translate. Left alone, net.Listen would reject "*:port" and
 // every such rule would be refused as a port already in use.

@@ -49,9 +49,9 @@ environment variable, which every child would inherit; only the credential's
 id travels that way. This needs OpenSSH 8.4 or newer.
 
 Because a program answers, a password host works where nobody is watching —
-the file browser and snippet runs — as well as where you are sitting. Those
-connections normally run with `BatchMode=yes`, so that nothing can stop and
-wait for an answer that is never coming, and `BatchMode` would refuse the
+the file browser, tunnels and snippet runs — as well as where you are sitting.
+Those connections normally run with `BatchMode=yes`, so that nothing can stop
+and wait for an answer that is never coming, and `BatchMode` would refuse the
 askpass helper along with every other prompt. For a password credential it
 becomes `NumberOfPasswordPrompts=1` instead: ssh asks once, the helper
 answers, and a wrong password fails at once rather than looping on a prompt
