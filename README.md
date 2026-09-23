@@ -5,513 +5,26 @@ interaction model, running on top of real OpenSSH.
 
 ![Omassh](demo.gif)
 
-## Status
-
-Hosts and groups with attribute inheritance, embedded sessions, SFTP and port
-forwarding, shared credentials, and snippets you can run across a whole group,
-plus theming, rebindable keys, reachability probes, and a text import/export
-for moving the list between machines or starting from `~/.ssh/config`.
-
-## Keys
-
-| key | |
-|---|---|
-| `j`/`k`, `tab`, `1`/`2` | move and switch panel |
-| click | select a group, host or file, or focus the session pane |
-| scroll | move through the list under the pointer, or back through a session's output |
-| double click | in sftp, enter the directory under the pointer |
-| `enter` | connect — `ssh` takes the whole terminal, exit returns here |
-| `/` | fuzzy search every host by name, address or tag |
-| `n` / `e` / `d` | new / edit / delete, in a dialog over the list |
-| paste | fills the focused field; works in search and in a session too |
-| `↓` in a form | pick what you already use — a host's jump host, group or tags, a group's parent or jump host |
-| `space` in the Tags picker | toggle a tag; the list stays open, `↵` finishes |
-| `p` | probe reachability of the hosts in this group |
-| `ctrl+l` | redraw, if the terminal cleared the screen underneath |
-| `t` | connect in the main pane instead, keeping the host list |
-| `s` | sftp: browse and transfer files |
-| `f` | port forwarding: tunnels that outlive the window |
-| `C` | credentials: a user and a way of proving it, shared by hosts |
-| `S` | snippets: a script to run on a host or a whole group |
-| `T` | pick a theme, previewing as you move |
-| `r` | reload the store from disk |
-| `?` | help, which names the running version |
-
-## Design
-
-Omassh does not reimplement SSH. Interactive sessions are genuine OpenSSH
-processes handed the real terminal via `tea.Exec`, so scrollback, `SIGWINCH`,
-mouse reporting and full-screen remote programs behave exactly as they would
-without Omassh in the picture. `ProxyJump`, certificates, `Match` blocks and
-agent config are honoured because OpenSSH itself is honouring them.
-
-`internal/sshx.Build` is the single place any ssh invocation is constructed —
-sessions, probes and the native SFTP dialer all funnel through
-it, so connection behaviour cannot drift between them.
-
-Omassh stores no secrets and never asks for a passphrase. A host names a key
-path, which becomes `ssh -i`; a passphrase-protected key is unlocked the usual
-way, with `ssh-add` or `AddKeysToAgent yes` in your `~/.ssh/config`. Nothing
-here duplicates what ssh-agent already does.
-
-`enter` **hands the whole terminal to `ssh`**. Omassh releases the terminal,
-the child gets the real stdin and stdout, and exiting drops you back into the
-list. That path is emulation-free by construction — correct `SIGWINCH`, your
-terminal's own scrollback, mouse and every escape sequence — and it is the
-default for exactly that reason.
-
-Its stderr is the one thing Omassh listens in on, keeping the last few lines so
-that a session which fails can say why. Everything still reaches the terminal
-unchanged; it is only copied on the way. Without it, ssh wrote the reason to a
-screen the interface immediately painted over, and a connection refused, a key
-rejected, a host key that had changed and a timeout all read alike — `exited
-255`, with the reason visible only after quitting. The exit code is still
-reported, since that is the certain part; the last line of stderr follows it as
-context rather than as a claim about the cause. Passphrase and host-key prompts
-are unaffected: ssh puts those on `/dev/tty`, not stderr.
-
-`t` opens the session in the **main pane** instead, keeping the host list
-beside it. There is one such session at a time, so connecting somewhere else
-replaces it rather than leaving a connection nothing in the interface can
-reach; a green `●` marks the host it is on.
-
-While that pane has focus every key goes to the remote, so `ctrl+\ w` hands
-the keyboard back to the list — the session stays connected and visible —
-`ctrl+\ d` detaches and `ctrl+\ X` ends it for good.
-
-The prefix works from the host list as well. Detaching and ending are facts
-about the session rather than about whichever panel holds the keyboard, and
-reaching them used to mean going back into the pane first — where the prefix
-was silently ignored on the way, so `ctrl+\ d` on the list opened the delete
-confirmation for the highlighted host. `t` on the host already connected
-returns to its pane rather than building a second session over the top.
-
-Sessions are **persistent** where tmux is installed. A pty whose master belongs
-to Omassh dies with it, so each session is instead run as
-`tmux new-session -A -s omassh-<host> ssh …` on a private tmux server — closing
-Omassh detaches rather than disconnects, and reconnecting reattaches with the
-screen and shell state intact. A yellow `●` beside a host means a session is
-waiting — press `t` to reattach. Without tmux, sessions are ephemeral as
-before. Those sessions live on their own server socket, so `tmux ls` in your
-shell is unaffected.
-
-Scrollback is `ctrl+\ k` and `ctrl+\ j` to page, the wheel for three lines at
-a time, and `ctrl+\ G` to return live; typing anything snaps back on its own,
-since a terminal that stayed scrolled while you typed would hide your own
-output. For persistent sessions the history belongs to tmux — 10000 lines,
-surviving restarts — and those keys drive its copy mode. Without tmux the
-emulator keeps 2000 lines itself.
-
-Omassh asks the terminal for the mouse while the browser is on screen, a
-session included, because a terminal left to itself sends arrow keys for a
-wheel on the alternate screen — so scrolling a session used to answer with the
-commands you last ran. Selecting text with the mouse is then the terminal's
-own modifier, `shift` in most of them, as it is under tmux.
-
-A pty runs `ssh`, its output feeds a VT emulator, and keys go back the other
-way, so the remote gets a real terminal the size of the pane, `SIGWINCH` and
-all.
-
-Once a session has focus every keystroke belongs to the remote, `ctrl+c`
-included — which is why the session commands sit behind a `ctrl+\` prefix, the
-way tmux uses `ctrl+b`. Press the prefix twice to send a literal one through.
-`ctrl+b` itself goes to the remote too: the tmux keeping the session has no
-prefix of its own, so the key reaches readline, vim or a tmux on the far side,
-and cannot detach the pane from underneath you.
-
-A jump host is named by picking one of your hosts, and the connection to it is
-spelled out rather than left to `ssh -J`. `-J` hands the hop only `-l`, `-p`
-and `-v`, so the jump host's own key would be silently ignored; Omassh emits
-the `ProxyCommand` that `ssh` would build internally, with that host's port and
-identity in it. A jump host that Omassh does not know — `ops@edge.example.com`
-— is passed through as a plain `-J`, since `ssh` already understands it.
-
-Chains work: a jump host may sit behind another, and each hop is told the
-address of the next one rather than being left to work it out. `ssh` expands
-`%h` and `%p` across a whole `ProxyCommand`, nested levels included, so writing
-them would hand every hop in a chain the *final* destination — the first hop
-would dial it directly and the hosts in between would never be contacted.
-Omassh knows every address in the chain, so it writes each one.
-
-SFTP needs no SSH client of its own. Omassh runs `ssh -s <host> sftp` and
-speaks the SFTP protocol over that child's stdio, so OpenSSH performs the
-connection exactly as it would for an interactive session — `ProxyJump`
-chains, `ProxyCommand`, certificates, `Match` blocks, `IdentityAgent` and
-`known_hosts` all apply, with no second implementation to keep in step.
-`BatchMode` is forced on, because the child's stdin carries the protocol and
-there is nowhere to prompt; `ssh-add` the key first if it has a passphrase.
-
-## Credentials
-
-`C` lists the ways you log in, and a host or a group can name one instead of
-repeating a user and a key path on every machine it applies to. `n`, `e` and
-`d` make, change and remove them. There are three kinds: a `key` credential is
-a user and a path to a private key, which becomes `ssh -i`; an `agent` one is
-a user with the key left to ssh-agent; and a `password` one is a user and a
-machine that takes no key at all.
-
-A credential fills in the same fields a group does, and by the same rule: the
-nearest thing that sets a value wins. A host's own user beats its credential,
-which beats its group's user, which beats its group's credential, and so on up
-the tree. The detail pane says where each value came from — `← Prod deploy`
-beside a key, exactly as it writes `← Production` beside one a group supplied.
-
-Deleting a credential takes it off everything that named it, and says how many
-will lose it first. A host left pointing at one that had gone would resolve to
-nothing at all and give no sign why.
-
-Only a password credential changes how omassh connects. It stores no key, so
-ssh is told not to walk the agent's keys first: on a host offering several, ssh
-can spend `MaxAuthTries` on keys it was never going to be let in with and be
-refused before it reaches the password at all.
-
-The password itself is not here. The store is an ordinary file and the export
-is meant for a dotfiles repository, so a password goes where the operating
-system already keeps such things — your login keychain on macOS, libsecret on
-Linux — and omassh keeps a name for it. A machine with neither says so while
-you are typing one, rather than accepting a password it cannot store. It is
-the same argument omassh makes about ssh-agent: there is a facility for this
-already, and reimplementing it would be worse than using it.
-
-It reaches ssh through `SSH_ASKPASS`, which is OpenSSH's own way of being
-answered by a program rather than a person — no `sshpass`, and nothing
-pretending to be a terminal. ssh runs omassh, omassh reads the keychain, and
-the answer comes back on a pipe between those two processes. It is never in
-the argument list, which every process on the machine can read, and never in
-an environment variable, which every child would inherit; only the
-credential's id travels that way.
-
-Because a program answers, a password host works where nobody is watching —
-sftp, forwards and probes — and not only where you are sitting. That costs one
-thing worth knowing. `BatchMode=yes` is forced on for those connections
-precisely so that nothing can stop and wait, and it would refuse the askpass
-helper along with every other prompt. For a password credential it becomes
-`NumberOfPasswordPrompts=1` instead: ssh asks once, the helper answers, and a
-password that is wrong fails immediately rather than looping on a prompt
-nobody can see. What must never happen there is a connection that waits, and
-neither of those waits.
-
-`omassh export` carries the name, the kind and the user, and never the
-password. A list moved to another machine arrives knowing who it logs in as
-and wanting the password typed into that machine's own keychain — which is the
-same thing it would want for a key that machine does not have yet.
-
-## Snippets
-
-`S` lists the scripts worth keeping, so a command you run often is typed once
-rather than remembered. `n`, `e` and `d` make, change and remove them. The row
-beside a name shows the command itself where there is one, and the size where
-there is more.
-
-A one-line script is typed into the form. Anything longer goes to `$EDITOR` on
-`ctrl+e` — `$VISUAL` first, then `$EDITOR`, then `vi` — and comes back with
-whatever you saved. Omassh does not grow a text area for this, for the reason
-it does not implement SSH: there is an editor on the machine already, and it
-is better than the one that would be written here. A script too long for its
-field then reads `4 lines — ctrl+e to edit`, and the field stops taking
-keystrokes rather than letting the description be saved as the script.
-
-`↵` runs it. The screen that opens shows the whole script and the ways of
-saying where — the host in front of you, the hosts beside it, or any set you
-tick off by hand — and nothing runs until `y`. That step is not ceremony: a
-long snippet is listed by its size, so `↵` on its own would be running
-something you cannot see on machines you have to be right about.
-
-Results fill in as they arrive, one row per host, each carrying the last line
-that host said. `↵` on a row opens what it said in full. `esc` stops the run
-and keeps what has already come back, because the hosts that did finish are
-worth reading and closing the screen would take them away in the same moment.
-A second `esc` leaves without waiting, for a run whose results are not coming:
-killing ssh does not close a pipe a background process is still holding.
-
-Four hosts at a time. A probe is a TCP connection and nothing else, and its
-limit scales with the size of the sweep; this is a whole ssh session plus
-whatever the script does at the far end, and thirty simultaneous package
-upgrades is not a thing to start by accident. Hosts past the limit are shown
-as queued rather than running, because they are: a table claiming forty open
-sessions when four are open is describing something that is not happening.
-
-**A run has no terminal.** It goes through the same unattended path a forward
-and an sftp session do, so `sudo` asking for a password fails immediately
-instead of waiting on a keyboard that is not there — which is the right
-answer, since waiting is the one thing a connection nobody is watching must
-never do. A password credential still works, by the same
-`NumberOfPasswordPrompts=1` route described above. What a run cannot do is
-anything interactive, and that is what the other half of this is for.
-
-`p` pastes the snippet into the session in the main pane instead, and stops
-there. Omassh delivers it as a paste rather than as typing, which a shell that
-understands bracketed paste holds in its edit buffer for you to read, change
-and run yourself. One that does not understand it — macOS ships a bash whose
-readline predates the idea — runs each line as it arrives. Which of those
-happened cannot be known from here: the mode belongs to the shell at the far
-end, and with tmux in between it is tmux's own that reaches omassh. So it is
-not claimed. A one-line snippet always waits, because what would run it is the
-trailing newline omassh takes off; a longer one says to go and look, next to
-the pane it has just put in front of you.
-
-`omassh export` carries a snippet's script exactly as written, which is also
-the warning: a password belongs in a credential, where the export does not
-carry it, and never in a script, where it does.
-
-## SFTP
-
-`s` opens a two-pane file browser on the selected host: your machine on the
-left, the host on the right. `tab` switches panes, `↵` enters a directory and
-`-` goes back up, `c` copies what is highlighted to the other pane, `m`, `r`,
-`M` and `d` make a directory, rename, chmod and delete, and `g` re-reads the
-pane you are in.
-
-The local pane opens where Omassh was launched rather than at your home
-directory, since the directory you were just working in is more often the one
-you want to send. The remote pane opens where the session lands, and the
-keyboard starts there — you came here to look at the host.
-
-A transfer is **written beside its destination and moved onto it at the end**,
-so the destination is only ever the old file or the new one. Writing straight
-to it truncated the file before a byte had arrived: a transfer that then failed
-left neither what was there nor what was wanted, and since the listing
-refreshed only after a transfer that worked, it went on reporting the size the
-file used to be. What moved is counted from what actually crossed rather than
-from the row — a symlink's row gives the length of the path it holds while the
-copy follows it, so 3MB would arrive under a bar announcing "copied 90B".
-
-Copying onto a name already taken **asks first**. A copy over a file destroys
-it as surely as deleting one does, and deleting asks — while the copy used to
-go quietly ahead and say "copied 16B". It asks rather than refuses because
-replacing what is there is very often the point, and refusing would mean
-deleting first, which leaves a moment with neither file.
-
-`c` on a directory takes the whole tree. Onto a directory already there it
-**merges**: the names that clash are overwritten and everything else in there
-is left alone. That is why it asks to merge rather than to replace — replace
-would promise that whatever is not in the copy goes away. Onto a *file* of the
-same name it is refused rather than asked about, since no answer to that
-question leaves both of them.
-
-The walk reads each directory's listing rather than following the names in it,
-which is what keeps it finite: a listing reports a symlink as the link and not
-as what it points at, so only real directories are descended, and a real
-directory cannot contain itself. Following instead would turn one link pointing
-at its own parent into a copy that never ends.
-
-Nothing here can write a symlink, so a link is copied the way copying its own
-row is — followed, and the file it names moved. A link to a *directory* has no
-bytes to move, so it is counted and stepped over rather than failing a tree
-that is otherwise fine; one link is a poor reason to abandon ten thousand
-files. The count is said at the end, because a copy that quietly left something
-behind is the one nobody checks until it matters.
-
-Each file still lands atomically; the tree as a whole does not, and cannot. A
-copy that fails partway names the file it stopped on and leaves what had
-already arrived, rather than pretending nothing happened. Progress names each
-file by its place in the tree — `project/src/deep/blob.bin` — and the end is
-counted in files with the size beside it, since "copied 400 files" alone does
-not say whether the wait moved a manual or a film archive.
-
-`esc` stops a copy that is running, and leaves the browser when none is. The
-row reporting progress says so, because the one moment that key matters is the
-one moment the key list is not on screen — the progress has replaced it. A file
-that was interrupted goes back to how it was, the part file removed and the
-destination never touched; a tree keeps what had already crossed, and the strip
-says how much that was, since nothing puts those files back. Leaving with `q`
-calls off a copy on the way out rather than pulling the connection from under
-it, which used to report a deliberate stop as a transfer that had broken.
-
-Deleting follows the same rule about links the other way round: a symlink is a
-name, so deleting one deletes the name rather than what it points at. Following
-it was quiet and expensive — deleting a link to a directory emptied that
-directory, and deleting a directory that merely *contained* such a link
-destroyed everything on the far side of it, files nobody had selected, while
-the confirmation said "this cannot be undone" about what the listing had shown
-as a single file.
-
-A filename is not a message. One carrying an escape sequence went straight into
-the interface: the row took its colour from the file rather than from the
-theme, and a name holding a cursor move or an erase had the terminal act on it
-in the middle of a redraw. Widths were never the problem — escapes have no
-width, so the frame held while the terminal did as the remote asked. Remote
-names are stripped of escapes and control characters before anything draws one.
-
-What the far side refuses is reported in its own words where it offers any.
-`pkg/sftp` maps the two status codes with `os` equivalents and hands the rest
-back as they came, so a full disk, a quota or a server that simply says no all
-arrived as `sftp: "Failure" (SSH_FX_FAILURE)` — a protocol constant, shown to
-someone who has just typed a directory name.
-
-## Port forwarding
-
-`f` lists the tunnels belonging to a host, and `↵` starts or stops the
-highlighted one. Local (`-L`), remote (`-R`) and dynamic (`-D`) are all here,
-written the way ssh writes them — `5432` and `db.internal:5432` are the two
-halves of `-L 5432:db.internal:5432`.
-
-A tunnel runs as a detached session on the same private tmux server the
-interactive sessions use, so it **outlives the window that started it**. That
-is the whole point: a forward has nothing to look at, and the value of it is
-that it keeps running. Quitting Omassh leaves your database tunnel up; opening
-Omassh again shows it as up, because it is.
-
-Everything about reaching the host is `sshx.Build`'s answer, the same as for a
-session, so a tunnel to a host behind a bastion goes through the bastion and
-one whose group supplies a user connects as that user. On top of that a forward
-adds only what makes a connection a tunnel: `-N`, `ExitOnForwardFailure` so a
-port that cannot be bound is a failure rather than a connection carrying
-nothing, and `ServerAliveInterval` so a tunnel whose network went away is
-reported as stopped instead of holding its port and reading as up.
-
-`BatchMode` and `ExitOnForwardFailure` are forced on, ahead of anything `-o`
-passes in, because nobody is watching: a passphrase or host-key prompt in a
-detached session waits for an answer that is never coming, and a connection
-that could not bind its port carries nothing. Either way "up" would mean
-something other than a tunnel — with `-o BatchMode=no` on omassh's own command
-line, a forward to a host that refused the key sat at a password prompt while
-the interface reported it running. They are not preferences competing with
-yours; they are what makes `▶` mean anything. `ssh-add` the key first, and
-connect once interactively to accept an unknown host key. The keepalives are a
-preference, and stay yours to tune.
-
-The local port is bound here before ssh is asked to bind it, so a port already
-in use is a sentence naming the port rather than a tunnel that vanishes a
-moment after starting. A tunnel that stops for any other reason keeps its
-session, dead, so it can still say what ssh said — `✖` in the list, with the
-reason beneath it. Without that the failure would be indistinguishable from a
-tunnel nobody had started.
-
-Editing a rule reaches nothing already running — the tunnel is named by the
-rule's id, so it goes on carrying the route it was started with. It used to go
-on being reported as up against the new route as well, which is the shape of
-mistake where repointing a tunnel at staging leaves every connection landing on
-production and the screen agreeing with you. Each tunnel now records the whole
-invocation it was started with, so one whose rule *or host* has changed
-underneath it shows `▷` rather than `▶` — editing the host's address moves a
-tunnel just as surely as editing the rule — and `↵` restarts it on what they
-say now.
-
-A green `▶` beside a host in the list means one of its tunnels is up.
-
-## Moving between machines
-
-The store is bbolt — one binary file, with ids minted locally. Copying it over
-another machine's replaces that machine's list rather than joining it, and two
-machines that each gained a host cannot be reconciled by copying in either
-direction. The text form is the way across:
-
-```sh
-omassh export > hosts.yaml                # or -o hosts.yaml, written 0600
-omassh import hosts.yaml                  # stdin when given no file
-omassh export | ssh other-machine omassh import
-```
-
-Records match **by name**, never by id. That is what makes the same list
-mergeable at both ends, and it means a host keeps the session history hanging
-off it across an import — the host you have connected to forty times is still
-that host afterwards. A field the document leaves out keeps the value already
-stored, so importing fills in and corrects but never blanks; clearing a field
-is the interface's job. `-n` reports what an import would do and writes
-nothing.
-
-A key the format does not have is named with its line, in the words of the
-file rather than of the program reading it — `"jump_host" is not something a
-host has — it takes name, addr, port, …`, with the keys read off the format
-so the list offered is the list accepted. An import reports the same `2
-added, 0 updated` whether or not it understood every line, so `jump_host`
-where the field is `jump` would otherwise leave that host showing `via —`
-and nothing on screen to say a line was dropped — the mistake and the
-success read identically. More than one YAML document in the file is refused
-on the same grounds, since only the first would be imported; a file that
-merely opens with `---` is still one document.
-
-Forwarding rules travel with their host, nested under it, because a rule says
-how you work with a machine — "the database is on 5432 through there" — which
-is as true on a laptop as on a desktop. A rule has no name, so the whole of it
-is its identity: kind, what it binds, where it comes out. Nothing is updated
-in place and nothing is removed, which is what lets two rules bind the same
-port for different destinations and still both arrive.
-
-Session history itself stays behind. "Last connected two hours ago" is a fact
-about the machine that connected, and carrying it across would let a laptop's
-history overwrite a desktop's on every import. A running tunnel stays behind
-for the same reason: the rule crosses, the process does not.
-
-The file holds no secrets — an identity is a path to a key, never the key — so
-it belongs in a dotfiles repo as comfortably as anything else there.
-`config.yaml` is already text and travels the same way, on its own.
-
-## Starting from ~/.ssh/config
-
-```sh
-omassh import-ssh-config                  # ~/.ssh/config, or name a file
-omassh import-ssh-config -group Work      # ... all into one group
-```
-
-Only what Omassh needs to list, probe and reach a machine is taken: the alias,
-the address behind it, and the user, port, key and jump host. Everything else
-in that file keeps working without being copied, because Omassh runs the real
-ssh, which reads the file itself. Values resolve the way ssh resolves them —
-settings under `Host *` reach every alias, first match wins — so an imported
-host carries what `ssh -G` reports for it.
-
-Wildcard and `Match` blocks are settings rather than machines, and are not
-imported as hosts. `Include`d files are followed, which is the whole story for
-a config that is one line pointing somewhere else.
-
-`HostName %h.internal` — one block standing in for a whole estate — is
-expanded per alias as ssh expands it, since ssh does that to the *setting* and
-never to the destination it is finally handed. Imported literally, those hosts
-arrived with a `%h` in the address and could not resolve anything.
-
-## Reaching your hosts from everything else
-
-```sh
-omassh export-ssh-config                  # writes ~/.ssh/config, or -o FILE
-omassh export-ssh-config -n               # what it would change, writing nothing
-```
-
-A host kept only in Omassh is reachable by Omassh. `scp`, `rsync`, `git`,
-Ansible and every editor's remote mode read `~/.ssh/config` and know nothing
-about a database, so this writes the list there — after which
-`scp file prod-web:` and `git clone prod-web:repo` reach the same machines by
-the same names, through the same bastions.
-
-Only between its own markers. Everything outside them comes back byte for
-byte, comments and blank lines included, and the file is replaced by a rename
-rather than truncated, since a half-written `~/.ssh/config` is every machine
-at once. A symlinked config — the usual way a dotfiles repository keeps one —
-is followed rather than replaced. Running it twice changes nothing.
-
-Markers that do not pair up stop the whole thing, naming the line. A start
-marker whose end had been deleted would otherwise read as if the rest of the
-file were Omassh's, and there is no getting a `~/.ssh/config` back from that.
-
-The block goes at the **top**, because ssh keeps the first value it finds for
-each setting: below a `Host *` of yours, every exported host would quietly
-take that block's user instead of its own.
-
-An alias your config already declares — in the file or in anything it
-`Include`s — is left exactly as it is and reported, never written over:
-import treats your config as a read-only source, and this keeps that promise
-from the other side. So is a host whose jump host will not be in the file,
-since writing it without one would dial a machine meant to sit behind a
-bastion. A host whose name ssh could not use as a destination is reported
-the same way rather than written; a name with a space in it is refused by
-ssh however it is quoted, and one holding `*` or `?` would be a pattern
-governing hosts Omassh knows nothing about.
-
-Groups are flattened on the way out, since ssh config has no such thing: what
-a host inherits is written onto the host.
-
-Which matters if that file ever comes back. Importing a config Omassh wrote
-turns everything those hosts inherited into settings of their own, and a host
-carrying its own user has stopped following its group: change the group to
-`ubuntu` afterwards and that host goes on connecting as `deploy`, because
-nothing it reads comes from the group any more. No value is wrong, and the
-only sign on screen is a quiet one — the `← Production` that sat beside the
-value in the detail pane is simply not there. `omassh export` is the round
-trip that keeps its shape, because YAML has groups to keep: what a host
-inherits stays out of the file entirely, and importing the same one twice
-changes nothing the second time. `~/.ssh/config` is somewhere to write the
-list, not somewhere to keep it.
+Keep your hosts in groups that share a user, a key and a jump host. Connect
+with a keystroke, full screen or in a pane beside the list. Browse files, keep
+tunnels up after you quit, and run a script across a whole group — all through
+the `ssh` already on your machine.
+
+## Why Omassh
+
+**It runs the real OpenSSH.** Every connection is your own `ssh`, so
+`~/.ssh/config`, `ProxyJump`, certificates, `Match` blocks and the agent all
+apply exactly as they do on the command line. There is no second SSH
+implementation to disagree with the first.
+
+**It keeps no secrets.** A host names a key by its path, a passphrase is
+ssh-agent's job, and a password lives in the operating system's keychain. The
+host list exports to a YAML file that belongs in a dotfiles repository.
+
+**What you start keeps running.** With tmux installed, sessions in the pane
+and tunnels run on a tmux server of Omassh's own, so quitting detaches rather
+than disconnects. Open Omassh again and the shell is where you left it, and
+the database tunnel is still up.
 
 ## Install
 
@@ -519,121 +32,179 @@ list, not somewhere to keep it.
 brew install --cask cuonggt/tap/omassh
 ```
 
-macOS and Linux, amd64 and arm64. Or from source:
+Or with Go:
 
 ```sh
 go install github.com/cuonggt/omassh/cmd/omassh@latest
 ```
 
-Releases are built with [GoReleaser](https://goreleaser.com) for macOS and
-Linux on both amd64 and arm64. `goreleaser release --snapshot --clean` produces
-the archives, checksums and a Homebrew cask locally without publishing.
+Archives for macOS and Linux, on amd64 and arm64, are on the
+[releases page](https://github.com/cuonggt/omassh/releases).
 
-The demo above is recorded with [VHS](https://github.com/charmbracelet/vhs):
+Omassh needs:
 
-```sh
-./hack/demo.sh
-```
+- **OpenSSH.** `ssh` makes every connection; password credentials need 8.4 or
+  newer.
+- **tmux**, optionally. Without it, a session in the pane ends when Omassh
+  does, and port forwarding is unavailable.
+- **A keychain**, for password credentials only — built in on macOS, and
+  `secret-tool` from libsecret on Linux.
 
-That starts a throwaway SSH server on loopback so the session pane shows real
-shells, seeds a database with sample infrastructure, and drives the UI.
+## Quick start
 
-## Run
-
-```sh
-go run ./cmd/omassh
-```
-
-`enter` connects. `?` lists keys. `q` quits.
-
-`-o` passes an ssh option through to every connection, as `ssh -o` does:
+If you already keep hosts in `~/.ssh/config`, start from those:
 
 ```sh
-go run ./cmd/omassh -o ConnectTimeout=5
+omassh import-ssh-config
+omassh
 ```
+
+`j`/`k` move, `enter` connects, `?` lists every key and `q` quits. `n` adds a
+host by hand.
+
+## Concepts
+
+**Hosts** are a name and an address, with an optional port, user, key, jump
+host, credential, group and tags.
+
+**Groups** nest, and a host fills anything it leaves empty — the user, the key,
+the jump host — from the nearest group above it that sets it. The detail pane
+marks an inherited value with where it came from, `← Production`, and
+selecting a group shows every host beneath it.
+
+**Credentials** are a user and a way of proving it — a key, the agent, or a
+password kept in the keychain — named once and shared by the hosts and groups
+that use it.
+
+**Jump hosts** are picked from your own hosts and reached with their own port,
+user and key, and chains of them work. Any other ssh destination works too.
+
+More in [hosts, groups and jump hosts](docs/hosts.md) and
+[credentials](docs/credentials.md).
+
+## What it does
+
+**[Sessions](docs/sessions.md).** `enter` hands the whole terminal to ssh and
+brings you back when it exits. `t` opens the session in the main pane beside
+the list instead. While the pane has focus every key goes to the remote, so
+Omassh's own commands sit behind `ctrl+\`: `ctrl+\ w` back to the list,
+`ctrl+\ d` to detach.
+
+**[Files](docs/sftp.md).** `s` opens a two-pane browser, your machine beside
+the host. Copies land atomically, a directory goes over as a whole tree, and
+overwriting anything asks first.
+
+**[Tunnels](docs/forwarding.md).** `f` keeps a host's local, remote and
+dynamic forwards. They run in tmux and outlive the window, say why when they
+fail, and show `▷` when their rule has changed underneath them.
+
+**[Snippets](docs/snippets.md).** `S` keeps the scripts worth keeping, and runs
+one across a host, a group or any set you pick, four hosts at a time,
+collecting what each one said. `p` pastes it into the session instead.
+
+**[Reachability](docs/hosts.md#reachability).** `p` checks which hosts in the
+group answer on their ssh port, skipping those behind a jump host, whose
+address means nothing from here.
+
+**[Moving between machines](docs/moving.md).** The list exports to YAML and
+imports by name, so it merges rather than overwrites. It can also be written
+into `~/.ssh/config`, for `scp`, `rsync` and `git` to reach the same hosts.
+
+## Keys
+
+| key | |
+|---|---|
+| `j` / `k`, `↓` / `↑` | move |
+| `tab`, `1` / `2` | switch panel: groups, hosts |
+| `/` | fuzzy search every host by name, address or tag; `esc` clears it |
+| `enter` | connect — ssh takes the whole terminal, and exiting returns here |
+| `t` | connect in the main pane instead, keeping the host list |
+| `n` / `e` / `d` | new / edit / delete a host, or a group in the group list |
+| `p` | probe reachability of the hosts in this group |
+| `s` | SFTP: browse and transfer files |
+| `f` | port forwarding |
+| `C` | credentials |
+| `S` | snippets |
+| `T` | pick a theme, previewing as you move |
+| `r` | reload the store from disk |
+| `ctrl+l` | redraw the screen |
+| `?` | help, which names the running version |
+| `q` | quit |
+
+In a session in the main pane, behind the `ctrl+\` prefix:
+
+| key | |
+|---|---|
+| `ctrl+\ w` | back to the host list; the session keeps running |
+| `ctrl+\ d` / `ctrl+\ X` | detach / end the session |
+| `ctrl+\ k` / `ctrl+\ j` | scroll back / forward a page |
+| `ctrl+\ G` | back to the live view |
+| `ctrl+\ r` | redraw the screen |
+
+In a form, `tab` moves between fields, `↓` offers what you already use — jump
+hosts, groups, tags — and `↵` saves. The lists behind `C`, `S` and `f` take
+`n`, `e` and `d` the same way. A click selects, the wheel scrolls whichever
+list or session is under the pointer, and paste works everywhere, a session
+included. Every key in the first table can be
+[rebound](docs/configuration.md#keys).
+
+## Command line
+
+| command | |
+|---|---|
+| `omassh` | browse and connect |
+| `omassh export [-o FILE]` | write the host list as YAML |
+| `omassh import [-n] [FILE]` | merge a YAML host list, from stdin if no file |
+| `omassh import-ssh-config [-n] [-group NAME] [FILE]` | take the hosts `~/.ssh/config` names |
+| `omassh export-ssh-config [-n] [-o FILE]` | write the hosts into `~/.ssh/config` |
+
+`-n` reports what would change and writes nothing. `omassh` itself takes
+`-o OPTION`, passed to every ssh as `ssh -o` would pass it; `-db` and
+`-config`, to use another database or config file; `-print-config`, for a
+documented example config; and `-version`.
 
 ## Configuration
 
-Everything is optional — Omassh runs with no configuration at all. The config
-file follows the platform convention, so it is
+Nothing needs configuring. The config file is
 `~/Library/Application Support/omassh/config.yaml` on macOS and
-`~/.config/omassh/config.yaml` on Linux — `omassh -h` prints the resolved path,
-and so does the first line of `-print-config`. Writing to the wrong one is
-silent, since a missing config is not an error, so let the shell work it out:
+`~/.config/omassh/config.yaml` on Linux, and holds the theme and your own
+palettes, key bindings, ssh options and the probe timeout. A mistake in it is
+an error at startup that names the line, never a setting silently ignored.
+`omassh -print-config` writes a documented example, its first line naming the
+path it belongs at. More in [configuration](docs/configuration.md).
+
+## Troubleshooting
+
+**The screen went blank.** Some terminals clear the screen without telling the
+program running in them — iTerm2's `cmd+K` is the common one — and Omassh
+still believes its last frame is there. `ctrl+l` repaints; inside a session,
+where `ctrl+l` belongs to the remote shell, use `ctrl+\ r`.
+
+**Text will not select.** Omassh takes the mouse so that the wheel scrolls.
+Hold your terminal's modifier — `shift` in most — to select as usual.
+
+**A tunnel, the file browser or a snippet run cannot log in.** Nobody is there
+to answer a prompt, so those connections never ask. `ssh-add` a key that has a
+passphrase, and connect once with `enter` to accept a host key ssh has not
+seen before.
+
+**Something is still running.** Sessions and tunnels live on Omassh's own tmux
+server, apart from your own: `tmux -L omassh ls` lists them.
+
+## Development
 
 ```sh
-cfg=$(omassh -print-config | head -1 | cut -c3-)
-mkdir -p "$(dirname "$cfg")" && omassh -print-config > "$cfg"
+go run ./cmd/omassh -db /tmp/x.db -config /tmp/x.yaml   # a scratch host list
+go test ./...
 ```
 
-The database sits beside it, as `omassh.db`. More than one Omassh can use it
-at once: the file is held for the length of an operation rather than the length
-of the program, which matters because `enter` hands the whole terminal to ssh
-and leaves no interface to look the next host up in. Each window reads the
-store when something happens to it, so a host added in one appears in another
-on its next reload — `r` at any time.
-
-Themes (`terminal`, `tokyonight`, `gruvbox`, `nord`, `mono`, or your own
-palette), key bindings and ssh options all live there. A malformed config is
-reported at startup rather than ignored, because settings that silently do
-nothing are worse than an error that says why — and so is a key that is not a
-setting. `ssh_option` without its `s`, or a palette with `selected` where it
-means `selected_bg`, is named with its line rather than skipped past, since
-skipping looks exactly like the file not being read at all. More than one YAML
-document in the file is refused for the same reason, since only the first
-would take effect. So is a hex colour without its quotes, which YAML reads as
-a comment: `accent: #ff8800` is an accent with nothing after it, and the
-complaint gives the colour back as `"#ff8800"`. Every palette under `themes:`
-is checked, not only the one in use, since the picker offers them all. Arrow
-keys and `ctrl+c` are reserved and always work, so no config can trap you in
-the program.
-
-`T` opens a theme picker that recolours the interface as you move through it,
-since a palette is something you judge by looking at it. Keeping one writes
-`theme:` into the config file above, creating it if there is none — the one
-line, leaving comments, custom palettes and every other setting exactly as
-they were. So there is one place a theme comes from: what you pick and what
-you write by hand are the same setting, and neither quietly outranks the
-other. A palette defined under `themes:` is offered alongside the built-ins.
-
-The default, `terminal`, draws in your terminal's own colours: its text
-colour, the sixteen its scheme sets, and its own reverse video for the
-selection. So Omassh looks like the rest of the terminal, reads as well on a
-light background as on a dark one, and follows the terminal when its scheme
-changes. The other built-ins are colours of their own, in hex, made for a dark
-background; on a terminal without truecolor they render in 256 colours, and
-`mono` exists for terminals with less than that.
-
-In a palette of your own, a colour is `"#rrggbb"`, a number from the
-terminal's palette — `4` is its blue, `8` its grey, and anything up to `255`
-works — or `default`, the terminal's own text colour, which as `selected_bg`
-means its own highlight. Colours a palette leaves out come from `terminal`, so
-`accent: "#ff8800"` on its own is the terminal's colours with an orange
-accent. That is also the way out for a scheme whose grey is its background,
-as the original Solarized Dark's is. `terminal` draws dim text and borders in
-the grey, colour `8`, as most terminal programs do, so under that scheme they
-vanish; `text_dim: 10` and `border: 10` bring them back.
-
-## If the screen goes blank
-
-Some terminals clear the screen without telling the application — iTerm2's
-`cmd+K` is the common one. Omassh's renderer still believes its last frame is
-on screen and writes only the differences, so nothing reappears on its own.
-`ctrl+l` forces a full repaint; from inside a session, where `ctrl+l` belongs
-to the remote shell, use `ctrl+\ r`.
-
-## Reachability
-
-A group holds the hosts beneath it as well as its own, so selecting one shows
-everything in it and the number beside it says the same. A group whose machines
-all live in its children used to read as empty, which is the shape most people
-nest for.
-
-`p` probes the hosts in the current group with a plain TCP connection —
-`●` up, `✖` down. Hosts behind a jump host or a `ProxyCommand` show `◌` and are
-skipped rather than guessed at: their address means something only from the far
-side of the proxy, so dialling it from here would report on a different machine
-entirely.
+The tests need tmux for full coverage, and skip what needs it where it is
+missing; nothing needs Docker or a real host. Releases are built with
+[GoReleaser](https://goreleaser.com), and
+`goreleaser release --snapshot --clean` makes the archives, checksums and
+cask locally without publishing. `./hack/demo.sh` re-records the demo with
+[VHS](https://github.com/charmbracelet/vhs), against a throwaway SSH server on
+loopback.
 
 ## License
 

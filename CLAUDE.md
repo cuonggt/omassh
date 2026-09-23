@@ -4,8 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Omassh is a keyboard-driven SSH client TUI (Go + Bubble Tea v2) that drives the
 real OpenSSH binary rather than reimplementing SSH. `README.md` is the
-user-facing document and explains *why* most of the visible behaviour is what it
-is; read the relevant part of it before changing anything a user can see.
+user-facing front door, and `docs/` — one page per feature — explains *why* most
+of the visible behaviour is what it is; read the relevant page before changing
+anything a user can see, and change the page with the behaviour.
 
 ## Commands
 

@@ -27,9 +27,12 @@ archives:
   - id: omassh
     formats: [tar.gz]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    # The README links into docs/ for everything past the basics, so the pages
+    # travel with it; without them every one of those links is dead on disk.
     files:
       - README.md
       - LICENSE
+      - docs/*.md
 
 checksum:
   name_template: checksums.txt
