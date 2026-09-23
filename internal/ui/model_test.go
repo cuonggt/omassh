@@ -3,9 +3,11 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -273,6 +275,60 @@ func TestRedrawIsReachableFromASession(t *testing.T) {
 func (h *harness) openSession(name string) {
 	h.t.Helper()
 	h.addHost(name, "127.0.0.1:1")
+	h.attach()
+}
+
+// openLiveSession is openSession for a test that needs the session still there
+// when it asserts on it. openSession dials a port nothing answers on, so its
+// pane lives only as long as ssh takes to give up — usually longer than a test
+// needs, and now and then not, which is a test that fails at random. This one
+// dials a server that takes the connection and never says a word: ssh waits
+// for a greeting that does not come, and the pane stays up until the test ends.
+func (h *harness) openLiveSession(name string) {
+	h.t.Helper()
+	port := h.silentServer()
+	if _, err := h.store.PutHost(store.Host{Name: name, Addr: "127.0.0.1", Port: port}); err != nil {
+		h.t.Fatalf("put host: %v", err)
+	}
+	h.reload()
+	h.attach()
+}
+
+// silentServer accepts connections and holds them open without answering.
+func (h *harness) silentServer() int {
+	h.t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		h.t.Fatalf("listen: %v", err)
+	}
+	var mu sync.Mutex
+	var held []net.Conn
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			held = append(held, c)
+			mu.Unlock()
+		}
+	}()
+	h.t.Cleanup(func() {
+		l.Close()
+		mu.Lock()
+		defer mu.Unlock()
+		for _, c := range held {
+			c.Close()
+		}
+	})
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// attach connects the selected host in the pane, and ends the session when the
+// test does.
+func (h *harness) attach() {
+	h.t.Helper()
 	h.press("t") // enter hands the terminal over; t is the embedded pane
 	h.t.Cleanup(func() {
 		if h.m.attached != nil {
@@ -2838,17 +2894,28 @@ func TestTheWheelMovesTheFilePaneUnderThePointer(t *testing.T) {
 // and outlived omassh, holding a connection to a host no longer in the list.
 func TestDeletingTheHostYouAreConnectedToEndsTheSession(t *testing.T) {
 	h := newHarness(t)
-	h.openSession("alpha")
-	if !h.m.attachedTo(h.m.attached.Host) {
-		t.Skip("the session ended before the host could be deleted")
-	}
-
-	// The harness connects to a port nothing answers on, so the tmux session
-	// usually ends on its own before this runs. Everything else here holds
-	// either way; only the last assertion needs a live one, so it asks rather
-	// than skipping the rest.
+	// A session that stays up. This dialled a port nothing answers on, whose
+	// session ended by itself a moment later — now and then between the check
+	// that it was still there and the d that deleted its host, so the
+	// confirmation rightly left it out and the test failed at random.
+	h.openLiveSession("alpha")
 	host := h.m.attached.Host
-	live := term.HasLiveSession(host)
+
+	// tmux makes the session a moment after the pane starts its client, so it
+	// is waited for rather than asked about once. Without tmux there is only
+	// the pane's own ssh, and nothing outside it for the last check to find.
+	live := false
+	if term.TmuxAvailable() {
+		deadline := time.Now().Add(5 * time.Second)
+		for !live && time.Now().Before(deadline) {
+			if live = term.HasLiveSession(host); !live {
+				time.Sleep(25 * time.Millisecond)
+			}
+		}
+		if !live {
+			t.Fatal("the session never came up, so there is nothing for the delete to end")
+		}
+	}
 
 	h.press("prefix", "w") // back to the list, session still attached
 	h.press("d")
