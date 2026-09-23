@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -65,10 +66,11 @@ func run(args []string) error {
 	// Before anything else, because this is not a person calling. ssh runs its
 	// askpass program with the prompt as the only argument — there is no
 	// subcommand to look for, so the environment is what says which of the two
-	// this is. Answering and leaving, without touching the store or the
-	// terminal, is the whole of it.
+	// this is. Answering and leaving, without touching the store, is the whole
+	// of it; the terminal is touched only to put one of ssh's questions to
+	// someone who is there to answer it.
 	if id := os.Getenv(sshx.EnvCredential); id != "" {
-		return askpass(id)
+		return askpass(id, strings.Join(args, " "), os.Stdout)
 	}
 
 	// A subcommand is a bare word. Anything starting with a dash is a flag to
@@ -489,17 +491,34 @@ func apply(db string, d portable.Document, dry bool) error {
 
 // askpass answers ssh's password prompt out of the system's keychain.
 //
-// Printed to standard output, which is where ssh reads it and where nothing
-// else can: not the argument list, which every process can read, and not the
-// environment, which every child inherits. Only the credential's id travels
-// that way.
+// ssh puts every prompt of the connection here, not only the password:
+// SSH_ASKPASS_REQUIRE=force routes them all to the helper, the question of
+// whether to trust a host key included. That was answered with the password
+// like everything else, and ssh asks a yes/no question until it hears yes, no
+// or the fingerprint — so a password host whose key was not yet in known_hosts
+// was asked again several hundred times a second, each time another keychain
+// read, and the connection never ended. A question is now answered as one.
+//
+// Anything else is still taken to be asking for the password. A server's own
+// prompt can say so in any language — "Passwort:" — and a helper that answered
+// only the prompts it recognised would lock out a host that logged in fine
+// yesterday.
+//
+// The answer is printed to standard output, which is where ssh reads it and
+// where nothing else can: not the argument list, which every process can read,
+// and not the environment, which every child inherits. Only the credential's
+// id travels that way.
 //
 // A failure here is silent as far as ssh is concerned — it takes whatever it
 // gets on stdout — so the reason goes to stderr, which for a session is the
 // terminal and for a tunnel is the pane it died in. Exiting non-zero tells ssh
 // there is no answer coming, which turns into an ordinary refusal rather than
 // a prompt that hangs.
-func askpass(id string) error {
+func askpass(id, prompt string, out io.Writer) error {
+	if isQuestion(prompt) {
+		fmt.Fprintln(out, answerQuestion(prompt))
+		return nil
+	}
 	st, err := secret.Open()
 	if err != nil {
 		return err
@@ -511,8 +530,46 @@ func askpass(id string) error {
 		}
 		return err
 	}
-	fmt.Println(pw)
+	fmt.Fprintln(out, pw)
 	return nil
+}
+
+// isQuestion reports whether ssh is asking yes or no rather than for the
+// password: whether to trust a host key it has not seen, whether to accept
+// updated ones, and the prompts that ask again after an answer it could not
+// use. Every one of them spells the answers out.
+func isQuestion(prompt string) bool {
+	return strings.Contains(prompt, "(yes/no") || strings.Contains(prompt, "'yes'")
+}
+
+// answerQuestion answers ssh's yes/no question — in practice, whether to trust
+// a host key it has not seen before.
+//
+// Someone at the session answers it themselves: the question goes to their
+// terminal, where ssh on its own would have put it, and what they type goes
+// back. Nobody is at a tunnel, an sftp session or a snippet run, so there the
+// answer is no, and ssh stops with "Host key verification failed" — what the
+// same connection says for a host that logs in with a key, and put right the
+// same way, by connecting once with enter and answering it. No rather than a
+// failure to answer, since no is the one answer the question is written to
+// accept; what a helper's failure turns into is up to the version of ssh.
+func answerQuestion(prompt string) string {
+	if os.Getenv(sshx.EnvAttended) == "" {
+		return "no"
+	}
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return "no"
+	}
+	defer tty.Close()
+	if _, err := io.WriteString(tty, prompt); err != nil {
+		return "no"
+	}
+	line, err := bufio.NewReader(tty).ReadString('\n')
+	if err != nil && line == "" {
+		return "no"
+	}
+	return strings.TrimSpace(line)
 }
 
 // plural is the s on the end of a count, which the summaries above had been

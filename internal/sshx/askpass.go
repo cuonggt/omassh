@@ -44,6 +44,27 @@ func Env(h store.Host) []string {
 	}
 }
 
+// EnvAttended says someone is at the connection's terminal, so a question ssh
+// asks that is not for the password can be put to them.
+//
+// ssh sends the helper every prompt the connection has, not only the password
+// — SSH_ASKPASS_REQUIRE=force routes them all there — and the one that matters
+// is whether to trust a host key it has not seen before. Only a person can say
+// yes to that, so only a connection with one in front of it asks; everywhere
+// else the answer is no, which is what the same connection says for a host
+// that logs in with a key.
+const EnvAttended = "OMASSH_ASKPASS_ATTENDED"
+
+// AttendedEnv is Env for a connection someone is sitting in front of — the
+// full-screen session and the pane.
+func AttendedEnv(h store.Host) []string {
+	env := Env(h)
+	if len(env) == 0 {
+		return nil
+	}
+	return append(env, EnvAttended+"=1")
+}
+
 // Unattended are the options for a connection with nobody in front of it: a
 // forward in a detached tmux session, or an sftp child whose stdin is carrying
 // the protocol rather than a keyboard.

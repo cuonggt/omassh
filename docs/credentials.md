@@ -58,6 +58,14 @@ answers, and a wrong password fails at once rather than looping on a prompt
 nobody can see. What must never happen there is a connection that waits, and
 neither of those waits.
 
+A question is not answered with the password. ssh puts every prompt of the
+connection to the helper, and the one that matters besides the password is
+whether to trust a host key it has not seen before. Connecting with `enter` or
+in the pane, that question comes to you on the terminal, as ssh on its own
+would ask it. Where nobody is watching, the answer is no, and the connection
+stops with "Host key verification failed" — as it would for a host with a key,
+and put right the same way, by connecting once with `enter` and answering.
+
 ## On another machine
 
 `omassh export` carries a credential's name, kind, user and key path, and

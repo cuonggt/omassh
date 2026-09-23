@@ -52,6 +52,27 @@ func TestOnlyAPasswordCredentialChangesTheEnvironment(t *testing.T) {
 	}
 }
 
+// Only a connection someone is sitting in front of says so. Told someone is
+// there, the helper puts a question to the terminal and waits for an answer —
+// and a tunnel or an sftp session told that would wait on a prompt nobody can
+// see, which is the one thing an unattended connection must never do.
+func TestOnlyAnAttendedConnectionSaysSomeoneIsThere(t *testing.T) {
+	if env := Env(passwordHost()); strings.Contains(strings.Join(env, " "), EnvAttended) {
+		t.Errorf("the unattended environment says someone is there: %v", env)
+	}
+	attended := strings.Join(AttendedEnv(passwordHost()), " ")
+	if !strings.Contains(attended, EnvAttended+"=1") {
+		t.Errorf("the attended environment does not say so: %q", attended)
+	}
+	if !strings.Contains(attended, EnvCredential+"=c1") {
+		t.Errorf("saying so lost the credential: %q", attended)
+	}
+	// A host with no password has no helper to tell anything.
+	if env := AttendedEnv(keyHost()); len(env) != 0 {
+		t.Errorf("a key host got %v, want nothing", env)
+	}
+}
+
 // ssh is told not to walk the agent's keys first. On a host offering several,
 // it can exhaust MaxAuthTries on keys it was never going to be let in with and
 // be refused before it reaches the password at all.

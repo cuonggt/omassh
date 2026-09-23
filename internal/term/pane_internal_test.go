@@ -66,6 +66,23 @@ func TestAPaneWithoutTmuxKeepsWhatAPasswordCredentialNeeds(t *testing.T) {
 	}
 }
 
+// A pane is a session someone is looking at, so the helper may put ssh's
+// questions to them there — whether to trust a host key it has not seen, which
+// has no answer but no anywhere nobody is watching.
+func TestAPaneSaysSomeoneIsInFrontOfIt(t *testing.T) {
+	plain, _ := sessionCommand(passwordHost(), false)
+	if v, _ := effective(plain.Env, sshx.EnvAttended); v != "1" {
+		t.Errorf("a pane without tmux does not say someone is there: %q", v)
+	}
+	tmux, session := sessionCommand(passwordHost(), true)
+	if session == "" {
+		t.Fatal("a tmux-backed pane has a session name to reattach to")
+	}
+	if args := strings.Join(tmux.Args, " "); !strings.Contains(args, sshx.EnvAttended+"=1") {
+		t.Errorf("a tmux-backed pane does not say someone is there:\n  %s", args)
+	}
+}
+
 // A host with no credential is the plain child it always was, carrying only
 // the TERM the emulator implements.
 func TestAPaneWithoutTmuxAndWithoutACredentialCarriesOnlyTERM(t *testing.T) {

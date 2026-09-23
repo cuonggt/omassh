@@ -136,7 +136,7 @@ func (c *timedCmd) SetStderr(w io.Writer) {
 // exactly as they would without omassh in the picture.
 func Connect(h store.Host) tea.Cmd {
 	c := &timedCmd{Cmd: exec.Command("ssh", Build(h)...)}
-	if env := Env(h); len(env) > 0 {
+	if env := AttendedEnv(h); len(env) > 0 {
 		c.Env = append(os.Environ(), env...)
 	}
 

@@ -180,7 +180,7 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 // the stored password was simply never reached.
 func sessionCommand(h store.Host, tmuxOK bool) (*exec.Cmd, string) {
 	sshArgs := sshx.Build(h)
-	env := sshx.Env(h)
+	env := sshx.AttendedEnv(h)
 
 	if tmuxOK {
 		if cmd, name, err := tmuxCommand(h, sshArgs, env); err == nil {
