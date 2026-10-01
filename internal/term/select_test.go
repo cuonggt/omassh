@@ -135,9 +135,12 @@ func TestADoubleClickInATmuxSessionCopiesAWord(t *testing.T) {
 // live view.
 func TestACopyLeavesAScrolledBackViewLive(t *testing.T) {
 	p := openTmuxPane(t, 60, 10)
-	type_(p, "seq 1 60")
+	// Waited for by a row the output starts and the command line does not. It
+	// waited for "60", which the echo of the command itself has, so the view
+	// was now and then scrolled before there was any history to scroll into.
+	type_(p, "seq 1 60; echo printed")
 	p.SendKey(enter)
-	waitFor(t, p, "60", 15*time.Second)
+	rowStarting(t, p, "printed")
 
 	p.ScrollUp(5)
 	if off, _ := p.ScrollOffset(); off == 0 {
