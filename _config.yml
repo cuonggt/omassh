@@ -1,0 +1,7 @@
+# The GitHub Pages site, https://cuonggt.github.io/omassh/, renders the README
+# and docs/ as they are. Without a title the theme headed the README with the
+# repository's own name, lowercase, above the README's "Omassh" — the same
+# word twice, once wrong. With it, the front page starts at the README, and
+# each page in docs/ is headed by a link back to it.
+title: Omassh
+description: A keyboard-driven SSH client for the terminal, on top of real OpenSSH
