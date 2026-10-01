@@ -6,9 +6,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// Mouse support is click-to-select only: put the cursor on a group, a host, or
-// the session pane. Everything remains reachable from the keyboard, so this
-// adds a way in rather than a dependency.
+// Mouse support is click-to-select: put the cursor on a group, a host, or the
+// session pane. Everything remains reachable from the keyboard, so this adds a
+// way in rather than a dependency. The one thing only the mouse does is select
+// text in a session, which is the pane's own business — see term.Pane.Press.
 //
 // The layout is derived rather than recorded. browserBody computes the same
 // geometry from the same inputs each frame, so hit-testing recomputes it
@@ -54,10 +55,15 @@ func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
 	}
 
 	// The main pane: a live session takes it, otherwise it is host detail and
-	// there is nothing to focus.
+	// there is nothing to focus. Over the session itself the left button
+	// goes to the session as well, where it starts a selection.
 	if e.X >= l.side {
 		if m.attached != nil {
 			m.focus = panelSession
+			if x, y, inside := m.paneCell(e); inside && e.Button == tea.MouseLeft {
+				m.attached.Press(x, y)
+				m.dragPane = m.attached
+			}
 		}
 		return m, nil
 	}
@@ -144,6 +150,55 @@ func (m Model) handleMouseWheel(e tea.Mouse) (tea.Model, tea.Cmd) {
 		m.hostIdx = clamp(m.hostIdx+step, 0, max(len(m.visibleHosts())-1, 0))
 	}
 	return m, nil
+}
+
+// handleMouseMotion carries a drag that began in the session pane, wherever
+// the pointer has gone since. A selection does not end because the pointer
+// strayed over the host list, any more than it would in a terminal; it stops
+// at the edge of the session instead.
+func (m Model) handleMouseMotion(e tea.Mouse) (tea.Model, tea.Cmd) {
+	if m.dragPane == nil || m.dragPane != m.attached {
+		return m, nil
+	}
+	x, y, _ := m.paneCell(e)
+	m.attached.Drag(x, y)
+	return m, nil
+}
+
+// handleMouseRelease ends a drag in the session pane, and copies what it
+// selected. A session in tmux says what it copied a moment later, with its
+// output; one without says now.
+func (m Model) handleMouseRelease(e tea.Mouse) (tea.Model, tea.Cmd) {
+	p := m.dragPane
+	m.dragPane = nil
+	if p == nil || p != m.attached {
+		return m, nil
+	}
+	x, y, _ := m.paneCell(e)
+	if text := p.Release(x, y); text != "" {
+		return m, m.copyText(text)
+	}
+	return m, nil
+}
+
+// paneCell is the cell of the session under the pointer, held inside the
+// session, and whether the pointer is over the session at all rather than its
+// border or the rest of the screen.
+//
+// Held inside because a drag that leaves the session keeps selecting up to its
+// edge, and tmux, given a cell that is not in its pane, would drop the motion
+// rather than move the selection.
+func (m Model) paneCell(e tea.Mouse) (x, y int, inside bool) {
+	w, h := m.attached.Size()
+	// sessionArea never makes a pane narrower than its floor, so on a narrow
+	// frame part of one lies past the edge of the screen, where nothing can be
+	// pointed at.
+	w = min(w, m.w-m.sidebar()-4)
+	h = min(h, m.h-statusHeight-2)
+	// The border and the space inside it come before the first cell.
+	x, y = e.X-m.sidebar()-2, e.Y-1
+	inside = x >= 0 && x < w && y >= 0 && y < h
+	return clamp(x, 0, max(w-1, 0)), clamp(y, 0, max(h-1, 0)), inside
 }
 
 // wheelFilePane moves the selection in the file pane under the pointer.

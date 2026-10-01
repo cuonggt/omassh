@@ -79,6 +79,17 @@ type Pane struct {
 	// for every frame drawn; keys queued behind tmux launches, and an idle
 	// session launched twenty a second just to draw its title. Guarded by mu.
 	tmuxOffset, tmuxHistory int
+
+	// press is the left button while it is down in the pane. Guarded by mu.
+	press *press
+
+	// copied is what tmux last copied from the session, until the interface
+	// takes it, and released when the button last came up here — which is
+	// how a copy asked for in this window is told from one that was not.
+	// Guarded by mu.
+	copied    string
+	hasCopied bool
+	released  time.Time
 }
 
 // Open starts an ssh session for h inside a w x h pane.
@@ -112,6 +123,11 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 		changed: make(chan struct{}, 1),
 	}
 	p.em.SetScrollbackSize(scrollback)
+	// What tmux copies arrives with the output. Registered before anything
+	// reads the output, since the emulator does not lock its handlers.
+	if session != "" {
+		p.em.RegisterOscHandler(52, p.tmuxCopied)
+	}
 	// A session being reattached can still be scrolled back from the window
 	// that last had it, and typing into that would land in tmux's copy mode.
 	if session != "" {
@@ -269,6 +285,7 @@ func (p *Pane) Resize(w, h int) {
 	if same {
 		return
 	}
+	p.forgetSelection()
 	p.emMu.Lock()
 	p.em.Resize(w, h)
 	p.emMu.Unlock()
@@ -279,8 +296,13 @@ func (p *Pane) Resize(w, h int) {
 
 // Render returns the pane's screen as a styled string. When scrolled back it
 // composes the visible window from scrollback lines followed by the top of the
-// live screen, so the join is seamless.
+// live screen, so the join is seamless. A selection being made here is drawn
+// over the view it was made on.
 func (p *Pane) Render() string {
+	if s, ok := p.selection(); ok {
+		return drawSelection(s.view, s.ax, s.ay, s.bx, s.by)
+	}
+
 	p.emMu.RLock()
 	defer p.emMu.RUnlock()
 
@@ -321,6 +343,7 @@ func (p *Pane) ScrollUp(lines int) {
 		p.recordTmuxScroll()
 		return
 	}
+	p.forgetSelection()
 	p.emMu.RLock()
 	max := p.em.ScrollbackLen()
 	p.emMu.RUnlock()
@@ -339,6 +362,7 @@ func (p *Pane) ScrollDown(lines int) {
 		p.recordTmuxScroll()
 		return
 	}
+	p.forgetSelection()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.scroll = max(p.scroll-lines, 0)
@@ -350,11 +374,12 @@ func (p *Pane) ScrollDown(lines int) {
 // For a tmux session that means leaving copy mode, which has to happen before
 // the key is sent — tmux would otherwise take it as a copy-mode command — but
 // only when the view is actually scrolled. It used to be done for every key,
-// scrolled or not, at the cost of a tmux launch each time.
+// scrolled or not, at the cost of a tmux launch each time. A drag still in
+// progress counts as scrolled, since it is tmux's copy mode that draws it.
 func (p *Pane) ScrollToBottom() {
 	if p.session != "" {
 		p.mu.Lock()
-		scrolled := p.tmuxOffset > 0
+		scrolled := p.tmuxOffset > 0 || p.press != nil && p.press.tmux && p.press.moved
 		p.tmuxOffset = 0
 		p.mu.Unlock()
 		if scrolled {
@@ -362,6 +387,7 @@ func (p *Pane) ScrollToBottom() {
 		}
 		return
 	}
+	p.forgetSelection()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.scroll = 0

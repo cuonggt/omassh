@@ -137,6 +137,12 @@ type Options struct {
 	// the run shares — including the ones that shell out to tmux. Nil asks the
 	// machine, so only the tests pay for the indirection.
 	TmuxAvailable func() bool
+
+	// Clipboard puts copied text on this machine's clipboard, and fails when
+	// nothing here will take it, which leaves the terminal to be asked. Nil is
+	// the machine's own clipboard program; the tests set it, since a suite
+	// that copied would overwrite whatever its runner had copied last.
+	Clipboard func(text string) error
 }
 
 // Model is the root Bubble Tea model.
@@ -198,6 +204,9 @@ type Model struct {
 	// double click is: terminals report each press separately and carry no
 	// click count of their own.
 	lastClick clickAt
+	// dragPane is the session a drag began in, until the button comes up.
+	// The drag belongs to it wherever the pointer goes meanwhile.
+	dragPane  *term.Pane
 	transfers chan transferMsg
 	transfer  transferMsg
 	// copying is the stop button for the transfer in flight, if there is one.
@@ -403,6 +412,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.handleMouseWheel(msg.Mouse())
+
+	case tea.MouseMotionMsg:
+		if !m.ready {
+			return m, nil
+		}
+		return m.handleMouseMotion(msg.Mouse())
+
+	case tea.MouseReleaseMsg:
+		if !m.ready {
+			return m, nil
+		}
+		return m.handleMouseRelease(msg.Mouse())
+
+	case clipboardMsg:
+		return m.handleCopied(msg)
 	}
 	return m, nil
 }

@@ -121,6 +121,14 @@ Session names are the namespace: `omassh-<name>-<statkey>` for a host,
 `omassh--fwd-<id>` for a tunnel. The second dash is load-bearing — `sanitize`
 trims dashes off a host name, so nothing it produces can collide with a forward.
 
+Selecting text in the pane is tmux's too (`internal/term/select.go`). The server
+runs with `mouse on`, the pane passes the left button through to it, and what
+tmux copies comes back to the pane's emulator as OSC 52 — `set-clipboard
+external`, so the far side cannot write the clipboard the same way. A pane with
+no live tmux behind it selects for itself, from a still copy of its screen. A
+test driving tmux's selection has to pace its events: tmux enters copy mode by
+queueing a command, and a release that arrives before it runs is dropped.
+
 **The store is opened per operation, never held.** `internal/store` is bbolt,
 which takes the file exclusively; holding it open for the life of the program
 meant a second Omassh could not start, which the full-screen handoff makes

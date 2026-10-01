@@ -71,9 +71,41 @@ the pane keeps 2,000 lines itself.
 Omassh takes the mouse while it is on screen, so the wheel scrolls whichever
 list or session is under the pointer. Left to itself, a terminal turns the
 wheel into arrow keys on the alternate screen, and in a shell that means
-stepping through the commands you last ran. Selecting text with the mouse
-therefore takes your terminal's own modifier — `shift` in most of them — as it
-does under tmux.
+stepping through the commands you last ran.
+
+### Selecting and copying
+
+Drag across a session to select text; letting go copies it. The status bar
+says what was copied — the text itself when it is a line, how many lines when
+it is more — since a clipboard cannot be looked at to check. While the button
+is down the session holds still, so output arriving meanwhile cannot slide
+under the selection and be copied in place of what you chose.
+
+With tmux the selection is tmux's own. It joins a line the pane wrapped back
+into one, so a long command or a URL comes out whole rather than broken where
+the pane happened to be narrow. A double click takes a word, a triple click a
+line, and dragging to the top or bottom edge carries on into the history.
+Without tmux, or once a session has ended, Omassh selects what the pane is
+showing itself, a row to a line, and those are not there.
+
+A program that asks for the mouse itself — vim with `mouse=a`, htop — gets the
+drag instead, as it would in a terminal. Your terminal's own selection is still
+behind its modifier, `shift` in most, but it runs the whole width of the window
+and takes the host list along with it.
+
+The copy goes to this machine's clipboard: `pbcopy` on macOS, and `wl-copy`,
+`xclip` or `xsel` on Linux, whichever the display has. With none of those, or
+when Omassh is itself running over ssh — where this machine's clipboard is not
+the one at your keyboard — it asks the terminal to copy instead, with OSC 52,
+and says it asked rather than that it copied. A terminal may refuse, and
+nothing comes back to say so: iTerm2 does until "Applications in terminal may
+access clipboard" is on, and a tmux of your own in between needs
+`set-clipboard on` to pass the request along.
+
+Only what you select reaches the clipboard. A program on the far side can
+write OSC 52 too, and Omassh's tmux refuses it from them — otherwise any host
+you connected to could put what it liked on your clipboard, ready to be pasted
+into a shell.
 
 ## Sessions that outlive the window
 

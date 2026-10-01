@@ -34,6 +34,8 @@ type harness struct {
 	// dbPath is kept so a test can damage the file directly, which is the only
 	// way to see what the interface does with a record it cannot decode.
 	dbPath string
+	// clipboard is everything copied, in order, in place of the machine's.
+	clipboard []string
 }
 
 // corrupt writes a record that will not decode, straight into the file. The
@@ -64,15 +66,22 @@ func newHarness(t *testing.T, opts ...func(*Options)) *harness {
 	}
 	t.Cleanup(func() { st.Close() })
 
+	h := &harness{t: t, store: st, dbPath: dbPath}
 	o := Options{
 		Keys:         keymap.Default(),
 		ProbeTimeout: time.Second,
+		// Never the real clipboard, for the reason it is never the real
+		// keychain: a run of the suite would replace whatever its runner had
+		// copied last.
+		Clipboard: func(text string) error {
+			h.clipboard = append(h.clipboard, text)
+			return nil
+		},
 	}
 	for _, fn := range opts {
 		fn(&o)
 	}
-
-	h := &harness{t: t, store: st, dbPath: dbPath, m: New(st, o)}
+	h.m = New(st, o)
 	// Never the real keychain. New opens whatever this machine has, and a test
 	// that stored a password would put it in the keychain of whoever ran the
 	// suite — the same objection the tmux tests answer with a socket of their

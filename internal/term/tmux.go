@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -85,7 +86,7 @@ func confPath() (string, error) {
 		"set -g status off\n" +
 		"set -g history-limit 10000\n" +
 		"set -g escape-time 10\n"
-	for _, c := range passKeysThrough {
+	for _, c := range serverOptions() {
 		body += strings.Join(c, " ") + "\n"
 	}
 	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
@@ -103,10 +104,37 @@ func confPath() (string, error) {
 // this server behind the user's back. omassh has a prefix of its own, ctrl+\,
 // and drives copy mode by command rather than by key, so tmux's bindings have
 // nothing left to do here. With neither prefix set no key can reach them, and
-// the root table holds only the status line's wheel, with the line turned off.
+// the root table holds only what the mouse does, which is the next setting's
+// business.
 var passKeysThrough = [][]string{
 	{"set-option", "-g", "prefix", "None"},
 	{"set-option", "-g", "prefix2", "None"},
+}
+
+// selectWithTheMouse lets a drag in the pane select text the way tmux selects
+// it, and gives what tmux copied back to omassh.
+//
+// mouse is what has tmux read the mouse at all. The pane passes it the left
+// button — the wheel stays omassh's, which scrolls by command — and tmux draws
+// the selection, joins a line it wrapped back into one, takes a word on a
+// double click and a line on a triple. set-clipboard
+// external has tmux write what it copies to its client — the pane's emulator —
+// as OSC 52, and refuse that sequence from whatever is running in the session.
+// on would accept it, and the far side could then put anything it liked on the
+// clipboard of whoever was looking at it. external is tmux's default and is
+// said anyway, because the difference matters more than a default can be
+// relied on to. mode-style draws the selection in the terminal's own reverse
+// video, as the host list draws its own, rather than in tmux's yellow.
+var selectWithTheMouse = [][]string{
+	{"set-option", "-g", "mouse", "on"},
+	{"set-option", "-g", "set-clipboard", "external"},
+	{"set-option", "-g", "mode-style", "reverse"},
+}
+
+// serverOptions are the settings every session needs from the server, whichever
+// omassh started it.
+func serverOptions() [][]string {
+	return slices.Concat(passKeysThrough, selectWithTheMouse)
 }
 
 // tmuxCommand wraps an ssh invocation in a persistent tmux session, attaching
@@ -122,7 +150,7 @@ func tmuxCommand(h store.Host, sshArgs, env []string) (*exec.Cmd, string, error)
 	// older omassh is still running with tmux's prefix on. So the settings
 	// also go ahead of the session in this same command — no launch of their
 	// own, and a server just started from the config is merely told twice.
-	for _, c := range passKeysThrough {
+	for _, c := range serverOptions() {
 		args = append(append(args, c...), ";")
 	}
 	args = append(args, "new-session", "-A", "-s", name)

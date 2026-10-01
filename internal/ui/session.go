@@ -387,10 +387,15 @@ func (m Model) handlePaneOutput(msg paneOutputMsg) (tea.Model, tea.Cmd) {
 	if !m.attached.Alive() && m.focus == panelSession {
 		m.setStatus(endedMessage(m.attached))
 	}
-	if msg.over {
-		return m, nil
+	// What tmux copies from the session arrives with its output.
+	var copied tea.Cmd
+	if text, ok := m.attached.TakeCopy(); ok {
+		copied = m.copyText(text)
 	}
-	return m, watchPane(m.attached, time.Now())
+	if msg.over {
+		return m, copied
+	}
+	return m, tea.Batch(copied, watchPane(m.attached, time.Now()))
 }
 
 // endedMessage is what a session that has stopped says, and how to leave it.

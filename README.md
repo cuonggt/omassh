@@ -88,7 +88,7 @@ More in [hosts, groups and jump hosts](docs/hosts.md) and
 brings you back when it exits. `t` opens the session in the main pane beside
 the list instead. While the pane has focus every key goes to the remote, so
 Omassh's own commands sit behind `ctrl+\`: `ctrl+\ w` back to the list,
-`ctrl+\ d` to detach.
+`ctrl+\ d` to detach. A drag across it copies what it covers.
 
 **[Files](docs/sftp.md).** `s` opens a two-pane browser, your machine beside
 the host. Copies land atomically, a directory goes over as a whole tree, and
@@ -144,9 +144,9 @@ In a session in the main pane, behind the `ctrl+\` prefix:
 In a form, `tab` moves between fields, `↓` offers what you already use — jump
 hosts, groups, tags — and `↵` saves. The lists behind `C`, `S` and `f` take
 `n`, `e` and `d` the same way. A click selects, the wheel scrolls whichever
-list or session is under the pointer, and paste works everywhere, a session
-included. Every key in the first table can be
-[rebound](docs/configuration.md#keys).
+list or session is under the pointer, a drag across a session copies what it
+covers, and paste works everywhere, a session included. Every key in the first
+table can be [rebound](docs/configuration.md#keys).
 
 ## Command line
 
@@ -180,8 +180,15 @@ program running in them — iTerm2's `cmd+K` is the common one — and Omassh
 still believes its last frame is there. `ctrl+l` repaints; inside a session,
 where `ctrl+l` belongs to the remote shell, use `ctrl+\ r`.
 
-**Text will not select.** Omassh takes the mouse so that the wheel scrolls.
-Hold your terminal's modifier — `shift` in most — to select as usual.
+**Copying from a session puts nothing on the clipboard.** If the status bar
+says it asked the terminal to copy, there was no clipboard program to hand it
+to — Omassh is running over ssh, or Linux has no `wl-copy`, `xclip` or
+`xsel` — and the terminal turned the request down. iTerm2 needs "Applications
+in terminal may access clipboard"; a tmux of your own needs `set-clipboard on`.
+
+**Text outside a session will not select.** Omassh takes the mouse so that the
+wheel scrolls and a drag in a session copies. Hold your terminal's modifier —
+`shift` in most — to select anywhere else as usual.
 
 **A tunnel, the file browser or a snippet run cannot log in.** Nobody is there
 to answer a prompt, so those connections never ask. `ssh-add` a key that has a
