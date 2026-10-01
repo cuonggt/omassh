@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -486,8 +487,20 @@ func (p *Pane) Close() error {
 	var err error
 	p.closeOnce.Do(func() {
 		if p.cmd != nil && p.cmd.Process != nil {
-			// Killing the client detaches; the session belongs to the server.
-			p.cmd.Process.Signal(os.Interrupt)
+			// Ending the client detaches; the session belongs to the server.
+			//
+			// tmux's client takes no notice of an interrupt, so every Close
+			// sat out the second below before killing it — and with the
+			// interface waiting on it, stepping from one session to the next
+			// froze everything for that second each time. SIGTERM is how a
+			// tmux client is told to detach, and it goes at once. ssh run
+			// plainly ends on the interrupt it was always sent.
+			sig := os.Interrupt
+			if p.session != "" {
+				sig = syscall.SIGTERM
+				p.awaitClient(time.Second)
+			}
+			p.cmd.Process.Signal(sig)
 			select {
 			case <-p.done:
 			case <-time.After(time.Second):
@@ -497,6 +510,25 @@ func (p *Pane) Close() error {
 		err = p.pty.Close()
 	})
 	return err
+}
+
+// awaitClient gives a tmux client that is still starting up to d to attach.
+//
+// One told to go before then goes before it has made the session — and one
+// that was starting the server leaves a server with no session in it, which
+// exits. The interrupt this used to send was ignored for the second Close
+// then waited, which covered that by accident; SIGTERM is answered at once.
+// The client takes the screen over once it is attached, and the emulator
+// hears it do so, so there is nothing to ask tmux.
+func (p *Pane) awaitClient(d time.Duration) {
+	deadline := time.Now().Add(d)
+	for !p.em.IsAltScreen() && time.Now().Before(deadline) {
+		select {
+		case <-p.done:
+			return
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
 }
 
 // Kill ends the underlying session outright, rather than detaching from it.

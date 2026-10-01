@@ -60,6 +60,56 @@ func TestTheSuiteLeavesNothingBehind(t *testing.T) {
 	}
 }
 
+// Detaching is immediate, and leaves the session running. tmux's client takes
+// no notice of the interrupt it used to be sent, so every detach waited out a
+// second and then killed it — and stepping between sessions, which detaches
+// from one to reach the next, froze the interface for that second each time.
+func TestDetachingFromASessionIsImmediate(t *testing.T) {
+	p := openTmuxPane(t, 60, 10)
+
+	start := time.Now()
+	p.Close()
+	if took := time.Since(start); took > 500*time.Millisecond {
+		t.Errorf("detaching took %v, which is the second it used to wait out", took.Round(time.Millisecond))
+	}
+	if !term.HasLiveSession(p.Host) {
+		t.Error("the session went with the pane that detached from it")
+	}
+}
+
+// Detaching the moment a pane opens still leaves its session running. A tmux
+// client told to go before it has attached goes before it has made the
+// session — and one that was starting the server leaves a server with nothing
+// in it, which exits. So the server is stopped first, to make this pane's
+// client the one that starts it.
+func TestDetachingAsSoonAsASessionOpensLeavesItRunning(t *testing.T) {
+	if !term.TmuxAvailable() {
+		t.Skip("tmux not installed; sessions are ephemeral")
+	}
+	exec.Command("tmux", "-L", testSocket(t), "kill-server").Run()
+	sshx.SetGlobalOptions([]string{
+		"StrictHostKeyChecking=no", "UserKnownHostsFile=/dev/null", "IdentitiesOnly=yes",
+	})
+	t.Cleanup(func() { sshx.SetGlobalOptions(nil) })
+	h := testHost(t)
+	h.ID, h.Name = "early-1", "earlybox"
+
+	p, err := term.Open(h, 60, 10)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { p.Kill() })
+	p.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for !term.HasLiveSession(h) && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !term.HasLiveSession(h) {
+		t.Error("closing the pane as it opened left no session behind")
+	}
+}
+
 // The whole point: a session must outlive the pane that opened it, and
 // reconnecting must return to it rather than starting again.
 func TestSessionSurvivesThePaneAndReattaches(t *testing.T) {
