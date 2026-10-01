@@ -129,6 +129,11 @@ no live tmux behind it selects for itself, from a still copy of its screen. A
 test driving tmux's selection has to pace its events: tmux enters copy mode by
 queueing a command, and a release that arrives before it runs is dropped.
 
+The wheel is decided a notch at a time in `Pane.Wheel`: a shell's goes to the
+history, a full-screen program gets arrow keys, and one that asked for the
+mouse gets the wheel. With tmux that means asking tmux — the emulator is tmux's
+client's terminal, so it only ever hears tmux's own modes, never the program's.
+
 **The store is opened per operation, never held.** `internal/store` is bbolt,
 which takes the file exclusively; holding it open for the life of the program
 meant a second Omassh could not start, which the full-screen handoff makes

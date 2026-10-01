@@ -73,6 +73,14 @@ list or session is under the pointer. Left to itself, a terminal turns the
 wheel into arrow keys on the alternate screen, and in a shell that means
 stepping through the commands you last ran.
 
+Over a session the wheel goes where a terminal would send it. In a shell it
+goes back through the output. A program that has taken the whole screen —
+less, man, vim — gets the arrow keys a terminal sends in its place, so the
+wheel moves through the file rather than through whatever the shell said
+before the program started. A program that asked for the mouse — vim with
+`mouse=a`, htop — gets the wheel itself. Once you have scrolled back, the wheel
+stays in the history until you return to the live view.
+
 ### Selecting and copying
 
 Drag across a session to select text; letting go copies it. The status bar

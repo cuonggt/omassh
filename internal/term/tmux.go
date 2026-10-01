@@ -306,6 +306,27 @@ func tmuxCopyCancel(session string) error {
 	return exec.Command("tmux", "-L", tmuxSocket(), "send-keys", "-t", session, "-X", "cancel").Run()
 }
 
+// tmuxProgram reports what the program in a session has asked of its
+// terminal: whether the pane is in copy mode, whether the program is on the
+// alternate screen, and whether it wants the mouse. ok is false when tmux
+// would not say, which leaves the wheel where it went before anyone asked.
+//
+// tmux has to be asked. The pane's emulator is the terminal of tmux's client,
+// so what it hears is tmux turning on the alternate screen and the mouse for
+// itself — always, whatever the program in the session wants.
+func tmuxProgram(session string) (inMode, alternate, mouse, ok bool) {
+	out, err := exec.Command("tmux", "-L", tmuxSocket(), "display-message", "-p", "-t", session,
+		"-F", "#{pane_in_mode}"+fieldSep+"#{alternate_on}"+fieldSep+"#{mouse_any_flag}").Output()
+	if err != nil {
+		return false, false, false, false
+	}
+	f := strings.Split(strings.TrimSpace(string(out)), fieldSep)
+	if len(f) != 3 {
+		return false, false, false, false
+	}
+	return f[0] == "1", f[1] == "1", f[2] == "1", true
+}
+
 // tmuxScrollPosition reports how far back the pane is scrolled, and how much
 // history exists.
 func tmuxScrollPosition(session string) (offset, available int) {

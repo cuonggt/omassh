@@ -134,9 +134,16 @@ func (m Model) handleMouseWheel(e tea.Mouse) (tea.Model, tea.Cmd) {
 	// keys unless the application is asking for the mouse, so a wheel over a
 	// focused session — where omassh was not asking — arrived as up and down,
 	// and a shell answered with the commands you last ran.
+	//
+	// A program that has the whole screen is offered the notch first, since
+	// the history behind it is the shell's from before it started; Wheel says
+	// whether it was taken. See term.Pane.Wheel.
 	if e.X >= l.side {
 		if m.attached != nil {
-			m.scrollAttached(step * wheelLines)
+			x, y, _ := m.paneCell(e)
+			if !m.attached.Wheel(x, y, step < 0, wheelLines) {
+				m.scrollAttached(step * wheelLines)
+			}
 		}
 		return m, nil
 	}

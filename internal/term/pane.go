@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -90,6 +91,11 @@ type Pane struct {
 	copied    string
 	hasCopied bool
 	released  time.Time
+
+	// mouse is the mouse modes the program in a pane without tmux has turned
+	// on, a bit each: it asked for the mouse while any is set. See
+	// followProgramMouse.
+	mouse atomic.Uint32
 }
 
 // Open starts an ssh session for h inside a w x h pane.
@@ -123,10 +129,13 @@ func Open(h store.Host, w, height int) (*Pane, error) {
 		changed: make(chan struct{}, 1),
 	}
 	p.em.SetScrollbackSize(scrollback)
-	// What tmux copies arrives with the output. Registered before anything
-	// reads the output, since the emulator does not lock its handlers.
+	// What tmux copies arrives with the output, and without tmux so does the
+	// program asking for the mouse. Registered before anything reads the
+	// output, since the emulator does not lock its handlers.
 	if session != "" {
 		p.em.RegisterOscHandler(52, p.tmuxCopied)
+	} else {
+		p.followProgramMouse()
 	}
 	// A session being reattached can still be scrolled back from the window
 	// that last had it, and typing into that would land in tmux's copy mode.
