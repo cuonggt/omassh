@@ -32,6 +32,13 @@ with tmux, the session you left keeps running, marked by a yellow `●`, and `t`
 on that host reattaches it. `t` on the host already in the pane goes back to
 it rather than opening a second session over the top.
 
+`ctrl+\ n` and `ctrl+\ p` step to the next and previous host with a session
+running, without going back to the list — every such host, in the list's
+order and round again at the end, the way tmux's own `n` and `p` step between
+windows. The session you step away from keeps running, and the status says
+which of them you are on: `session 2 of 3`. Without tmux there is never
+another one to step to, since a session ends when the pane leaves it.
+
 ### The prefix
 
 While the pane has focus every key goes to the remote, `ctrl+c` included, so
@@ -41,6 +48,7 @@ behind `ctrl+b`:
 | keys | |
 |---|---|
 | `ctrl+\ w` | back to the host list; the session stays connected and visible |
+| `ctrl+\ n` / `ctrl+\ p` | the next / previous host with a session running |
 | `ctrl+\ d` | detach; the session keeps running, and `t` reattaches |
 | `ctrl+\ X` | end the session for good |
 | `ctrl+\ k` / `ctrl+\ j` | scroll back / forward a page |

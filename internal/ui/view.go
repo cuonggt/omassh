@@ -522,6 +522,7 @@ func (m Model) helpLines() []string {
 		}},
 		{"Main-pane session (" + m.keys.Key(keymap.Pane) + ", then the " + prefixKey + " prefix)", [][2]string{
 			{"prefix w", "back to the host list; the session keeps running"},
+			{"prefix n / p", "the next or previous host with a session running"},
 			{"prefix k / j", "scroll back and forward a page through the output"},
 			{"prefix G", "return to the live view"},
 			{"prefix d", "detach — the session keeps running, " + m.keys.Key(keymap.Pane) + " to reattach"},
@@ -652,9 +653,9 @@ func (m Model) statusBar() string {
 		switch {
 		case m.prefixArmed:
 			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
-				hint("w", "host list") + sep() + hint("d", "detach") + sep() +
-				hint("X", "end") + sep() + hint("k/j", "scroll") +
-				sep() + hint("G", "live")
+				hint("w", "host list") + sep() + hint("n/p", "switch") + sep() +
+				hint("d", "detach") + sep() + hint("X", "end") + sep() +
+				hint("k/j", "scroll") + sep() + hint("G", "live")
 		case m.focus == panelSession && m.attached != nil && !m.attached.Alive():
 			// The remote is gone, so neither of the live hints is true any
 			// more: there is nothing to detach from and nothing for a key to

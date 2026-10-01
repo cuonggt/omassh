@@ -84,6 +84,12 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 	if !ok {
 		return m, nil
 	}
+	return m.attachHost(h, attachedMessage)
+}
+
+// attachHost connects to h in the main pane, and says so in the words say
+// gives it — told whether the session is open in another window as well.
+func (m Model) attachHost(h store.Host, say func(shared bool) string) (tea.Model, tea.Cmd) {
 	// Already connected here: this is someone coming back to the session, not
 	// asking for another one. Reconnecting would close the pane first, and for
 	// a plain ssh child that ends the shell they were in the middle of.
@@ -117,8 +123,69 @@ func (m Model) attachSession() (tea.Model, tea.Cmd) {
 	m.attached = p
 	m.focus = panelSession
 	m.prefixArmed = false
-	m.setStatusOf(h.Name, attachedMessage(shared))
+	m.setStatusOf(h.Name, say(shared))
 	return m, watchPane(p, time.Time{})
+}
+
+// switchSession moves the pane to the next host with a session running — or
+// the previous one, dir -1 — in the host list's order, leaving the session it
+// was on running where it was.
+//
+// Reaching one of the others was the long way round: back to the list, along
+// it to the yellow mark, and t. tmux keeps every one of them alive, so they
+// are as open as the one on screen; this steps between them the way tmux's
+// own prefix n and p step between windows. It goes round every host, not only
+// the group on screen, as tmux goes round every window.
+func (m Model) switchSession(dir int) (tea.Model, tea.Cmd) {
+	if !m.tmuxAvailable() {
+		m.setStatus("no other session to switch to — without tmux a session ends when you leave it")
+		return m, nil
+	}
+	// Asked now rather than at the last reload: sessions start and end in
+	// other windows, and on their own.
+	m.reload()
+
+	// The others, in the list's order, and the place this host takes among
+	// them. A host deleted from another window has no place, and goes first.
+	here := m.attached.Host.ID
+	var others []store.Host
+	at, listed := 0, false
+	for _, h := range m.d.hosts {
+		switch {
+		case h.ID == here:
+			at, listed = len(others), true
+		case m.d.hasSession(h):
+			others = append(others, h)
+		}
+	}
+	if len(others) == 0 {
+		m.setStatus("no other session running")
+		return m, nil
+	}
+	// at is the slot this host would take among the others, so the next one
+	// along is already in it and the previous one is in the slot before.
+	n := len(others)
+	j := at
+	if dir < 0 {
+		j = at - 1
+	}
+	j = (j%n + n) % n
+
+	// Counted as the user would count them down the list: the one being left
+	// is one of them while it is still running, and sits at its own place.
+	pos, total := j+1, n
+	if listed && m.attached.Alive() {
+		total++
+		if j >= at {
+			pos++
+		}
+	}
+	return m.attachHost(others[j], func(shared bool) string {
+		if shared {
+			return attachedMessage(shared)
+		}
+		return fmt.Sprintf("session %d of %d — %s n/p to switch", pos, total, prefixKey)
+	})
 }
 
 // attachedMessage says what has just been connected to, and warns when the
@@ -244,6 +311,10 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 	case "d":
 		return m.detachSession(m.detachMessage())
+	case "n":
+		return m.switchSession(1)
+	case "p":
+		return m.switchSession(-1)
 	case "X":
 		return m.killSession()
 	case "k", "up", "pgup":

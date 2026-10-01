@@ -136,6 +136,7 @@ In a session in the main pane, behind the `ctrl+\` prefix:
 | key | |
 |---|---|
 | `ctrl+\ w` | back to the host list; the session keeps running |
+| `ctrl+\ n` / `ctrl+\ p` | the next / previous host with a session running |
 | `ctrl+\ d` / `ctrl+\ X` | detach / end the session |
 | `ctrl+\ k` / `ctrl+\ j` | scroll back / forward a page |
 | `ctrl+\ G` | back to the live view |
