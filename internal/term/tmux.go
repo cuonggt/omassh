@@ -125,10 +125,21 @@ var passKeysThrough = [][]string{
 // said anyway, because the difference matters more than a default can be
 // relied on to. mode-style draws the selection in the terminal's own reverse
 // video, as the host list draws its own, rather than in tmux's yellow.
+//
+// mode-keys is emacs whatever the environment says. tmux reads $VISUAL and
+// $EDITOR as it starts, and gives anyone whose editor mentions vi the vi copy
+// mode, whose selection takes the cell under the pointer along with the cells
+// dragged across. So for every vim user a drag copied one character more than
+// it covered, and a line dragged to its end came with its newline. Nothing
+// the suite ran on had an editor set, and it took a release run from a
+// terminal that did to find it. Nobody types into copy mode here — omassh
+// drives it by command — so the keys it would choose between mean nothing,
+// and what a selection holds is all that is left to differ.
 var selectWithTheMouse = [][]string{
 	{"set-option", "-g", "mouse", "on"},
 	{"set-option", "-g", "set-clipboard", "external"},
 	{"set-option", "-g", "mode-style", "reverse"},
+	{"set-option", "-g", "mode-keys", "emacs"},
 }
 
 // serverOptions are the settings every session needs from the server, whichever

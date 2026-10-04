@@ -1,6 +1,9 @@
 package term_test
 
 import (
+	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -109,6 +112,34 @@ func TestALineThePaneWrappedIsCopiedAsOneLine(t *testing.T) {
 
 	dragAcross(p, 30, r, 4, r+1)
 	if got, want := waitForCopy(t, p), "WRAP"+strings.Repeat("y", 10); got != want {
+		t.Errorf("copied %q, want %q", got, want)
+	}
+}
+
+// tmux gives anyone whose $VISUAL or $EDITOR mentions vi the vi copy mode, and
+// its selection takes the cell under the pointer too: a drag copied a character
+// more than it covered, and a line dragged to its end came with its newline.
+// The suite ran where no editor was set and never saw it. The server the rest
+// of the package shares was started without one, so this starts its own under
+// one.
+func TestADragCopiesWhatItCoveredWhateverEditorStartedTheServer(t *testing.T) {
+	t.Setenv("VISUAL", "nvim")
+	t.Setenv("EDITOR", "vim")
+	socket := fmt.Sprintf("omassh-test-editor-%d", os.Getpid())
+	t.Setenv(term.SocketEnv, socket)
+	t.Cleanup(func() { exec.Command("tmux", "-L", socket, "kill-server").Run() })
+
+	p := openTmuxPane(t, 60, 12)
+	type_(p, `printf 'alpha beta gamma\n'`)
+	p.SendKey(enter)
+	r := rowStarting(t, p, "alpha beta gamma")
+
+	dragAcross(p, 6, r, 9, r)
+	if got := waitForCopy(t, p); got != "bet" {
+		t.Errorf("copied %q, want %q", got, "bet")
+	}
+	dragAcross(p, 0, r, 16, r)
+	if got, want := waitForCopy(t, p), "alpha beta gamma"; got != want {
 		t.Errorf("copied %q, want %q", got, want)
 	}
 }

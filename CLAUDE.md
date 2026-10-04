@@ -135,7 +135,10 @@ tmux copies comes back to the pane's emulator as OSC 52 — `set-clipboard
 external`, so the far side cannot write the clipboard the same way. A pane with
 no live tmux behind it selects for itself, from a still copy of its screen. A
 test driving tmux's selection has to pace its events: tmux enters copy mode by
-queueing a command, and a release that arrives before it runs is dropped.
+queueing a command, and a release that arrives before it runs is dropped. The
+server pins `mode-keys emacs`: tmux picks vi copy mode for anyone whose
+`$VISUAL` or `$EDITOR` mentions vi, and vi's selection takes the cell under
+the pointer too, which only a run from such a shell shows.
 
 The wheel is decided a notch at a time in `Pane.Wheel`: a shell's goes to the
 history, a full-screen program gets arrow keys, and one that asked for the
