@@ -272,3 +272,73 @@ func TestACredentialThatIsGoneIsPassedOver(t *testing.T) {
 		t.Errorf("Cred = %v, want nothing", got.Cred)
 	}
 }
+
+// A host whose name ssh's own config gives to this very machine is reached by
+// that name, so the settings written under it apply. Spelled as the config
+// spells it, since ssh matches a Host line exactly and omassh does not.
+func TestAHostYourSSHConfigNamesIsReachedByThatName(t *testing.T) {
+	r := NewResolver(nil, nil, nil).WithAliases([]ConfigAlias{
+		{Name: "prod-web", Addr: "10.0.0.5", Port: 22},
+		{Name: "db", Addr: "DB.example.com", Port: 2222},
+	})
+
+	for _, h := range []Host{
+		{Name: "prod-web", Addr: "10.0.0.5"},
+		{Name: "PROD-WEB", Addr: "10.0.0.5", Port: 22},
+	} {
+		got := r.Resolve(h)
+		if got.Alias != "prod-web" || got.AliasElsewhere != nil {
+			t.Errorf("%s at %s:%d: Alias = %q, elsewhere %v; want prod-web", h.Name, h.Addr, h.Port, got.Alias, got.AliasElsewhere)
+		}
+	}
+	// A name in DNS is the same name whatever its case.
+	if got := r.Resolve(Host{Name: "db", Addr: "db.example.com", Port: 2222}); got.Alias != "db" {
+		t.Errorf("Alias = %q, want db", got.Alias)
+	}
+	if got := r.Resolve(Host{Name: "other", Addr: "10.0.0.5"}); got.Alias != "" || got.AliasElsewhere != nil {
+		t.Errorf("a host the config does not name got %q, %v", got.Alias, got.AliasElsewhere)
+	}
+	if got := NewResolver(nil, nil, nil).Resolve(Host{Name: "prod-web", Addr: "10.0.0.5"}); got.Alias != "" {
+		t.Errorf("with no config read, Alias = %q", got.Alias)
+	}
+}
+
+// The name has to be the machine as well. A `Host web` that goes somewhere else
+// is another machine that shares a name, and its settings — ForwardAgent among
+// them — are not this one's to take. Another port is another sshd, and counts
+// the same. What it does go to is kept, so the reason can be shown.
+func TestAConfigEntryForAnotherMachineByTheSameNameIsNotUsed(t *testing.T) {
+	web := ConfigAlias{Name: "web", Addr: "10.0.0.5", Port: 22}
+	r := NewResolver(nil, nil, nil).WithAliases([]ConfigAlias{web})
+
+	for _, h := range []Host{
+		{Name: "web", Addr: "10.0.0.9"},
+		{Name: "web", Addr: "10.0.0.5", Port: 2222},
+	} {
+		got := r.Resolve(h)
+		if got.Alias != "" {
+			t.Errorf("%s:%d was reached as %q, the name of another machine", h.Addr, h.Port, got.Alias)
+		}
+		if got.AliasElsewhere == nil || *got.AliasElsewhere != web {
+			t.Errorf("%s:%d: elsewhere = %v, want %+v", h.Addr, h.Port, got.AliasElsewhere, web)
+		}
+	}
+}
+
+// A jump host is reached by the name the config gives it too, as ssh's own -J
+// would reach it.
+func TestAJumpHostIsReachedByTheNameYourSSHConfigGivesIt(t *testing.T) {
+	hosts := []Host{
+		{ID: "b", Name: "bastion", Addr: "10.0.0.1"},
+		{ID: "w", Name: "web", Addr: "10.0.1.9", ProxyJump: "bastion"},
+	}
+	r := NewResolver(nil, hosts, nil).WithAliases([]ConfigAlias{{Name: "bastion", Addr: "10.0.0.1", Port: 22}})
+
+	got := r.Resolve(hosts[1])
+	if got.Jump == nil || got.Jump.Alias != "bastion" {
+		t.Fatalf("Jump = %+v, want bastion reached by its alias", got.Jump)
+	}
+	if got.Alias != "" {
+		t.Errorf("web took Alias %q from its jump host", got.Alias)
+	}
+}

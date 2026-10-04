@@ -1,6 +1,9 @@
 package sshx
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -258,5 +261,126 @@ func TestAnOptionIsCheckedTheWaySshReadsOne(t *testing.T) {
 		if !strings.Contains(err.Error(), bad.want) {
 			t.Errorf("OptionProblem(%q) = %q, want it to say %q", bad.opt, err, bad.want)
 		}
+	}
+}
+
+// A host ssh's own config names is handed to ssh by that name, with the address
+// pinned beside it, so the block written under the name applies and the machine
+// is still the one omassh says.
+func TestAHostYourConfigNamesIsHandedToSshByThatName(t *testing.T) {
+	tests := []struct {
+		name string
+		host store.Host
+		want []string
+	}{
+		{
+			name: "by the alias, the address pinned",
+			host: store.Host{Name: "prod-web", Addr: "10.0.0.5", User: "deploy", Alias: "prod-web"},
+			want: []string{"-o", "HostName=10.0.0.5", "deploy@prod-web"},
+		},
+		{
+			name: "spelled as the config spells it",
+			host: store.Host{Name: "PROD-WEB", Addr: "10.0.0.5", Alias: "prod-web"},
+			want: []string{"-o", "HostName=10.0.0.5", "prod-web"},
+		},
+		{
+			name: "the port and key still omassh's",
+			host: store.Host{Name: "db", Addr: "10.0.0.6", Port: 2222, Identity: "/keys/db", Alias: "db"},
+			want: []string{"-p", "2222", "-i", "/keys/db", "-o", "HostName=10.0.0.6", "db"},
+		},
+		{
+			// The address already names the block, so nothing changes.
+			name: "an alias that is the address",
+			host: store.Host{Name: "web.example.com", Addr: "web.example.com", User: "u", Alias: "web.example.com"},
+			want: []string{"u@web.example.com"},
+		},
+		{
+			// ssh expands tokens in HostName, and would refuse the zone.
+			name: "a percent doubled",
+			host: store.Host{Name: "link", Addr: "fe80::1%en0", Alias: "link"},
+			want: []string{"-o", "HostName=fe80::1%%en0", "link"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Build(tt.host); !slices.Equal(got, tt.want) {
+				t.Errorf("Build() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	// What follows the destination still follows it: a script, a subsystem.
+	h := store.Host{Name: "prod-web", Addr: "10.0.0.5", Alias: "prod-web"}
+	if got := strings.Join(RunArgs(h, "uptime"), " "); !strings.HasSuffix(got, "-o HostName=10.0.0.5 prod-web uptime") {
+		t.Errorf("RunArgs = %q", got)
+	}
+	if got := strings.Join(SubsystemArgs(h, "sftp", nil, nil), " "); !strings.HasSuffix(got, "-o HostName=10.0.0.5 prod-web sftp") {
+		t.Errorf("SubsystemArgs = %q", got)
+	}
+}
+
+// A jump host is reached by its own alias inside the ProxyCommand, and the hop
+// is still asked for the next address, not the next name: the name means
+// something only to this machine's ssh config, and the hop has its own.
+func TestAJumpHostIsReachedByItsAliasAndAskedForTheNextAddress(t *testing.T) {
+	jump := store.Host{Name: "bastion", Addr: "10.0.0.1", User: "jump", Alias: "bastion"}
+	h := store.Host{Name: "web", Addr: "10.0.1.9", User: "deploy", Jump: &jump}
+
+	got := strings.Join(Build(h), " ")
+	want := "-o ProxyCommand=ssh -W '[10.0.1.9]:22' -o HostName=10.0.0.1 jump@bastion deploy@10.0.1.9"
+	if got != want {
+		t.Errorf("Build() = %q\nwant           %q", got, want)
+	}
+}
+
+// Asked of ssh rather than of the argv. Handed the address, ssh passes over the
+// block written under the host's name; handed the name with the address pinned,
+// it applies all of it and still goes where omassh says.
+func TestSshAppliesWhatYourConfigSaysUnderTheHostsName(t *testing.T) {
+	if _, err := exec.LookPath("ssh"); err != nil {
+		t.Skip("no ssh to ask")
+	}
+	path := filepath.Join(t.TempDir(), "config")
+	err := os.WriteFile(path, []byte(`Host prod-web
+    HostName 10.0.0.5
+    ForwardAgent yes
+    SetEnv APP_ENV=production
+    ServerAliveInterval 15
+`), 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// -G prints the settings ssh would connect with, and connects to nothing.
+	settings := func(h store.Host) string {
+		t.Helper()
+		args := append([]string{"-F", path, "-G"}, Build(h)...)
+		out, err := exec.Command("ssh", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("ssh %s: %s", strings.Join(args, " "), strings.TrimSpace(string(out)))
+		}
+		return string(out)
+	}
+
+	// The control, and the bug: by address, none of the block applies. Were
+	// this to say yes, the rest would prove nothing.
+	if s := settings(store.Host{Name: "prod-web", Addr: "10.0.0.5", User: "deploy"}); !strings.Contains(s, "forwardagent no\n") {
+		t.Fatalf("by address, ssh already forwards the agent — this test cannot tell:\n%s", s)
+	}
+
+	s := settings(store.Host{Name: "prod-web", Addr: "10.0.0.5", User: "deploy", Alias: "prod-web"})
+	for _, want := range []string{"forwardagent yes", "setenv APP_ENV=production", "serveraliveinterval 15", "hostname 10.0.0.5", "user deploy"} {
+		if !strings.Contains(s, want+"\n") {
+			t.Errorf("by name, ssh does not have %q", want)
+		}
+	}
+
+	// The alias decides which settings apply and never which machine: the
+	// address omassh holds is where ssh goes, whatever the file says.
+	if s := settings(store.Host{Name: "prod-web", Addr: "10.0.0.7", Alias: "prod-web"}); !strings.Contains(s, "hostname 10.0.0.7\n") {
+		t.Errorf("ssh went where the file says rather than where omassh does:\n%s", s)
+	}
+	// And an address with a percent in it is taken as written.
+	if s := settings(store.Host{Name: "link", Addr: "fe80::1%en0", Alias: "prod-web"}); !strings.Contains(s, "hostname fe80::1%en0\n") {
+		t.Errorf("the zone did not survive:\n%s", s)
 	}
 }

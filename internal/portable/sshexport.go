@@ -2,8 +2,6 @@ package portable
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -276,30 +274,16 @@ func stripBlock(s string) (string, error) {
 //
 // A missing file declares nothing, which is what a first export meets.
 func DeclaredAliases(path string) (map[string]bool, error) {
-	raw, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return map[string]bool{}, nil
-	}
+	// Without omassh's block, so a second export does not see its own hosts as
+	// the file's and refuse to write any of them.
+	cfg, err := ownConfig(path)
 	if err != nil {
 		return nil, err
 	}
-	// The block is stripped first so a second export does not see its own
-	// hosts as the file's and refuse to write any of them.
-	stripped, err := stripBlock(string(raw))
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-
-	expanded, err := expandIncludesIn([]byte(stripped), filepath.Dir(path), 0)
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := decode(expanded)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-
 	out := map[string]bool{}
+	if cfg == nil {
+		return out, nil
+	}
 	for _, h := range cfg.Hosts {
 		if isMatchBlock(h) {
 			continue

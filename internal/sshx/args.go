@@ -108,7 +108,25 @@ func BuildWith(fixed []string, h store.Host, extra ...string) []string {
 	}
 
 	args = append(args, extra...)
-	return append(args, h.Target())
+	if h.Alias == "" || h.Alias == h.Addr {
+		// Where the alias is the address itself, the address already names
+		// the block, and there is nothing to add.
+		return append(args, h.Target())
+	}
+	// By the name ssh's own config gives this machine, so that the block
+	// written under it applies — ssh picks the blocks by the name it is
+	// handed, and handed the address it passed over all of them. HostName
+	// pins the address, so the alias decides only which settings apply and
+	// never which machine is reached.
+	//
+	// A % is doubled because ssh expands tokens in HostName and nowhere in
+	// the destination: an address holding one, as an IPv6 address with its
+	// zone does — fe80::1%en0 — would otherwise be refused outright.
+	dest := h.Alias
+	if h.User != "" {
+		dest = h.User + "@" + dest
+	}
+	return append(args, "-o", "HostName="+strings.ReplaceAll(h.Addr, "%", "%%"), dest)
 }
 
 // SubsystemArgs builds the argv for invoking a remote subsystem, such as

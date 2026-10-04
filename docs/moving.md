@@ -101,9 +101,11 @@ omassh import-ssh-config -n           # what it would add, writing nothing
 Only what Omassh needs to list, probe and reach a machine is taken: the alias,
 the address behind it, and the user, port, key and jump host. Everything else
 in the file keeps working without being copied, because Omassh runs the real
-ssh, which reads the file itself. Values resolve the way ssh resolves them —
-settings under `Host *` reach every alias, and the first match wins — so an
-imported host carries what `ssh -G` reports for it.
+ssh, which reads the file itself — and hands it the alias rather than the
+address, so the block written under it applies, as
+[hosts.md](hosts.md#your-own-ssh-config) explains. Values resolve the way ssh
+resolves them — settings under `Host *` reach every alias, and the first match
+wins — so an imported host carries what `ssh -G` reports for it.
 
 Wildcard and `Match` blocks are settings rather than machines, and are not
 imported as hosts. A `Match` on anything but the name — `exec`, `user`,

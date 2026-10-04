@@ -407,6 +407,20 @@ func (m Model) detailBody() (string, string) {
 	if r.UserFrom != "" {
 		lines = append(lines, detailField("user", r.User, r.UserFrom))
 	}
+	// Whether the block ssh's own config keeps under this host's name is in
+	// use. It changes how the host is reached as surely as a group does — a
+	// key, an agent forwarded or not — so it is shown beside what the groups
+	// supply, and so is the reason when a block of that name is passed over.
+	if r.Alias != "" {
+		lines = append(lines, detailField("config", "Host "+r.Alias, tildePath(m.opts.SSHConfig)))
+	} else if o := r.AliasElsewhere; o != nil {
+		where := o.Addr
+		if o.Port != 22 {
+			where = fmt.Sprintf("%s:%d", o.Addr, o.Port)
+		}
+		lines = append(lines, theme.Dim.Render(fmt.Sprintf("  %-8snot used — %s puts %s at %s",
+			"config", tildePath(m.opts.SSHConfig), o.Name, where)))
+	}
 	// Forwards belong to the host and run without it being connected, so the
 	// pane that describes a host has to describe them too — otherwise the only
 	// way to learn a tunnel is up is to go looking for it.

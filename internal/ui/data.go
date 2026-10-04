@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cuonggt/omassh/internal/portable"
 	"github.com/cuonggt/omassh/internal/store"
 	"github.com/cuonggt/omassh/internal/term"
 )
@@ -14,9 +15,9 @@ import (
 const UngroupedID = "__ungrouped"
 
 // data is one consistent snapshot of everything the UI draws: the persisted
-// store, and what tmux says of the sessions and tunnels it is running.
-// ~/.ssh/config is not read here; its hosts reach the list only through
-// import-ssh-config.
+// store, what tmux says of the sessions and tunnels it is running, and the
+// names ~/.ssh/config gives machines. That file is read for those names and
+// nothing more; its hosts reach the list only through import-ssh-config.
 type data struct {
 	groups   []store.Group // persisted groups only
 	hosts    []store.Host  // persisted hosts only
@@ -40,15 +41,15 @@ type dataMsg struct {
 	err  error
 }
 
-// load reads everything the interface renders from the store.
-// load reads the store into what the interface draws.
+// load reads the store into what the interface draws, along with the names
+// sshConfig gives machines.
 //
 // A record the store could not decode is skipped rather than fatal, and what
 // it could read is kept: treating any error as a reason to show nothing meant
 // one damaged record emptied the whole list, over a message that named neither
 // the database nor the record. The complaint is carried out alongside the
 // data, so both are shown.
-func load(s *store.Store) (data, error) {
+func load(s *store.Store, sshConfig string) (data, error) {
 	var d data
 	var problems []string
 	note := func(err error) {
@@ -104,7 +105,12 @@ func load(s *store.Store) (data, error) {
 		}
 	}
 
-	d.resolver = store.NewResolver(d.groups, d.hosts, d.creds)
+	// Read on every load rather than once, like the store, so that an edit
+	// to the file reaches the next connection after an r rather than after a
+	// restart. It is a few lines of text, and nothing here is on a timer.
+	aliases, err := configAliases(sshConfig)
+	note(err)
+	d.resolver = store.NewResolver(d.groups, d.hosts, d.creds).WithAliases(aliases)
 	d.tree = store.FlattenGroups(d.groups)
 
 	ungrouped := 0
@@ -120,6 +126,38 @@ func load(s *store.Store) (data, error) {
 		return d, errors.New(strings.Join(problems, "; "))
 	}
 	return d, nil
+}
+
+// configAliases is what an ssh config calls machines, or nothing where there is
+// no config to read.
+//
+// A file that cannot be read costs the names and nothing else: every host is
+// reached by its address, as it was before omassh read the file at all. It is
+// still said, because a block that has quietly stopped applying is exactly
+// what reading the file is for.
+func configAliases(path string) ([]store.ConfigAlias, error) {
+	if path == "" {
+		return nil, nil
+	}
+	as, err := portable.Aliases(path)
+	if err != nil {
+		msg := strings.ReplaceAll(err.Error(), path, tildePath(path))
+		return nil, errors.New(msg + " — until it reads, hosts are reached by their address")
+	}
+	return as, nil
+}
+
+// tildePath is a path the way a person writes it, with ~ for the home
+// directory.
+func tildePath(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if rest, ok := strings.CutPrefix(p, home+string(filepath.Separator)); ok {
+		return "~/" + rest
+	}
+	return p
 }
 
 // hasSession reports whether a host has a persistent session running.

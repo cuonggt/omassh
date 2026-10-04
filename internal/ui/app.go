@@ -143,6 +143,13 @@ type Options struct {
 	// the machine's own clipboard program; the tests set it, since a suite
 	// that copied would overwrite whatever its runner had copied last.
 	Clipboard func(text string) error
+
+	// SSHConfig is the ssh client config whose names for machines are read,
+	// so that a host it names is reached by that name and the settings
+	// written under it apply. main supplies ~/.ssh/config. Empty reads none,
+	// which is what the tests want: a suite that read its runner's own config
+	// would build different commands on every machine it ran on.
+	SSHConfig string
 }
 
 // Model is the root Bubble Tea model.
@@ -274,7 +281,7 @@ func New(st *store.Store, opts Options) Model {
 func (m Model) Init() tea.Cmd { return nil }
 
 func (m *Model) reload() {
-	d, err := load(m.st)
+	d, err := load(m.st, m.opts.SSHConfig)
 	m.d = d
 	if err != nil {
 		m.setErr(err)

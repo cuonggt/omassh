@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/cuonggt/omassh/internal/store"
 )
 
 // write puts a config file in a temp dir and returns its path.
@@ -282,6 +284,69 @@ Match host prod-db exec "test -f /tmp/on-call"
 	}
 }
 
+// A host the file names is reached by that name, so what is read for each name
+// has to be where ssh goes with it: the HostName with %h expanded, the name
+// itself where there is none, and the port. omassh's own block is left out,
+// since everything in it came from omassh, and so is any name ssh would not
+// take as a destination, since it is no way to reach anything.
+func TestAConfigSaysWhereEachOfItsNamesGoes(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "conf.d/orb", "Host orb\n  HostName 198.19.249.2\n")
+	path := write(t, dir, "config", `# >>> omassh >>>
+Host from-omassh
+    HostName 10.9.9.9
+# <<< omassh <<<
+
+Include conf.d/*
+
+Host prod-web
+    HostName 10.0.0.5
+    ForwardAgent yes
+
+Host db1 db2
+    HostName %h.internal
+    Port 2222
+
+Host Plain
+
+Host web-*
+    User deploy
+
+Host semi;colon
+    HostName 10.0.0.6
+`)
+	got, err := Aliases(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]store.ConfigAlias{}
+	for _, a := range got {
+		byName[a.Name] = a
+	}
+	want := map[string]store.ConfigAlias{
+		"orb":      {Name: "orb", Addr: "198.19.249.2", Port: 22},
+		"prod-web": {Name: "prod-web", Addr: "10.0.0.5", Port: 22},
+		"db1":      {Name: "db1", Addr: "db1.internal", Port: 2222},
+		"db2":      {Name: "db2", Addr: "db2.internal", Port: 2222},
+		// Spelled as written: ssh matches a Host line exactly, so the name
+		// handed to it has to be this one and not omassh's spelling of it.
+		"Plain": {Name: "Plain", Addr: "Plain", Port: 22},
+	}
+	if len(byName) != len(want) {
+		t.Errorf("Aliases = %+v, want exactly %v", got, want)
+	}
+	for name, w := range want {
+		if byName[name] != w {
+			t.Errorf("%s = %+v, want %+v", name, byName[name], w)
+		}
+	}
+
+	none, err := Aliases(filepath.Join(dir, "not-there"))
+	if err != nil || len(none) != 0 {
+		t.Errorf("a missing file gave %v, %v; it names nothing", none, err)
+	}
+}
+
 // A Match on anything but the host is ordinary OpenSSH — `Match exec` is how a
 // gpg agent learns its terminal — and the parser refused the whole file at one,
 // so a config ssh reads every day could not be imported at all. Such a block is
@@ -326,9 +391,16 @@ Host web
 		t.Errorf("web = %+v, want deploy@10.0.0.5 and nothing from a block that holds only some of the time", web)
 	}
 
-	// And the same file is one export can still write beside.
+	// The same file is one export can write beside and a connection can read.
 	if _, err := DeclaredAliases(path); err != nil {
 		t.Errorf("DeclaredAliases: %v", err)
+	}
+	as, err := Aliases(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(as) != 1 || as[0] != (store.ConfigAlias{Name: "web", Addr: "10.0.0.5", Port: 22}) {
+		t.Errorf("Aliases = %+v, want web at 10.0.0.5:22", as)
 	}
 }
 

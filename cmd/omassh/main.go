@@ -183,6 +183,12 @@ func browse(args []string) error {
 		// chosen in the interface and one written by hand are one setting.
 		SaveTheme: func(name string) error { return config.SetTheme(*cfgPath, name) },
 	}
+	// The file every ssh omassh starts will read, so a host it names can be
+	// handed to ssh by that name. With no home directory there is no such
+	// file, and every host is reached by its address.
+	if path, err := portable.DefaultSSHConfig(); err == nil {
+		opts.SSHConfig = path
+	}
 	final, err := tea.NewProgram(ui.New(st, opts)).Run()
 	// An SFTP session or an embedded pane owns an ssh child of its own; close
 	// them explicitly rather than relying on process exit to reap them.

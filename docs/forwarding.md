@@ -72,6 +72,9 @@ Editing a rule reaches nothing already running: a tunnel goes on carrying the
 route it was started with. So each tunnel records the whole invocation it was
 started with, and one whose rule *or host* has changed underneath it shows `▷`
 rather than `▶` — editing the host's address moves a tunnel just as surely as
-editing the rule. `↵` restarts it on what they say now. Repointing a tunnel at
+editing the rule. So does `~/.ssh/config` beginning or ceasing to name the
+host, which decides the settings it runs with
+([hosts.md](hosts.md#your-own-ssh-config)). `↵` restarts it on what they say
+now. Repointing a tunnel at
 staging must never leave every connection landing on production while the
 screen agrees with you.

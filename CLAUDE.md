@@ -96,6 +96,14 @@ run — builds its argv there, so connection behaviour cannot drift between
 paths. A new way to connect goes through `Build`. `SetGlobalOptions` is
 process-wide and set once in `main` before anything connects.
 
+A host whose name `~/.ssh/config` gives to that same address and port is
+handed to ssh by the name, with `-o HostName` pinning the address: ssh picks
+`Host` blocks by the name on its command line, and handed the address it
+passed over everything written under the alias. The resolver decides that
+(`Host.Alias`, from `portable.Aliases`); `Build` only spells it. Hosts the file
+does not name still go by address, so address and domain patterns keep
+matching them.
+
 The reachability probe is not in that list and never was: it opens a TCP
 connection and closes it. That is why it can say a port is answering and
 nothing at all about whether ssh would have been let in, and why a host behind
@@ -157,7 +165,9 @@ multi-document files are refused rather than skipped past.
 
 **The UI is one model.** `internal/ui.Model` carries `focus panel` and
 `mode mode`; every screen is a mode, and `data` (`data.go`) is one snapshot of
-store plus tmux, rebuilt by `load()`. `~/.ssh/config` is not read there: its
+store plus tmux, rebuilt by `load()`. `~/.ssh/config` is read there only for
+the names it gives machines, from `Options.SSHConfig`, which `main` sets and
+the tests leave empty so the suite never reads its runner's own file; its
 hosts reach the list only through `import-ssh-config`. `view.go` draws.
 
 **Config errors are reported, never ignored.** `internal/config` refuses a

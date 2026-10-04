@@ -58,6 +58,45 @@ Whatever Omassh does not set is left to OpenSSH, which reads your
 `~/.ssh/config` as it always does — `Match` blocks, certificates,
 `IdentityAgent`, `known_hosts` and the rest.
 
+## Your own ssh config
+
+ssh decides which `Host` blocks of `~/.ssh/config` apply by the name it is
+handed. So when your config names one of your hosts — the same name, reaching
+the same address and port — Omassh hands ssh that name and pins the address
+beside it:
+
+```sh
+ssh -o HostName=10.0.0.5 deploy@prod-web
+```
+
+Everything under `Host prod-web` then applies, as it does to `ssh prod-web`:
+`ForwardAgent`, `IdentitiesOnly`, `SetEnv`, the `HostKeyAlgorithms` an old
+switch needs before it will talk at all. Handed the address instead, ssh would
+pass over the whole block. The address is still Omassh's, so the name decides
+which settings apply and never which machine is reached, and the user, port
+and jump host Omassh sets still win: ssh keeps the first value it is given,
+and the command line comes first.
+
+The machine has to be the same, not only the name. A `Host web` in the file
+that points somewhere else is a different machine that happens to share a
+name, and its settings — a forwarded agent among them — are not this host's to
+take. The detail pane says which it is: `config  Host prod-web  ←
+~/.ssh/config` when the block is in use, and where the file puts that name
+when it is not. An address changed in one place and not the other is the
+usual reason.
+
+Hosts your config does not name are handed to ssh by their address, so a block
+written for an address or a domain — `Host *.corp.example.com` — still applies
+to them. Handing ssh every host's name would trade those blocks for these.
+
+The file is read for the names it gives machines and nothing else, along with
+whatever it `Include`s, every time the list is read — so after an edit, `r`.
+Omassh's own block from
+[`export-ssh-config`](moving.md#reaching-your-hosts-from-everything-else) does
+not count, since everything in it came from Omassh in the first place. A file
+that cannot be read says so in the status bar, and until it reads, every host
+is reached by its address.
+
 ## Jump hosts
 
 A jump host is named by picking one of your hosts, and the connection to it is

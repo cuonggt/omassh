@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	sshcfg "github.com/kevinburke/ssh_config"
+
+	"github.com/cuonggt/omassh/internal/store"
 )
 
 // hostName is the address ssh resolves HostName to for one alias.
@@ -67,7 +69,9 @@ func DefaultSSHConfig() (string, error) {
 // else in that file keeps working without being copied, because Omassh runs
 // the real ssh, which reads the file itself — ControlMaster, certificates and
 // Match blocks are honoured whether or not anything here knows about them.
-// Import is for discovery, not for taking over OpenSSH's configuration.
+// That needs ssh to be handed the alias rather than the address, or the block
+// written under it is passed over; Aliases is what makes it so. Import is for
+// discovery, not for taking over OpenSSH's configuration.
 func FromSSHConfig(path string) (Document, error) {
 	raw, err := expandIncludes(path, filepath.Dir(path), 0)
 	if err != nil {
@@ -106,22 +110,18 @@ func FromSSHConfig(path string) (Document, error) {
 			}
 			return strings.TrimSpace(v)
 		}
+		addr, port := reaches(cfg, a)
 		h := Host{
 			Name:     a,
-			Addr:     hostName(get("HostName"), a),
+			Addr:     addr,
 			User:     get("User"),
 			Identity: identityFor(cfg, a, get("IdentityFile")),
 			Jump:     get("ProxyJump"),
 		}
-		// `Host myserver` with no HostName means connect to the literal name,
-		// which is how a great many entries are written.
-		if h.Addr == "" {
-			h.Addr = a
-		}
 		// Port 22 is stored as unset: it is what ssh does anyway, and leaving
 		// it out keeps an exported document free of noise.
-		if n, err := strconv.Atoi(get("Port")); err == nil && n != 22 && n > 0 {
-			h.Port = n
+		if port != 22 {
+			h.Port = port
 		}
 		if strings.EqualFold(h.Jump, "none") {
 			h.Jump = ""
@@ -129,6 +129,98 @@ func FromSSHConfig(path string) (Document, error) {
 		d.Hosts = append(d.Hosts, h)
 	}
 	return d, nil
+}
+
+// reaches is where ssh goes for an alias: the address its HostName gives, with
+// %h expanded, or the alias itself where nothing gives one — `Host myserver`
+// with no HostName means connect to the literal name, which is how a great
+// many entries are written — and the port, 22 where nothing says otherwise.
+//
+// Import stores what this says, and connecting compares a host against it, so
+// the two cannot disagree about where an alias goes.
+func reaches(cfg *sshcfg.Config, alias string) (string, int) {
+	get := func(k string) string {
+		v, err := cfg.Get(alias, k)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(v)
+	}
+	addr := hostName(get("HostName"), alias)
+	if addr == "" {
+		addr = alias
+	}
+	port := 22
+	if n, err := strconv.Atoi(get("Port")); err == nil && n > 0 {
+		port = n
+	}
+	return addr, port
+}
+
+// Aliases lists the machines a config file names for itself, and where ssh
+// takes each name, following Include as ssh does and ignoring omassh's own
+// block.
+//
+// It is what lets a host the file names be reached by that name. ssh chooses
+// the Host blocks that apply by the name on its command line, so a host
+// reached by its address passed over everything written under its alias —
+// see store.Host.Alias. Only names ssh would take as a destination are listed,
+// since anything else is no way to reach a machine.
+//
+// omassh's own block is left out because everything in it came from omassh in
+// the first place: reaching a host by the alias written there would add
+// nothing but whatever has gone stale in it since the last export.
+//
+// A missing file names nothing.
+func Aliases(path string) ([]store.ConfigAlias, error) {
+	cfg, err := ownConfig(path)
+	if err != nil || cfg == nil {
+		return nil, err
+	}
+	var out []store.ConfigAlias
+	seen := map[string]bool{}
+	for _, h := range cfg.Hosts {
+		if isMatchBlock(h) {
+			continue
+		}
+		for _, p := range h.Patterns {
+			a := p.String()
+			if !usableAlias(a) || seen[key(a)] {
+				continue
+			}
+			seen[key(a)] = true
+			addr, port := reaches(cfg, a)
+			out = append(out, store.ConfigAlias{Name: a, Addr: addr, Port: port})
+		}
+	}
+	return out, nil
+}
+
+// ownConfig is a config file as ssh reads it, minus omassh's own block: what
+// the file says for itself. Nil, and no error, for a file that is not there.
+func ownConfig(path string) (*sshcfg.Config, error) {
+	raw, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	// The block is stripped first so that what omassh wrote is never read
+	// back as the file's own.
+	stripped, err := stripBlock(string(raw))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	expanded, err := expandIncludesIn([]byte(stripped), filepath.Dir(path), 0)
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := decode(expanded)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return cfg, nil
 }
 
 // decode parses a config once its Includes are spliced in.

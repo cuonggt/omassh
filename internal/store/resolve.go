@@ -9,6 +9,27 @@ type Resolved struct {
 	UserFrom      string
 	IdentityFrom  string
 	ProxyJumpFrom string
+
+	// AliasElsewhere is ssh's own config's entry under this host's name when
+	// that entry goes somewhere else — another address, or another port — so
+	// the settings written there are not this host's. Kept so the detail
+	// pane can say why they are not in use, rather than leave someone who
+	// wrote them wondering.
+	AliasElsewhere *ConfigAlias
+}
+
+// ConfigAlias is a name ssh's own config gives a machine — a name on a Host
+// line — and where that name takes ssh.
+type ConfigAlias struct {
+	// Name is spelled as the config spells it. ssh matches a Host line
+	// against the name it is handed exactly, so `ssh PROD-WEB` passes over a
+	// block written under `Host prod-web`.
+	Name string
+	// Addr and Port are where ssh goes for the name: its HostName, or the
+	// name itself where nothing gives one, and 22 where nothing says
+	// otherwise.
+	Addr string
+	Port int
 }
 
 // Resolver applies group inheritance to hosts, and turns a jump host named by
@@ -17,6 +38,7 @@ type Resolver struct {
 	byID    map[string]Group
 	byName  map[string]Host
 	byCred  map[string]Credential
+	aliases map[string]ConfigAlias
 	maxHops int
 }
 
@@ -42,12 +64,62 @@ func NewResolver(gs []Group, hosts []Host, creds []Credential) Resolver {
 	return Resolver{byID: m, byName: n, byCred: c, maxHops: maxJumpHops}
 }
 
+// WithAliases is the resolver knowing what ssh's own config calls machines, so
+// that a host the config names is reached by that name.
+//
+// Where two names differ only in case, the first is kept: names are matched
+// without regard to case here, as they are everywhere else in omassh.
+func (r Resolver) WithAliases(as []ConfigAlias) Resolver {
+	r.aliases = make(map[string]ConfigAlias, len(as))
+	for _, a := range as {
+		k := strings.ToLower(a.Name)
+		if _, dup := r.aliases[k]; !dup {
+			r.aliases[k] = a
+		}
+	}
+	return r
+}
+
 // Resolve fills any attribute the host leaves empty from the nearest ancestor
 // group that sets it. A host's own value always wins.
 func (r Resolver) Resolve(h Host) Resolved {
 	out := r.inherit(h)
 	out.Jump = r.jumpHost(out.ProxyJump, map[string]bool{}, 0)
+	out.Alias, out.AliasElsewhere = r.alias(h)
 	return out
+}
+
+// alias is the name to reach a host by, if ssh's own config has one for it.
+//
+// The name has to be the host's own, and the machine the same: the config's
+// entry has to take ssh to this host's address and port. A `Host web` that
+// goes somewhere else is a different machine that happens to share a name,
+// and its settings are not this one's to take — ForwardAgent written for it
+// would hand this machine your agent. That entry comes back as elsewhere
+// instead, so the reason it is not used can be shown.
+//
+// The address and port are compared because they are what makes a host that
+// host, and the reason neither is ever inherited. Hosts the config does not
+// name are reached by address as they always were, so a block written for an
+// address or a domain — `Host *.corp.example.com` — still applies to them;
+// reaching every host by its name would trade those blocks for these.
+func (r Resolver) alias(h Host) (name string, elsewhere *ConfigAlias) {
+	a, ok := r.aliases[strings.ToLower(strings.TrimSpace(h.Name))]
+	if !ok {
+		return "", nil
+	}
+	if !strings.EqualFold(a.Addr, h.Addr) || portOr22(a.Port) != portOr22(h.Port) {
+		return "", &a
+	}
+	return a.Name, nil
+}
+
+// portOr22 is the port ssh will use, which is 22 where none is given.
+func portOr22(p int) int {
+	if p == 0 {
+		return 22
+	}
+	return p
 }
 
 // jumpHost resolves the jump host named by a field into the host itself, with
@@ -72,9 +144,12 @@ func (r Resolver) jumpHost(name string, seen map[string]bool, depth int) *Host {
 	}
 	seen[h.ID] = true
 
-	// The hop inherits from its groups like any other host.
+	// The hop inherits from its groups like any other host, and is reached by
+	// the name ssh's config gives it like any other host: ssh's own -J does
+	// the same, handing the hop's name to the ssh that reaches it.
 	hop := r.inherit(h).Host
 	hop.Jump = r.jumpHost(hop.ProxyJump, seen, depth+1)
+	hop.Alias, _ = r.alias(hop)
 	return &hop
 }
 

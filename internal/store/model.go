@@ -175,6 +175,19 @@ type Host struct {
 	// host's own key and port would be ignored; carrying the host itself lets
 	// the connection be built with them.
 	Jump *Host `json:"-"`
+
+	// Alias is the name ssh's own config gives this very machine, spelled as
+	// the config spells it, filled in at resolve time and never persisted.
+	//
+	// ssh chooses the Host blocks that apply by the name on its command line,
+	// and a host was handed to it by address. So everything written under the
+	// host's own name in ~/.ssh/config was passed over — ForwardAgent,
+	// IdentitiesOnly, SetEnv, the HostKeyAlgorithms an old switch needs to be
+	// reached at all — while the docs said a host imported from that file
+	// went on using it. Build hands ssh this name instead, with the address
+	// pinned beside it, so the block applies and the machine stays the one
+	// omassh names.
+	Alias string `json:"-"`
 }
 
 // Target renders the [user@]host argument passed to ssh.
