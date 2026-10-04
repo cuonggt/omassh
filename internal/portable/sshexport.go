@@ -9,8 +9,6 @@ import (
 	"strings"
 	"unicode"
 
-	sshcfg "github.com/kevinburke/ssh_config"
-
 	"github.com/cuonggt/omassh/internal/store"
 )
 
@@ -296,7 +294,7 @@ func DeclaredAliases(path string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := sshcfg.DecodeBytes(expanded)
+	cfg, err := decode(expanded)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}

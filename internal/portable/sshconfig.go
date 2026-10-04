@@ -1,6 +1,7 @@
 package portable
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -72,7 +73,7 @@ func FromSSHConfig(path string) (Document, error) {
 	if err != nil {
 		return Document{}, err
 	}
-	cfg, err := sshcfg.DecodeBytes(raw)
+	cfg, err := decode(raw)
 	if err != nil {
 		return Document{}, fmt.Errorf("%s: %w", path, err)
 	}
@@ -128,6 +129,79 @@ func FromSSHConfig(path string) (Document, error) {
 		d.Hosts = append(d.Hosts, h)
 	}
 	return d, nil
+}
+
+// decode parses a config once its Includes are spliced in.
+//
+// The parser ends each complaint with a newline of its own, which printed a
+// blank line under it, so that is trimmed off.
+func decode(raw []byte) (*sshcfg.Config, error) {
+	cfg, err := sshcfg.DecodeBytes(inertMatches(raw))
+	if err != nil {
+		return nil, errors.New(strings.TrimSpace(err.Error()))
+	}
+	return cfg, nil
+}
+
+// inertMatches turns each Match block the parser cannot evaluate into one that
+// applies to nothing.
+//
+// The parser understands `Match all` and `Match host`, and refuses the whole
+// file at any other criterion: exec, user, originalhost, final, canonical,
+// localnetwork, tagged. Every one of those is ordinary OpenSSH — `Match exec`
+// is how a gpg agent is told which terminal it is on, and `Match final` is
+// how a canonicalised name gets its settings — so a config ssh reads every day
+// could not be imported at all, for a reason that had nothing to do with any
+// of the machines in it.
+//
+// Most of them cannot be answered from here. exec runs a command, user and
+// localuser depend on who is connecting, localnetwork on where this machine
+// is, and final and canonical on what ssh makes of a name as it connects. So
+// a block guarded by one is read as one whose condition is false: none of its
+// settings are taken for any alias, and nothing in it is a machine. That is
+// the cautious reading, since it never copies a setting written for some
+// connections onto all of them, and costs nothing at connection time, when
+// ssh reads the file itself and decides.
+//
+// originalhost can be answered: it is the name as typed, which for an alias is
+// the alias — what the parser's own host criterion compares against. A block
+// under it that set a HostName ahead of the alias's own block decides where
+// ssh goes, so it is read rather than dropped.
+//
+// A Match on the host alone is left to the parser, which does answer it. One
+// that adds another criterion is not, because the parser would read the
+// criterion and its argument as two more host patterns, and apply the block
+// to a host called user.
+//
+// The line is replaced rather than removed, so the settings beneath it stay
+// inside a block of their own instead of joining the one above, and every
+// later line keeps its number for the parser's own complaints.
+func inertMatches(raw []byte) []byte {
+	lines := strings.Split(string(raw), "\n")
+	for i, l := range lines {
+		args, ok := directive(l, "match")
+		if !ok {
+			continue
+		}
+		for j, a := range args {
+			// ssh reads the rest of a line from a word starting with # as a
+			// comment, and so does the parser.
+			if strings.HasPrefix(a, "#") {
+				args = args[:j]
+				break
+			}
+		}
+		switch {
+		case len(args) == 1 && strings.EqualFold(args[0], "all"),
+			len(args) == 2 && strings.EqualFold(args[0], "host"):
+			// The parser answers these as ssh does.
+		case len(args) == 2 && strings.EqualFold(args[0], "originalhost"):
+			lines[i] = "Match host " + args[1]
+		default:
+			lines[i] = "Match host !*"
+		}
+	}
+	return []byte(strings.Join(lines, "\n"))
 }
 
 // identityFor is the key this host should be reached with.
@@ -233,7 +307,7 @@ func expandIncludes(path, base string, depth int) ([]byte, error) {
 func expandIncludesIn(raw []byte, base string, depth int) ([]byte, error) {
 	var out strings.Builder
 	for _, line := range strings.Split(string(raw), "\n") {
-		args, ok := includeDirective(line)
+		args, ok := directive(line, "include")
 		if !ok {
 			out.WriteString(line + "\n")
 			continue
@@ -260,14 +334,15 @@ func expandIncludesIn(raw []byte, base string, depth int) ([]byte, error) {
 	return []byte(out.String()), nil
 }
 
-// includeDirective reports the paths on an Include line, if it is one.
-func includeDirective(line string) ([]string, bool) {
+// directive reports the arguments on a line that is the given keyword, if it
+// is one — `Include a b`, or ssh's own `Include=a` form.
+func directive(line, keyword string) ([]string, bool) {
 	s := strings.TrimSpace(line)
-	if i := strings.IndexAny(s, "="); i >= 0 && strings.EqualFold(strings.TrimSpace(s[:i]), "include") {
-		s = "Include " + s[i+1:]
+	if i := strings.IndexAny(s, "="); i >= 0 && strings.EqualFold(strings.TrimSpace(s[:i]), keyword) {
+		s = keyword + " " + s[i+1:]
 	}
 	fields := strings.Fields(s)
-	if len(fields) < 2 || !strings.EqualFold(fields[0], "include") {
+	if len(fields) < 2 || !strings.EqualFold(fields[0], keyword) {
 		return nil, false
 	}
 	return fields[1:], true

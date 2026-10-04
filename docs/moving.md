@@ -106,8 +106,11 @@ settings under `Host *` reach every alias, and the first match wins — so an
 imported host carries what `ssh -G` reports for it.
 
 Wildcard and `Match` blocks are settings rather than machines, and are not
-imported as hosts. `Include`d files are followed, which is the whole story for
-a config that is one line pointing somewhere else.
+imported as hosts. A `Match` on anything but the name — `exec`, `user`,
+`final`, `localnetwork` and the rest — depends on the moment ssh connects, so
+it is read as a block whose condition is false and nothing under it is taken;
+ssh still applies it whenever it holds. `Include`d files are followed, which
+is the whole story for a config that is one line pointing somewhere else.
 
 `HostName %h.internal` — one block standing in for a whole estate — is
 expanded per alias as ssh expands it, since ssh does that to the setting and

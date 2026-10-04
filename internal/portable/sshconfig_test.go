@@ -281,3 +281,83 @@ Match host prod-db exec "test -f /tmp/on-call"
 		t.Errorf("identity = %q, want the unconditional one", got)
 	}
 }
+
+// A Match on anything but the host is ordinary OpenSSH — `Match exec` is how a
+// gpg agent learns its terminal — and the parser refused the whole file at one,
+// so a config ssh reads every day could not be imported at all. Such a block is
+// read as one whose condition is false: nothing in it is a machine, and none
+// of its settings are taken, since they hold only for some connections.
+func TestAMatchOnAnythingButTheHostDoesNotStopAConfigBeingRead(t *testing.T) {
+	dir := t.TempDir()
+	path := write(t, dir, "config", `Match exec "gpg-connect-agent updatestartuptty /bye"
+    User from-exec
+
+Match user bob
+    User from-user
+
+Match final
+    Port 2200
+
+Match canonical all
+    User from-canonical
+
+Match localnetwork 10.0.0.0/8
+    HostName 10.7.7.7
+
+Match tagged work
+    User from-tagged
+
+Match host web user bob
+    User from-host-and-user
+
+Host web
+    HostName 10.0.0.5
+    User deploy
+`)
+	d, err := FromSSHConfig(path)
+	if err != nil {
+		t.Fatalf("a config ssh reads was refused: %v", err)
+	}
+	if len(d.Hosts) != 1 || d.Hosts[0].Name != "web" {
+		t.Fatalf("Hosts = %+v, want only web", d.Hosts)
+	}
+	web := d.Hosts[0]
+	if web.User != "deploy" || web.Addr != "10.0.0.5" || web.Port != 0 {
+		t.Errorf("web = %+v, want deploy@10.0.0.5 and nothing from a block that holds only some of the time", web)
+	}
+
+	// And the same file is one export can still write beside.
+	if _, err := DeclaredAliases(path); err != nil {
+		t.Errorf("DeclaredAliases: %v", err)
+	}
+}
+
+// originalhost is the name as typed, which for an alias is the alias, so it can
+// be answered here — and a block under it that sets a HostName ahead of the
+// alias's own decides where ssh goes. A Match on the host alone is still read
+// too, comment and all.
+func TestAMatchThatCanBeAnsweredIsStillRead(t *testing.T) {
+	dir := t.TempDir()
+	d, err := FromSSHConfig(write(t, dir, "config", `Match originalhost web
+    HostName 10.6.6.6
+
+Match host web # the far side
+    User deploy
+
+Host web
+    HostName 10.0.0.5
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Hosts) != 1 {
+		t.Fatalf("Hosts = %+v, want only web", d.Hosts)
+	}
+	// ssh -G web says 10.6.6.6 for this file: the first HostName wins.
+	if got := d.Hosts[0].Addr; got != "10.6.6.6" {
+		t.Errorf("addr = %q, want 10.6.6.6, where ssh goes", got)
+	}
+	if got := d.Hosts[0].User; got != "deploy" {
+		t.Errorf("user = %q, want deploy from the Match on the host", got)
+	}
+}
