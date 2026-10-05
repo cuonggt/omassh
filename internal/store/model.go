@@ -188,6 +188,21 @@ type Host struct {
 	// pinned beside it, so the block applies and the machine stays the one
 	// omassh names.
 	Alias string `json:"-"`
+
+	// ConfigProxy is the jump host or ProxyCommand ssh's own config sends this
+	// host through, the setting's value as the file writes it, filled in at
+	// resolve time and never persisted. Empty where omassh has a jump host of
+	// its own for the host: that goes on the command line, ahead of the file,
+	// and ssh keeps the first route it is given.
+	//
+	// Unlike everything else filled in here it is not for Build: ssh reads the
+	// file itself, and saying it again on the command line would change
+	// nothing. It is for the probe, which is handed a Host as Build is but
+	// does not go through ssh at all. It dials the address, and an address
+	// behind a proxy means something only from the far side of it — an
+	// instance id ssm resolves, a name only the bastion's resolver knows, a
+	// private address that from here is somebody else's machine.
+	ConfigProxy string `json:"-"`
 }
 
 // Target renders the [user@]host argument passed to ssh.

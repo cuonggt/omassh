@@ -1,10 +1,15 @@
 package ui
 
 import (
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/cuonggt/omassh/internal/store"
 )
 
 // sshConfigAt writes an ssh config under a home of the test's own, so the
@@ -78,4 +83,67 @@ func TestAnSSHConfigThatCannotBeReadCostsOnlyTheNames(t *testing.T) {
 	}
 	h.mustContain("ssh 10.0.0.5")
 	h.mustNotContain("config  ")
+}
+
+// A host your ssh config sends through a bastion is behind one as surely as a
+// host whose group names one, so the via line says what it goes through and
+// where that was said — for a host the config names, and for one reached by
+// its address that a pattern in the config matches.
+func TestTheDetailPaneSaysWhatYourSSHConfigSendsAHostThrough(t *testing.T) {
+	path := sshConfigAt(t, `Host prod-web
+    HostName 10.0.0.5
+    ProxyJump bastion
+
+Host 10.0.1.*
+    ProxyCommand ssh -W %h:%p bastion
+`)
+	h := newHarness(t, func(o *Options) { o.SSHConfig = path })
+	h.addHost("prod-web", "10.0.0.5")
+	h.addHost("db", "10.0.1.7")
+
+	h.selectHost("prod-web")
+	h.mustContain("via     bastion  ← ~/.ssh/config")
+
+	h.selectHost("db")
+	h.mustContain("via     ssh -W %h:%p bastion  ← ~/.ssh/config")
+}
+
+// The probe dials an address from here, and a host your ssh config sends
+// through a bastion has an address that means something only from the far
+// side of it. So it is passed over, as a host behind omassh's own jump host
+// is, rather than reported on: whatever answers at that address here is
+// another machine. This test's own listener stands in for that machine, and
+// was reported up — beside a host the config does not send anywhere, which
+// is still dialled.
+func TestAProbePassesOverAHostYourSSHConfigSendsThroughABastion(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	port := l.Addr().(*net.TCPAddr).Port
+
+	path := sshConfigAt(t, fmt.Sprintf("Host prod-web\n    HostName 127.0.0.1\n    Port %d\n    ProxyJump bastion\n", port))
+	h := newHarness(t, func(o *Options) { o.SSHConfig = path })
+	for _, name := range []string{"prod-web", "local"} {
+		if _, err := h.store.PutHost(store.Host{Name: name, Addr: "127.0.0.1", Port: port}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.reload()
+
+	h.press("2", "p")
+	for done := false; !done; {
+		select {
+		case ev := <-h.m.probeCh:
+			h.send(ev)
+			done = ev.done
+		case <-time.After(10 * time.Second):
+			t.Fatal("the sweep never finished")
+		}
+	}
+
+	h.mustContain("◌ prod-web")
+	h.mustContain("● local")
+	h.mustContain("1 up · 1 skipped")
 }

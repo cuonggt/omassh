@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestResolveInheritsFromGroupChain(t *testing.T) {
 	groups := []Group{
@@ -340,5 +343,64 @@ func TestAJumpHostIsReachedByTheNameYourSSHConfigGivesIt(t *testing.T) {
 	}
 	if got.Alias != "" {
 		t.Errorf("web took Alias %q from its jump host", got.Alias)
+	}
+}
+
+// A host ssh's own config sends through a jump host carries what it is sent
+// through, asked by the name ssh is handed for it: the alias where the config
+// names the machine, spelled as the config spells it, and the address
+// otherwise — which is what a block like `Host 10.0.1.*` is matched against.
+// A host with no address is handed nothing, so nothing is asked about it.
+func TestAHostYourSSHConfigSendsThroughAJumpHostCarriesIt(t *testing.T) {
+	var asked []string
+	r := NewResolver(nil, nil, nil).
+		WithAliases([]ConfigAlias{{Name: "Prod-Web", Addr: "10.0.0.5", Port: 22}}).
+		WithProxies(func(dest string) string {
+			asked = append(asked, dest)
+			switch dest {
+			case "Prod-Web":
+				return "bastion"
+			case "10.0.1.7":
+				return "ssh -W %h:%p bastion"
+			}
+			return ""
+		})
+
+	for _, c := range []struct {
+		host Host
+		want string
+	}{
+		{Host{Name: "prod-web", Addr: "10.0.0.5"}, "bastion"},
+		{Host{Name: "db", Addr: "10.0.1.7"}, "ssh -W %h:%p bastion"},
+		{Host{Name: "elsewhere", Addr: "10.9.9.9"}, ""},
+		{Host{Name: "nowhere"}, ""},
+	} {
+		if got := r.Resolve(c.host).ConfigProxy; got != c.want {
+			t.Errorf("%s: ConfigProxy = %q, want %q", c.host.Name, got, c.want)
+		}
+	}
+	if want := []string{"Prod-Web", "10.0.1.7", "10.9.9.9"}; !slices.Equal(asked, want) {
+		t.Errorf("asked about %q, want %q: the names ssh is handed", asked, want)
+	}
+	if got := NewResolver(nil, nil, nil).Resolve(Host{Name: "db", Addr: "10.0.1.7"}); got.ConfigProxy != "" {
+		t.Errorf("with no config read, ConfigProxy = %q", got.ConfigProxy)
+	}
+}
+
+// A jump host of omassh's own goes on the command line, ahead of the file, and
+// ssh keeps the first route it is given, so whatever the file says for the
+// host is never used and is not reported as if it were. One the host takes
+// from its group counts the same as one it names itself.
+func TestAJumpHostOfOmasshsOwnOutranksTheOneYourSSHConfigGives(t *testing.T) {
+	groups := []Group{{ID: "g", Name: "Production", ProxyJump: "edge"}}
+	r := NewResolver(groups, nil, nil).WithProxies(func(string) string { return "bastion" })
+
+	for _, h := range []Host{
+		{Name: "own", Addr: "10.0.1.7", ProxyJump: "edge"},
+		{Name: "inherited", Addr: "10.0.1.8", GroupID: "g"},
+	} {
+		if got := r.Resolve(h); got.ProxyJump != "edge" || got.ConfigProxy != "" {
+			t.Errorf("%s: via %q, and %q from the config; want edge alone", h.Name, got.ProxyJump, got.ConfigProxy)
+		}
 	}
 }

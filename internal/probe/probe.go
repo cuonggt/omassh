@@ -48,9 +48,10 @@ func (s State) String() string {
 // Hosts reached through a jump host are skipped rather than guessed at: their
 // address is meaningful only from the far side of the proxy, so dialling it
 // from here would report on the wrong machine — quite possibly something else
-// entirely on the local network.
+// entirely on the local network. That is as true of a ProxyJump or a
+// ProxyCommand in ssh's own config as of a jump host omassh passes itself.
 func Check(ctx context.Context, h store.Host, timeout time.Duration) State {
-	if h.ProxyJump != "" {
+	if h.ProxyJump != "" || h.ConfigProxy != "" {
 		return Skipped
 	}
 	if h.Addr == "" {

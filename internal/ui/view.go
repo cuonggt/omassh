@@ -395,11 +395,20 @@ func (m Model) detailBody() (string, string) {
 		addr = fmt.Sprintf("%s:%d", addr, r.Port)
 	}
 
+	// A host your ssh config sends through a bastion is behind one as surely
+	// as a host whose group names one. The line read — for it, though ssh
+	// never reached it directly, and it is the one place on the screen that
+	// says why a probe passed the host over.
+	via, viaFrom := strOr(r.ProxyJump, "—"), r.ProxyJumpFrom
+	if r.ConfigProxy != "" {
+		via, viaFrom = r.ConfigProxy, tildePath(m.opts.SSHConfig)
+	}
+
 	lines := []string{
 		"",
 		detailField("ssh", addr, ""),
 		detailField("key", strOr(r.Identity, "(agent)"), r.IdentityFrom),
-		detailField("via", strOr(r.ProxyJump, "—"), r.ProxyJumpFrom),
+		detailField("via", via, viaFrom),
 		detailField("tags", strOr(strings.Join(r.Tags, ", "), "—"), ""),
 	}
 	// The user is already visible in the ssh line; call it out separately only

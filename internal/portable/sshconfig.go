@@ -70,8 +70,8 @@ func DefaultSSHConfig() (string, error) {
 // the real ssh, which reads the file itself — ControlMaster, certificates and
 // Match blocks are honoured whether or not anything here knows about them.
 // That needs ssh to be handed the alias rather than the address, or the block
-// written under it is passed over; Aliases is what makes it so. Import is for
-// discovery, not for taking over OpenSSH's configuration.
+// written under it is passed over; SSHConfig.Aliases is what makes it so.
+// Import is for discovery, not for taking over OpenSSH's configuration.
 func FromSSHConfig(path string) (Document, error) {
 	raw, err := expandIncludes(path, filepath.Dir(path), 0)
 	if err != nil {
@@ -157,29 +157,39 @@ func reaches(cfg *sshcfg.Config, alias string) (string, int) {
 	return addr, port
 }
 
-// Aliases lists the machines a config file names for itself, and where ssh
-// takes each name, following Include as ssh does and ignoring omassh's own
-// block.
+// SSHConfig is an ssh client config as omassh reads it before handing a host
+// to ssh: what the file says for itself, following Include as ssh does and
+// ignoring omassh's own block.
+//
+// The block is left out because everything in it came from omassh in the
+// first place, so reading it back could add only what has gone stale in it
+// since the last export — a jump host since taken off a host, say. Everything
+// still current in it is on the command line already, ahead of anything the
+// file says.
+type SSHConfig struct{ cfg *sshcfg.Config }
+
+// ReadSSHConfig reads the config at path. A missing file says nothing: it
+// names no machine and sends none through anything.
+func ReadSSHConfig(path string) (SSHConfig, error) {
+	cfg, err := ownConfig(path)
+	return SSHConfig{cfg: cfg}, err
+}
+
+// Aliases lists the machines the file names for itself, and where ssh takes
+// each name.
 //
 // It is what lets a host the file names be reached by that name. ssh chooses
 // the Host blocks that apply by the name on its command line, so a host
 // reached by its address passed over everything written under its alias —
 // see store.Host.Alias. Only names ssh would take as a destination are listed,
 // since anything else is no way to reach a machine.
-//
-// omassh's own block is left out because everything in it came from omassh in
-// the first place: reaching a host by the alias written there would add
-// nothing but whatever has gone stale in it since the last export.
-//
-// A missing file names nothing.
-func Aliases(path string) ([]store.ConfigAlias, error) {
-	cfg, err := ownConfig(path)
-	if err != nil || cfg == nil {
-		return nil, err
+func (c SSHConfig) Aliases() []store.ConfigAlias {
+	if c.cfg == nil {
+		return nil
 	}
 	var out []store.ConfigAlias
 	seen := map[string]bool{}
-	for _, h := range cfg.Hosts {
+	for _, h := range c.cfg.Hosts {
 		if isMatchBlock(h) {
 			continue
 		}
@@ -189,11 +199,57 @@ func Aliases(path string) ([]store.ConfigAlias, error) {
 				continue
 			}
 			seen[key(a)] = true
-			addr, port := reaches(cfg, a)
+			addr, port := reaches(c.cfg, a)
 			out = append(out, store.ConfigAlias{Name: a, Addr: addr, Port: port})
 		}
 	}
-	return out, nil
+	return out
+}
+
+// Proxy is what the file sends a connection to dest through: the value of the
+// first ProxyJump or ProxyCommand in the blocks that apply to that name, or
+// nothing where none does or the first says none.
+//
+// The first of either, not the first of each. ssh takes one route, and
+// whichever of the two it meets first stops the other from taking effect —
+// none included, which is how a bastion is let out of a `Host *` that sends
+// everything else through it. Asked about each separately, a block saying
+// `ProxyCommand none` above that catch-all would read as a host behind a jump
+// host, when ssh dials it directly.
+//
+// dest is the name ssh is handed, since that is what Host lines are matched
+// against: the alias where the file names the machine, and the address
+// otherwise, which is how `Host 10.0.1.*` or `Host *.corp.example.com` sends a
+// host through a bastion without naming it. A Match on anything but the name
+// is read as false, as it is everywhere else here, so a route that holds only
+// when `Match exec` says so is not seen.
+func (c SSHConfig) Proxy(dest string) string {
+	if c.cfg == nil || dest == "" {
+		return ""
+	}
+	for _, h := range c.cfg.Hosts {
+		if !h.Matches(dest) {
+			continue
+		}
+		for _, n := range h.Nodes {
+			kv, ok := n.(*sshcfg.KV)
+			if !ok {
+				continue
+			}
+			if k := strings.ToLower(kv.Key); k != "proxyjump" && k != "proxycommand" {
+				continue
+			}
+			switch v := strings.TrimSpace(kv.Value); {
+			case v == "":
+				continue
+			case strings.EqualFold(v, "none"):
+				return ""
+			default:
+				return v
+			}
+		}
+	}
+	return ""
 }
 
 // ownConfig is a config file as ssh reads it, minus omassh's own block: what

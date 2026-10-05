@@ -315,10 +315,11 @@ Host web-*
 Host semi;colon
     HostName 10.0.0.6
 `)
-	got, err := Aliases(path)
+	c, err := ReadSSHConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	got := c.Aliases()
 	byName := map[string]store.ConfigAlias{}
 	for _, a := range got {
 		byName[a.Name] = a
@@ -341,9 +342,78 @@ Host semi;colon
 		}
 	}
 
-	none, err := Aliases(filepath.Join(dir, "not-there"))
-	if err != nil || len(none) != 0 {
-		t.Errorf("a missing file gave %v, %v; it names nothing", none, err)
+	none, err := ReadSSHConfig(filepath.Join(dir, "not-there"))
+	if err != nil || len(none.Aliases()) != 0 {
+		t.Errorf("a missing file gave %v, %v; it names nothing", none.Aliases(), err)
+	}
+}
+
+// An address behind a jump host means something only from the far side of it,
+// so what the file sends each name through has to be what ssh would: the first
+// ProxyJump or ProxyCommand of the blocks that apply to the name, with none
+// counting as the first — which is how a bastion is let out of the catch-all
+// that sends everything else through it. ssh -G gives the same answer for
+// every name here but the one in omassh's own block, which ssh reads and this
+// deliberately does not.
+func TestAConfigSaysWhatItSendsEachNameThrough(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "conf.d/ssm", "Host i-*\n    ProxyCommand aws ssm start-session --target %h\n")
+	path := write(t, dir, "config", `Include conf.d/*
+
+# >>> omassh >>>
+Host from-omassh
+    ProxyJump somewhere-stale
+# <<< omassh <<<
+
+Host bastion
+    HostName 203.0.113.1
+    ProxyJump none
+
+Host direct
+    HostName 10.0.2.2
+    ProxyCommand none
+
+Host prod-web
+    HostName 10.0.0.5
+    ProxyJump bastion # the far side
+
+Host 10.0.1.*
+    ProxyCommand ssh -W %h:%p bastion
+
+Match host on-call exec "test -f /nonexistent"
+    ProxyJump pager
+
+Host *
+    ProxyJump bastion
+`)
+	c, err := ReadSSHConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for dest, want := range map[string]string{
+		"prod-web": "bastion",
+		// By the address a host is handed to ssh as, when nothing names it.
+		"10.0.1.7": "ssh -W %h:%p bastion",
+		"10.9.9.9": "bastion",
+		// From an Include, and ahead of the catch-all's ProxyJump, which a
+		// ProxyCommand met first keeps from taking effect.
+		"i-0123456789abcdef0": "aws ssm start-session --target %h",
+		// none is a route too, and the first one met.
+		"bastion": "",
+		"direct":  "",
+		// A Match that holds only some of the time is read as not holding.
+		"on-call": "bastion",
+		// What omassh wrote is not read back as the file's own.
+		"from-omassh": "bastion",
+	} {
+		if got := c.Proxy(dest); got != want {
+			t.Errorf("Proxy(%q) = %q, want %q", dest, got, want)
+		}
+	}
+
+	none, err := ReadSSHConfig(filepath.Join(dir, "not-there"))
+	if got := none.Proxy("prod-web"); err != nil || got != "" {
+		t.Errorf("a missing file sent prod-web through %q, %v; it sends nothing anywhere", got, err)
 	}
 }
 
@@ -395,11 +465,11 @@ Host web
 	if _, err := DeclaredAliases(path); err != nil {
 		t.Errorf("DeclaredAliases: %v", err)
 	}
-	as, err := Aliases(path)
+	c, err := ReadSSHConfig(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(as) != 1 || as[0] != (store.ConfigAlias{Name: "web", Addr: "10.0.0.5", Port: 22}) {
+	if as := c.Aliases(); len(as) != 1 || as[0] != (store.ConfigAlias{Name: "web", Addr: "10.0.0.5", Port: 22}) {
 		t.Errorf("Aliases = %+v, want web at 10.0.0.5:22", as)
 	}
 }

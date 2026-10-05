@@ -16,8 +16,9 @@ const UngroupedID = "__ungrouped"
 
 // data is one consistent snapshot of everything the UI draws: the persisted
 // store, what tmux says of the sessions and tunnels it is running, and the
-// names ~/.ssh/config gives machines. That file is read for those names and
-// nothing more; its hosts reach the list only through import-ssh-config.
+// names ~/.ssh/config gives machines along with what it sends them through.
+// That file is read for those and nothing more; its hosts reach the list only
+// through import-ssh-config.
 type data struct {
 	groups   []store.Group // persisted groups only
 	hosts    []store.Host  // persisted hosts only
@@ -42,7 +43,7 @@ type dataMsg struct {
 }
 
 // load reads the store into what the interface draws, along with the names
-// sshConfig gives machines.
+// sshConfig gives machines and what it sends them through.
 //
 // A record the store could not decode is skipped rather than fatal, and what
 // it could read is kept: treating any error as a reason to show nothing meant
@@ -108,9 +109,11 @@ func load(s *store.Store, sshConfig string) (data, error) {
 	// Read on every load rather than once, like the store, so that an edit
 	// to the file reaches the next connection after an r rather than after a
 	// restart. It is a few lines of text, and nothing here is on a timer.
-	aliases, err := configAliases(sshConfig)
+	sc, err := readSSHConfig(sshConfig)
 	note(err)
-	d.resolver = store.NewResolver(d.groups, d.hosts, d.creds).WithAliases(aliases)
+	d.resolver = store.NewResolver(d.groups, d.hosts, d.creds).
+		WithAliases(sc.Aliases()).
+		WithProxies(sc.Proxy)
 	d.tree = store.FlattenGroups(d.groups)
 
 	ungrouped := 0
@@ -128,23 +131,23 @@ func load(s *store.Store, sshConfig string) (data, error) {
 	return d, nil
 }
 
-// configAliases is what an ssh config calls machines, or nothing where there is
-// no config to read.
+// readSSHConfig is the ssh config a connection reads, or one that says nothing
+// where there is no config to read.
 //
-// A file that cannot be read costs the names and nothing else: every host is
-// reached by its address, as it was before omassh read the file at all. It is
-// still said, because a block that has quietly stopped applying is exactly
-// what reading the file is for.
-func configAliases(path string) ([]store.ConfigAlias, error) {
+// A file that cannot be read costs what it says and nothing else: hosts are
+// reached and probed by their address, as they were before omassh read the
+// file at all. It is still said, because a block that has quietly stopped
+// applying is exactly what reading the file is for.
+func readSSHConfig(path string) (portable.SSHConfig, error) {
 	if path == "" {
-		return nil, nil
+		return portable.SSHConfig{}, nil
 	}
-	as, err := portable.Aliases(path)
+	sc, err := portable.ReadSSHConfig(path)
 	if err != nil {
 		msg := strings.ReplaceAll(err.Error(), path, tildePath(path))
-		return nil, errors.New(msg + " — until it reads, hosts are reached by their address")
+		return portable.SSHConfig{}, errors.New(msg + " — until it reads, hosts are reached by their address")
 	}
-	return as, nil
+	return sc, nil
 }
 
 // tildePath is a path the way a person writes it, with ~ for the home

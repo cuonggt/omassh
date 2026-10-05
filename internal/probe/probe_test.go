@@ -50,13 +50,18 @@ func TestCheck(t *testing.T) {
 }
 
 // Dialling a jump-host's address directly would report on whatever answers at
-// that address locally, which is worse than saying nothing.
+// that address locally, which is worse than saying nothing — whether the jump
+// host is omassh's or one ssh's own config sends the host through.
 func TestProxiedHostsAreSkipped(t *testing.T) {
 	addr, open := listening(t)
 
-	viaJump := store.Host{Addr: addr, Port: open, ProxyJump: "bastion"}
-	if got := probe.Check(context.Background(), viaJump, time.Second); got != probe.Skipped {
-		t.Errorf("jump-host host = %v, want skipped", got)
+	for what, h := range map[string]store.Host{
+		"jump-host host":           {Addr: addr, Port: open, ProxyJump: "bastion"},
+		"host behind ssh's config": {Addr: addr, Port: open, ConfigProxy: "bastion"},
+	} {
+		if got := probe.Check(context.Background(), h, time.Second); got != probe.Skipped {
+			t.Errorf("%s = %v, want skipped", what, got)
+		}
 	}
 }
 

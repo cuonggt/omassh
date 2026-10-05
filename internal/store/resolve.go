@@ -39,6 +39,7 @@ type Resolver struct {
 	byName  map[string]Host
 	byCred  map[string]Credential
 	aliases map[string]ConfigAlias
+	proxy   func(dest string) string
 	maxHops int
 }
 
@@ -80,13 +81,45 @@ func (r Resolver) WithAliases(as []ConfigAlias) Resolver {
 	return r
 }
 
+// WithProxies is the resolver knowing what ssh's own config sends a
+// connection through, asked by the name ssh is handed for it.
+func (r Resolver) WithProxies(proxy func(dest string) string) Resolver {
+	r.proxy = proxy
+	return r
+}
+
 // Resolve fills any attribute the host leaves empty from the nearest ancestor
 // group that sets it. A host's own value always wins.
 func (r Resolver) Resolve(h Host) Resolved {
 	out := r.inherit(h)
 	out.Jump = r.jumpHost(out.ProxyJump, map[string]bool{}, 0)
 	out.Alias, out.AliasElsewhere = r.alias(h)
+	out.ConfigProxy = r.configProxy(out.Host)
 	return out
+}
+
+// configProxy is what ssh's own config sends a host through, if anything.
+//
+// Asked by the name Build hands ssh — the alias where there is one, and the
+// address otherwise — because that is the name the file's Host lines are
+// matched against. A host reached by its address is sent through a bastion by
+// `Host 10.0.1.*` as surely as one reached by name is by its own block.
+//
+// Nothing where the host has a jump host of omassh's, inherited or its own.
+// That goes on the command line, which ssh reads before the file, and ssh
+// keeps the first route it is given: what the file says is never used.
+func (r Resolver) configProxy(h Host) string {
+	if r.proxy == nil || h.ProxyJump != "" {
+		return ""
+	}
+	dest := h.Alias
+	if dest == "" {
+		dest = h.Addr
+	}
+	if dest == "" {
+		return ""
+	}
+	return r.proxy(dest)
 }
 
 // alias is the name to reach a host by, if ssh's own config has one for it.

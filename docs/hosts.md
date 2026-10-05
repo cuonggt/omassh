@@ -89,9 +89,10 @@ Hosts your config does not name are handed to ssh by their address, so a block
 written for an address or a domain — `Host *.corp.example.com` — still applies
 to them. Handing ssh every host's name would trade those blocks for these.
 
-The file is read for the names it gives machines and nothing else, along with
-whatever it `Include`s, every time the list is read — so after an edit, `r`.
-Omassh's own block from
+The file is read for the names it gives machines and for what it sends them
+through, which [reachability](#reachability) needs, and nothing else — along
+with whatever it `Include`s, every time the list is read, so after an edit,
+`r`. Omassh's own block from
 [`export-ssh-config`](moving.md#reaching-your-hosts-from-everything-else) does
 not count, since everything in it came from Omassh in the first place. A file
 that cannot be read says so in the status bar, and until it reads, every host
@@ -125,6 +126,17 @@ answering and nothing about whether ssh would let you in. It waits
 
 Hosts behind a jump host show `◌` and are skipped rather than guessed at:
 their address means something only from the far side of the jump, so dialling
-it from here would report on a different machine entirely. A `ProxyCommand`
-set in `~/.ssh/config` is out of Omassh's sight, so a host that relies on one
-is dialled directly like any other.
+it from here would report on a different machine entirely. That includes a
+host your `~/.ssh/config` sends through one — a `ProxyJump`, or a
+`ProxyCommand` such as an `aws ssm` session, whose host is an instance id
+rather than an address at all. The file is read as ssh reads it for the name
+it is handed: the host's name where the file gives it one, and its address
+otherwise, which is what patterns such as `Host 10.0.1.*` match. The first
+`ProxyJump` or `ProxyCommand` met decides, `none` included, and the detail
+pane shows it on the `via` line with `← ~/.ssh/config` beside it. A jump host
+Omassh gives the host goes on ssh's command line, ahead of the file, so that
+is the one ssh takes and the one shown.
+
+A route set under a `Match` that holds only at the moment of connecting —
+`exec`, `user` and the rest — is still out of Omassh's sight, so a host that
+relies on one is dialled directly like any other.
