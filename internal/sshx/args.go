@@ -12,9 +12,11 @@ import (
 
 // Build returns the argv (excluding the program name) used to reach h.
 //
-// Every connection path in omassh — interactive sessions, reachability probes
-// and the native SFTP dialer — funnels through this one function, so
-// connection behaviour cannot drift between them.
+// Every connection path in omassh — interactive sessions, the native SFTP
+// dialer, and a reachability probe that has to go through a jump host —
+// funnels through this one function, so connection behaviour cannot drift
+// between them. A probe of a host omassh dials itself is the one thing that
+// never comes here: it is a TCP connection and goes nowhere near ssh.
 //
 // extra is inserted before the target, which is where ssh wants flags like
 // -N and -W.

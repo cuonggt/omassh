@@ -49,15 +49,18 @@ func TestCheck(t *testing.T) {
 	}
 }
 
-// Dialling a jump-host's address directly would report on whatever answers at
-// that address locally, which is worse than saying nothing — whether the jump
-// host is omassh's or one ssh's own config sends the host through.
-func TestProxiedHostsAreSkipped(t *testing.T) {
+// A host behind a jump host is asked of the hop, which takes knowing how to
+// reach the hop: its address, its port, its key and its user. A hop named as
+// free text is a destination for ssh to resolve, and a route in ssh's own
+// config is one only ssh can follow — so neither is asked, and neither is
+// dialled either. Dialling would report on whatever answers at that address
+// from here, which is worse than saying nothing.
+func TestAHostWhoseHopOmasshCannotSpellIsNotProbed(t *testing.T) {
 	addr, open := listening(t)
 
 	for what, h := range map[string]store.Host{
-		"jump-host host":           {Addr: addr, Port: open, ProxyJump: "bastion"},
-		"host behind ssh's config": {Addr: addr, Port: open, ConfigProxy: "bastion"},
+		"a hop named as free text":    {Addr: addr, Port: open, ProxyJump: "bastion"},
+		"a route in ssh's own config": {Addr: addr, Port: open, ConfigProxy: "bastion"},
 	} {
 		if got := probe.Check(context.Background(), h, time.Second); got != probe.Skipped {
 			t.Errorf("%s = %v, want skipped", what, got)

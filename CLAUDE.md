@@ -104,13 +104,28 @@ passed over everything written under the alias. The resolver decides that
 file does not name still go by address, so address and domain patterns keep
 matching them.
 
-The reachability probe is not in that list and never was: it opens a TCP
-connection and closes it. That is why it can say a port is answering and
-nothing at all about whether ssh would have been let in, and why a host behind
-a jump host is reported as skipped rather than dialled — a jump host of
-omassh's, or a `ProxyJump` or `ProxyCommand` the file gives the name ssh is
-handed, which the resolver records as `Host.ConfigProxy`. `Build` never passes
-that on, since ssh reads the file itself; it is there for the probe.
+The reachability probe dials for itself where it can: a TCP connection opened
+and closed, which is why it can say a port is answering and nothing at all
+about whether ssh would have been let in. A host behind a jump host cannot be
+dialled from here — its address means something only beyond the hop — so that
+one is asked of the hop, and that path does go through `Build`:
+`sshx.ProbeThrough` spells `ssh -W` to the jump host, and the greeting coming
+back through the forward is the port answering. Nothing logs in to the host
+and nothing is written to `known_hosts`. A sweep holds itself to
+`probe.JumpWorkers` of those per hop, since an sshd sheds connections that
+have yet to log in and a shed one would read as ignorance about the host.
+
+It is also the one place omassh reads ssh's own words for a verdict: a forward
+the hop refuses and a hop that refuses omassh end in the same exit status, and
+only stderr tells them apart, so "open failed" is what makes a host down and
+everything else leaves it unprobed. That way round on purpose — both bugs this
+package has had were a fine machine called down, and reading for the failure
+rather than the success means a wording that drifts loses a verdict instead of
+inventing one. Unasked too is a route omassh cannot spell the hop for: a jump
+host given as free text, and a `ProxyJump` or `ProxyCommand` the file gives
+the name ssh is handed, which the resolver records as `Host.ConfigProxy`.
+`Build` never passes that on, since ssh reads the file itself; it is there for
+the probe.
 
 **Two ways to run a session, deliberately.** `internal/sshx/session.go` hands the
 whole terminal to a real ssh through `tea.Exec` (`enter`) — emulation-free by

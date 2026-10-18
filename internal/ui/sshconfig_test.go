@@ -109,12 +109,13 @@ Host 10.0.1.*
 }
 
 // The probe dials an address from here, and a host your ssh config sends
-// through a bastion has an address that means something only from the far
-// side of it. So it is passed over, as a host behind omassh's own jump host
-// is, rather than reported on: whatever answers at that address here is
-// another machine. This test's own listener stands in for that machine, and
-// was reported up — beside a host the config does not send anywhere, which
-// is still dialled.
+// through a bastion has an address that means something only from the far side
+// of it. The bastion cannot be asked instead, the way one of omassh's own jump
+// hosts is: the route is in the file, and only ssh can follow it. So the host
+// is passed over rather than reported on, since whatever answers at that
+// address here is another machine. This test's own listener stands in for that
+// machine, and was reported up — beside a host the config does not send
+// anywhere, which is still dialled.
 func TestAProbePassesOverAHostYourSSHConfigSendsThroughABastion(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -806,7 +806,7 @@ func TestProbeSummaryNamesSkippedHosts(t *testing.T) {
 		want   string
 	}{
 		{"all skipped", map[probe.State]int{probe.Skipped: 2},
-			"2 skipped — a host behind a jump host is not dialled directly"},
+			"2 skipped — their jump host could not be asked"},
 		{"mixed keeps the counts uncluttered", map[probe.State]int{probe.Up: 3, probe.Skipped: 1},
 			"3 up · 1 skipped"},
 		{"every bucket", map[probe.State]int{probe.Up: 1, probe.Down: 2, probe.Skipped: 3, probe.Unknown: 4},

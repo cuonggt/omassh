@@ -113,7 +113,7 @@ func (m Model) hostMarker(key string) (string, color.Color) {
 // Counting only up and down used to leave a group of hosts behind a jump host
 // reading "0 up, 0 down", which looks like the probe did nothing rather than
 // like it deliberately declined. Every host lands in exactly one bucket, and
-// the ones that were not dialled say why.
+// the ones with no answer say why.
 func probeSummary(counts map[probe.State]int) string {
 	var parts []string
 	for _, b := range []struct {
@@ -137,8 +137,14 @@ func probeSummary(counts map[probe.State]int) string {
 
 	// Say why once, and only when the skips are the whole story — otherwise
 	// the reason crowds out the counts it is explaining.
+	//
+	// Asked rather than dialled, and asked rather than reached: a host behind
+	// a jump host is asked of the jump host, and the three ways that comes to
+	// nothing — a hop that refused the probe, a hop named as free text, and a
+	// route only ssh can follow — are one thing to whoever is looking at the
+	// list, which is that nobody put the question.
 	if counts[probe.Skipped] > 0 && counts[probe.Up]+counts[probe.Down] == 0 {
-		msg += " — a host behind a jump host is not dialled directly"
+		msg += " — their jump host could not be asked"
 	}
 	return msg
 }

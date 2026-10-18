@@ -117,25 +117,62 @@ writes each one.
 
 ## Reachability
 
-`p` probes the hosts in the selected group: `●` up, `✖` down. A probe is a TCP
-connection to the host's port, opened and closed. That is what makes it quick
-enough to sweep a whole group at once, and it is why a probe says a port is
-answering and nothing about whether ssh would let you in. It waits
-`probe_timeout` for an answer — two seconds, unless the
+`p` probes the hosts in the selected group: `●` up, `✖` down, `◌` not asked.
+It waits `probe_timeout` for an answer — two seconds, unless the
 [config](configuration.md) says otherwise.
 
-Hosts behind a jump host show `◌` and are skipped rather than guessed at:
-their address means something only from the far side of the jump, so dialling
-it from here would report on a different machine entirely. That includes a
-host your `~/.ssh/config` sends through one — a `ProxyJump`, or a
-`ProxyCommand` such as an `aws ssm` session, whose host is an instance id
-rather than an address at all. The file is read as ssh reads it for the name
-it is handed: the host's name where the file gives it one, and its address
-otherwise, which is what patterns such as `Host 10.0.1.*` match. The first
-`ProxyJump` or `ProxyCommand` met decides, `none` included, and the detail
-pane shows it on the `via` line with `← ~/.ssh/config` beside it. A jump host
-Omassh gives the host goes on ssh's command line, ahead of the file, so that
-is the one ssh takes and the one shown.
+A host Omassh dials itself gets a TCP connection to its port, opened and
+closed. That is what makes it quick enough to sweep a whole group at once, and
+it is why a probe says a port is answering and nothing about whether ssh would
+let you in.
+
+A host behind a jump host cannot be dialled from here at all: its address
+means something only from the far side of the jump, and dialling it from here
+would report on a different machine entirely — quite possibly something else
+on your own network. So it is asked of the jump host, which is the one place
+the address does mean something. Omassh asks for a stdio forward to the host —
+`ssh -W`, the same thing ssh's own `ProxyJump` opens — and the jump host makes
+the connection. Nothing logs in to the host itself, nothing is written to
+`known_hosts`, and the host is never sent a byte.
+
+`●` is then the host having answered: sshd greets whoever connects before it
+is spoken to, so that greeting arriving back through the forward is the port
+answering. `✖` is the jump host saying it could not connect. A port that
+answers and then waits to be addressed first cannot be told from one that is
+not answering at all, and reads as `◌`.
+
+Asking costs a connection to the jump host for each host behind it, where a
+dial costs a packet, so a sweep makes four at a time to any one jump host —
+fifty hosts behind one bastion is fifty logins to it, thirteen rounds of four.
+An sshd turns away connections that have yet to log in once ten of them are
+waiting, and one it turned away would arrive here as `◌` against a host that
+is perfectly fine.
+
+`◌` is a host nobody managed to ask about, and it is never read as a host that
+is down: too much of what goes wrong on the way has nothing to do with the
+machine. It is what you get when
+
+- the jump host would not let the probe in. It connects with nobody in front
+  of it, so `ssh-add` a key that has a passphrase, and `enter` the jump host
+  once to accept a host key ssh has not seen before.
+- the jump host is named as free text — `ops@edge.example.com` — rather than
+  as one of your own hosts. Asking it means connecting to it, which takes its
+  address, its port, its key and its user, and a host of your own is where
+  those are written down.
+- the route is in your `~/.ssh/config`, which only ssh can follow: a
+  `ProxyJump`, or a `ProxyCommand` such as an `aws ssm` session whose host is
+  an instance id rather than an address at all.
+- the host is one the jump host can reach but whose packets are dropped rather
+  than refused. The jump host waits on its own connection far longer than the
+  probe waits to hear back.
+
+The file is read as ssh reads it for the name it is handed: the host's name
+where the file gives it one, and its address otherwise, which is what patterns
+such as `Host 10.0.1.*` match. The first `ProxyJump` or `ProxyCommand` met
+decides, `none` included, and the detail pane shows it on the `via` line with
+`← ~/.ssh/config` beside it. A jump host Omassh gives the host goes on ssh's
+command line, ahead of the file, so that is the one ssh takes, the one shown,
+and the one asked.
 
 A route set under a `Match` that holds only at the moment of connecting —
 `exec`, `user` and the rest — is still out of Omassh's sight, so a host that
