@@ -189,20 +189,34 @@ type Host struct {
 	// omassh names.
 	Alias string `json:"-"`
 
-	// ConfigProxy is the jump host or ProxyCommand ssh's own config sends this
-	// host through, the setting's value as the file writes it, filled in at
-	// resolve time and never persisted. Empty where omassh has a jump host of
-	// its own for the host: that goes on the command line, ahead of the file,
-	// and ssh keeps the first route it is given.
+	// ConfigProxy is the route ssh's own config sends this host through,
+	// filled in at resolve time and never persisted. Nothing where omassh has
+	// a jump host of its own for the host: that goes on the command line,
+	// ahead of the file, and ssh keeps the first route it is given.
 	//
 	// Unlike everything else filled in here it is not for Build: ssh reads the
 	// file itself, and saying it again on the command line would change
-	// nothing. It is for the probe, which is handed a Host as Build is but
-	// does not go through ssh at all. It dials the address, and an address
-	// behind a proxy means something only from the far side of it — an
-	// instance id ssm resolves, a name only the bastion's resolver knows, a
-	// private address that from here is somebody else's machine.
-	ConfigProxy string `json:"-"`
+	// nothing. It is for the probe, which is handed a Host as Build is and
+	// cannot dial an address that means something only from the far side of a
+	// proxy — an instance id ssm resolves, a name only the bastion's resolver
+	// knows, a private address that from here is somebody else's machine. The
+	// probe asks the proxy instead where it is a jump host it can reach; a
+	// ProxyCommand it cannot, and ConfigRoute.Jump is what says which of the
+	// two the file wrote.
+	ConfigProxy ConfigRoute `json:"-"`
+}
+
+// ConfigRoute is a route ssh's own config sends a host through: the setting's
+// value as the file writes it, and whether that is a ProxyJump — a destination
+// anything can be told to connect to — rather than a ProxyCommand, which is a
+// program only ssh knows how to run.
+//
+// The two travel together because nothing downstream can tell them apart: both
+// values are free text, and `connect` is as plausible a ProxyCommand as
+// `bastion` is a ProxyJump. Only the file says which was written.
+type ConfigRoute struct {
+	Via  string
+	Jump bool
 }
 
 // Target renders the [user@]host argument passed to ssh.
@@ -221,6 +235,81 @@ func (h Host) Target() string {
 		return h.User + "@" + h.Addr
 	}
 	return h.Addr
+}
+
+// ParseJumpTarget reads a jump host written as a destination back into the
+// host it names: what -J takes, and what JumpTarget renders.
+//
+// Spelled the way ssh spells it, since the string came from someone writing it
+// for ssh: [user@]host[:port], the user split at the last @ so that a@b@host
+// logs in as a@b, and an IPv6 literal bracketed when it carries a port and
+// bare when it does not. ssh takes it apart this way for -J itself — handed
+// `[::1]:2222` it builds the hop's own command with `-p 2222` and `::1`, which
+// is the command this is here to let omassh build instead. It has to, because
+// a probe asks the hop rather than passing through it, and an asked hop is a
+// destination on the command line, where host:port is a hostname with a colon
+// in it and resolves to nothing at all.
+//
+// A chain is the caller's to split: a comma is refused rather than read as
+// part of a name, since -J takes a list and every hop in it is spelled on its
+// own.
+//
+// ssh would take `ssh://user@host:port` as a destination and do this itself,
+// which would be one line instead of thirty. It is not what happens because
+// the rest of omassh wants a host and not a string: the port has to reach -p,
+// and the sweep that holds down how many probes one jump host carries has to
+// recognise the same machine named twice.
+func ParseJumpTarget(dest string) (Host, bool) {
+	dest = strings.TrimSpace(dest)
+	if dest == "" || strings.Contains(dest, ",") {
+		return Host{}, false
+	}
+	var h Host
+	if at := strings.LastIndex(dest, "@"); at >= 0 {
+		h.User, dest = dest[:at], dest[at+1:]
+	}
+	switch {
+	case strings.HasPrefix(dest, "["):
+		end := strings.Index(dest, "]")
+		if end < 0 {
+			return Host{}, false
+		}
+		h.Addr = dest[1:end]
+		switch rest := dest[end+1:]; {
+		case rest == "":
+		case strings.HasPrefix(rest, ":"):
+			port, ok := jumpPort(rest[1:])
+			if !ok {
+				return Host{}, false
+			}
+			h.Port = port
+		default:
+			return Host{}, false
+		}
+	case strings.Count(dest, ":") == 1:
+		colon := strings.Index(dest, ":")
+		port, ok := jumpPort(dest[colon+1:])
+		if !ok {
+			return Host{}, false
+		}
+		h.Addr, h.Port = dest[:colon], port
+	default:
+		// More colons than that is an IPv6 literal written bare, which ssh
+		// takes as a host and nothing else: there is no port in it to find.
+		h.Addr = dest
+	}
+	if h.Addr == "" {
+		return Host{}, false
+	}
+	return h, true
+}
+
+func jumpPort(s string) (int, bool) {
+	port, err := strconv.Atoi(s)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, false
+	}
+	return port, true
 }
 
 // StatKey identifies a host in the session-history bucket.

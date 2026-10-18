@@ -390,29 +390,35 @@ Host *
 	if err != nil {
 		t.Fatal(err)
 	}
-	for dest, want := range map[string]string{
-		"prod-web": "bastion",
+	type route struct {
+		via  string
+		jump bool
+	}
+	for dest, want := range map[string]route{
+		"prod-web": {"bastion", true},
 		// By the address a host is handed to ssh as, when nothing names it.
-		"10.0.1.7": "ssh -W %h:%p bastion",
-		"10.9.9.9": "bastion",
+		// A ProxyCommand is a program, and says so, since only ssh can run it.
+		"10.0.1.7": {"ssh -W %h:%p bastion", false},
+		"10.9.9.9": {"bastion", true},
 		// From an Include, and ahead of the catch-all's ProxyJump, which a
 		// ProxyCommand met first keeps from taking effect.
-		"i-0123456789abcdef0": "aws ssm start-session --target %h",
+		"i-0123456789abcdef0": {"aws ssm start-session --target %h", false},
 		// none is a route too, and the first one met.
-		"bastion": "",
-		"direct":  "",
+		"bastion": {},
+		"direct":  {},
 		// A Match that holds only some of the time is read as not holding.
-		"on-call": "bastion",
+		"on-call": {"bastion", true},
 		// What omassh wrote is not read back as the file's own.
-		"from-omassh": "bastion",
+		"from-omassh": {"bastion", true},
 	} {
-		if got := c.Proxy(dest); got != want {
-			t.Errorf("Proxy(%q) = %q, want %q", dest, got, want)
+		via, jump := c.Proxy(dest)
+		if via != want.via || jump != want.jump {
+			t.Errorf("Proxy(%q) = %q, jump %v; want %q, jump %v", dest, via, jump, want.via, want.jump)
 		}
 	}
 
 	none, err := ReadSSHConfig(filepath.Join(dir, "not-there"))
-	if got := none.Proxy("prod-web"); err != nil || got != "" {
+	if got, jump := none.Proxy("prod-web"); err != nil || got != "" || jump {
 		t.Errorf("a missing file sent prod-web through %q, %v; it sends nothing anywhere", got, err)
 	}
 }

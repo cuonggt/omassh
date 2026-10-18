@@ -109,14 +109,14 @@ Host 10.0.1.*
 }
 
 // The probe dials an address from here, and a host your ssh config sends
-// through a bastion has an address that means something only from the far side
-// of it. The bastion cannot be asked instead, the way one of omassh's own jump
-// hosts is: the route is in the file, and only ssh can follow it. So the host
-// is passed over rather than reported on, since whatever answers at that
-// address here is another machine. This test's own listener stands in for that
-// machine, and was reported up — beside a host the config does not send
+// through a proxy has an address that means something only from the far side
+// of it. A jump host can be asked instead, whether the file names it or you
+// did; a ProxyCommand cannot, being a program only ssh knows how to run. So
+// this host is passed over rather than reported on, since whatever answers at
+// that address here is another machine. This test's own listener stands in for
+// that machine, and was reported up — beside a host the config does not send
 // anywhere, which is still dialled.
-func TestAProbePassesOverAHostYourSSHConfigSendsThroughABastion(t *testing.T) {
+func TestAProbePassesOverAHostWhoseRouteOnlySSHCanRun(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +124,10 @@ func TestAProbePassesOverAHostYourSSHConfigSendsThroughABastion(t *testing.T) {
 	t.Cleanup(func() { l.Close() })
 	port := l.Addr().(*net.TCPAddr).Port
 
-	path := sshConfigAt(t, fmt.Sprintf("Host prod-web\n    HostName 127.0.0.1\n    Port %d\n    ProxyJump bastion\n", port))
+	// A ProxyCommand rather than a ProxyJump, so nothing is asked and nothing
+	// connects: a jump host named here would be asked of, and asking takes an
+	// ssh and a bastion that answers, which belongs in internal/probe.
+	path := sshConfigAt(t, fmt.Sprintf("Host prod-web\n    HostName 127.0.0.1\n    Port %d\n    ProxyCommand ssh -W %%h:%%p bastion\n", port))
 	h := newHarness(t, func(o *Options) { o.SSHConfig = path })
 	for _, name := range []string{"prod-web", "local"} {
 		if _, err := h.store.PutHost(store.Host{Name: name, Addr: "127.0.0.1", Port: port}); err != nil {

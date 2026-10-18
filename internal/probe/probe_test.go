@@ -49,21 +49,21 @@ func TestCheck(t *testing.T) {
 	}
 }
 
-// A host behind a jump host is asked of the hop, which takes knowing how to
-// reach the hop: its address, its port, its key and its user. A hop named as
-// free text is a destination for ssh to resolve, and a route in ssh's own
-// config is one only ssh can follow — so neither is asked, and neither is
-// dialled either. Dialling would report on whatever answers at that address
-// from here, which is worse than saying nothing.
-func TestAHostWhoseHopOmasshCannotSpellIsNotProbed(t *testing.T) {
+// A host whose hop cannot be asked is not dialled instead: dialling would
+// report on whatever answers at that address from here, which is worse than
+// saying nothing. A ProxyCommand is a program only ssh can run, to a host
+// whose address may be an instance id and not an address at all, and a
+// destination that cannot be read is one omassh would have to guess at.
+func TestAHostWhoseHopCannotBeAskedIsNotProbed(t *testing.T) {
 	addr, open := listening(t)
 
 	for what, h := range map[string]store.Host{
-		"a hop named as free text":    {Addr: addr, Port: open, ProxyJump: "bastion"},
-		"a route in ssh's own config": {Addr: addr, Port: open, ConfigProxy: "bastion"},
+		"a program only ssh can run": {Addr: addr, Port: open,
+			ConfigProxy: store.ConfigRoute{Via: "aws ssm start-session --target %h"}},
+		"a hop that is not a destination": {Addr: addr, Port: open, ProxyJump: "bastion:nope"},
 	} {
 		if got := probe.Check(context.Background(), h, time.Second); got != probe.Skipped {
-			t.Errorf("%s = %v, want skipped", what, got)
+			t.Errorf("%s = %v, want not probed", what, got)
 		}
 	}
 }
@@ -75,7 +75,11 @@ func TestCheckAll(t *testing.T) {
 	hosts := []store.Host{
 		{ID: "up", Name: "up", Addr: addr, Port: open},
 		{ID: "down", Name: "down", Addr: addr, Port: shut},
-		{ID: "jump", Name: "jump", Addr: addr, Port: open, ProxyJump: "b"},
+		// Its route is a program only ssh can run, so this one is declined
+		// without a connection of any kind — which keeps this test to the
+		// dialling it is about.
+		{ID: "jump", Name: "jump", Addr: addr, Port: open,
+			ConfigProxy: store.ConfigRoute{Via: "aws ssm start-session --target %h"}},
 	}
 
 	// report is called from each worker, so collecting it needs a lock. This

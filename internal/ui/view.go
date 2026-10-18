@@ -398,10 +398,11 @@ func (m Model) detailBody() (string, string) {
 	// A host your ssh config sends through a bastion is behind one as surely
 	// as a host whose group names one. The line read — for it, though ssh
 	// never reached it directly, and it is the one place on the screen that
-	// says why a probe passed the host over.
+	// says which machine a probe of this host was put to — or, for a
+	// ProxyCommand, why it was not put to anything.
 	via, viaFrom := strOr(r.ProxyJump, "—"), r.ProxyJumpFrom
-	if r.ConfigProxy != "" {
-		via, viaFrom = r.ConfigProxy, tildePath(m.opts.SSHConfig)
+	if r.ConfigProxy.Via != "" {
+		via, viaFrom = r.ConfigProxy.Via, tildePath(m.opts.SSHConfig)
 	}
 
 	lines := []string{

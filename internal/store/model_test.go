@@ -158,3 +158,80 @@ func TestAGroupWhoseGrandparentIsMissingKeepsItsParent(t *testing.T) {
 		t.Errorf("child is at depth %d, want it still under parent", depth["child"])
 	}
 }
+
+// A jump host written as a destination is read back the way ssh reads it, so
+// that the connection to it can be spelled rather than handed over whole: ssh
+// takes `[user@]host[:port]` for -J and nothing like it for a destination,
+// where a colon is part of a hostname that resolves to nothing.
+func TestParseJumpTarget(t *testing.T) {
+	// A Host carries a slice and so cannot be compared; these three fields
+	// are the whole of what a destination says.
+	type dest struct {
+		user, addr string
+		port       int
+	}
+	spelled := func(h Host) dest { return dest{h.User, h.Addr, h.Port} }
+
+	for written, want := range map[string]dest{
+		"bastion":              {addr: "bastion"},
+		"ops@edge.example.com": {user: "ops", addr: "edge.example.com"},
+		"bastion:2222":         {addr: "bastion", port: 2222},
+		"ops@bastion:2222":     {user: "ops", addr: "bastion", port: 2222},
+		"ops@bastion:22":       {user: "ops", addr: "bastion", port: 22},
+		"  bastion  ":          {addr: "bastion"},
+		// ssh splits the user at the last @, so this logs in as a@b.
+		"a@b@bastion": {user: "a@b", addr: "bastion"},
+		// An IPv6 literal: bracketed to carry a port, and bare without one,
+		// where the colons are the address and no port at all.
+		"[::1]:2222":       {addr: "::1", port: 2222},
+		"[::1]":            {addr: "::1"},
+		"::1":              {addr: "::1"},
+		"2001:db8::1":      {addr: "2001:db8::1"},
+		"ops@[fe80::1]:22": {user: "ops", addr: "fe80::1", port: 22},
+	} {
+		got, ok := ParseJumpTarget(written)
+		if !ok {
+			t.Errorf("ParseJumpTarget(%q) gave up", written)
+			continue
+		}
+		if spelled(got) != want {
+			t.Errorf("ParseJumpTarget(%q) = %+v, want %+v", written, spelled(got), want)
+		}
+	}
+}
+
+// What it will not take apart it says so about, rather than handing back a
+// host that reaches somewhere else. A chain is the caller's to split, since
+// every hop in one is spelled on its own.
+func TestParseJumpTargetRefusesWhatItCannotRead(t *testing.T) {
+	for _, written := range []string{
+		"", "   ", "ops@",
+		"bastion:", "bastion:nope", "bastion:0", "bastion:70000", "bastion:-1",
+		"[::1", "[::1]junk", "[::1]:nope",
+		"a,b", "bastion,", "ops@a:22,ops@b:22",
+	} {
+		if got, ok := ParseJumpTarget(written); ok {
+			t.Errorf("ParseJumpTarget(%q) = %+v, want to have given up", written, got)
+		}
+	}
+}
+
+// The two directions agree: a host rendered for -J reads back as itself. The
+// default port is left implicit by JumpTarget, which is ssh's own doing — a
+// host on 22 and a host on no port are the same host.
+func TestParseJumpTargetUndoesJumpTarget(t *testing.T) {
+	for _, h := range []Host{
+		{Addr: "bastion"},
+		{Addr: "bastion", Port: 22},
+		{User: "ops", Addr: "bastion", Port: 2222},
+		{User: "ops", Addr: "edge.example.com"},
+	} {
+		got, ok := ParseJumpTarget(h.JumpTarget())
+		if !ok {
+			t.Fatalf("%q, rendered from %+v, did not read back", h.JumpTarget(), h)
+		}
+		if got.User != h.User || got.Addr != h.Addr || portOr22(got.Port) != portOr22(h.Port) {
+			t.Errorf("%+v rendered as %q and read back as %+v", h, h.JumpTarget(), got)
+		}
+	}
+}

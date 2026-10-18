@@ -208,7 +208,10 @@ func (c SSHConfig) Aliases() []store.ConfigAlias {
 
 // Proxy is what the file sends a connection to dest through: the value of the
 // first ProxyJump or ProxyCommand in the blocks that apply to that name, or
-// nothing where none does or the first says none.
+// nothing where none does or the first says none. jump says which of the two
+// it was — a ProxyJump is a destination anything can be told to connect to,
+// and a ProxyCommand is a program only ssh knows how to run, so the probe can
+// ask the one and not the other.
 //
 // The first of either, not the first of each. ssh takes one route, and
 // whichever of the two it meets first stops the other from taking effect —
@@ -223,9 +226,9 @@ func (c SSHConfig) Aliases() []store.ConfigAlias {
 // host through a bastion without naming it. A Match on anything but the name
 // is read as false, as it is everywhere else here, so a route that holds only
 // when `Match exec` says so is not seen.
-func (c SSHConfig) Proxy(dest string) string {
+func (c SSHConfig) Proxy(dest string) (via string, jump bool) {
 	if c.cfg == nil || dest == "" {
-		return ""
+		return "", false
 	}
 	for _, h := range c.cfg.Hosts {
 		if !h.Matches(dest) {
@@ -236,20 +239,21 @@ func (c SSHConfig) Proxy(dest string) string {
 			if !ok {
 				continue
 			}
-			if k := strings.ToLower(kv.Key); k != "proxyjump" && k != "proxycommand" {
+			k := strings.ToLower(kv.Key)
+			if k != "proxyjump" && k != "proxycommand" {
 				continue
 			}
 			switch v := strings.TrimSpace(kv.Value); {
 			case v == "":
 				continue
 			case strings.EqualFold(v, "none"):
-				return ""
+				return "", false
 			default:
-				return v
+				return v, k == "proxyjump"
 			}
 		}
 	}
-	return ""
+	return "", false
 }
 
 // ownConfig is a config file as ssh reads it, minus omassh's own block: what

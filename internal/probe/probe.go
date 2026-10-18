@@ -63,7 +63,7 @@ func Check(ctx context.Context, h store.Host, timeout time.Duration) State {
 	if h.Addr == "" {
 		return Unknown
 	}
-	if h.ProxyJump != "" || h.ConfigProxy != "" {
+	if h.ProxyJump != "" || h.ConfigProxy.Via != "" {
 		return checkThroughJump(ctx, h, timeout)
 	}
 	d := net.Dialer{Timeout: timeout}
@@ -218,12 +218,16 @@ const JumpWorkers = 4
 //
 // The address and port rather than the host's id, because the cap is about the
 // sshd on the far side: two of your hosts naming the same bastion are one
-// machine to it, however they are written down.
+// machine to it, however they are written down. As far as the name goes, that
+// is — a hop written as an address and the same hop written as a name it
+// resolves to are two here, since finding out otherwise would mean resolving
+// names to hold down a limit.
 func jumpKey(h store.Host) string {
-	if h.Jump == nil {
+	hop, ok := sshx.Hop(h)
+	if !ok {
 		return ""
 	}
-	return net.JoinHostPort(h.Jump.Addr, strconv.Itoa(portOr22(h.Jump.Port)))
+	return net.JoinHostPort(hop.Addr, strconv.Itoa(portOr22(hop.Port)))
 }
 
 func portOr22(p int) int {

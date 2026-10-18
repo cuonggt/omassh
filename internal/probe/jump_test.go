@@ -32,10 +32,14 @@ func needSSH(t *testing.T) {
 			t.Skipf("%s is not installed; asking a jump host is ssh's work", bin)
 		}
 	}
-	sshx.SetGlobalOptions([]string{
-		"StrictHostKeyChecking=no", "UserKnownHostsFile=/dev/null", "IdentitiesOnly=yes",
-	})
+	sshx.SetGlobalOptions(offTheRunnersOwnKeys)
 	t.Cleanup(func() { sshx.SetGlobalOptions(nil) })
+}
+
+// offTheRunnersOwnKeys points ssh away from whoever ran the suite, as the
+// settings omassh is given reach every connection it makes.
+var offTheRunnersOwnKeys = []string{
+	"StrictHostKeyChecking=no", "UserKnownHostsFile=/dev/null", "IdentitiesOnly=yes",
 }
 
 func genKey(t *testing.T, path string) string {
@@ -284,4 +288,48 @@ func TestTheHopAskedIsTheOneInheritanceWorkedOut(t *testing.T) {
 	if asked.count() == 0 {
 		t.Error("the group's jump host was never asked")
 	}
+}
+
+// A hop omassh knows only as a destination is asked as well. It carries no key
+// of its own — nothing was written down about it beyond where it is — so the
+// key comes from ssh's own config, which is what the -o settings omassh is
+// given stand for here.
+func TestAHopNamedAsFreeTextIsAskedToo(t *testing.T) {
+	hop, asked := bastionFor(t)
+	h := store.Host{ID: "h", Name: "private", Addr: "127.0.0.1", Port: greeting(t),
+		ProxyJump: hop.JumpTarget()}
+
+	if got := probe.Check(t.Context(), h, 3*time.Second); got != probe.Up {
+		t.Errorf("a host behind a hop written as a destination = %v, want up", got)
+	}
+	if asked.count() == 0 {
+		t.Error("the hop was never asked, so the address was dialled from here")
+	}
+}
+
+// And so is a ProxyJump in ssh's own config, which until now was passed over
+// along with the ProxyCommands it is written beside — the file being the only
+// thing that can tell the two apart.
+func TestAJumpHostYourSSHConfigNamesIsAskedToo(t *testing.T) {
+	hop, asked := bastionFor(t)
+	h := store.Host{ID: "h", Name: "private", Addr: "127.0.0.1", Port: greeting(t),
+		ConfigProxy: store.ConfigRoute{Via: hop.JumpTarget(), Jump: true}}
+
+	if got := probe.Check(t.Context(), h, 3*time.Second); got != probe.Up {
+		t.Errorf("a host your ssh config sends through a bastion = %v, want up", got)
+	}
+	if asked.count() == 0 {
+		t.Error("the hop was never asked, so the address was dialled from here")
+	}
+}
+
+// bastionFor is a bastion reached as a destination rather than as one of your
+// own hosts. Nothing is written down about such a hop beyond where it is, so
+// the key it wants arrives the way ssh's own config would bring it.
+func bastionFor(t *testing.T) (store.Host, *visits) {
+	t.Helper()
+	needSSH(t)
+	hop, asked := bastion(t, true)
+	sshx.SetGlobalOptions(append(offTheRunnersOwnKeys, "IdentityFile="+hop.Identity))
+	return hop, asked
 }

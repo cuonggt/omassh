@@ -141,6 +141,14 @@ answering. `✖` is the jump host saying it could not connect. A port that
 answers and then waits to be addressed first cannot be told from one that is
 not answering at all, and reads as `◌`.
 
+Any jump host can be asked, however it was named: one of your own hosts,
+written down with its port and its key; a destination you typed, such as
+`ops@edge.example.com:2222`; or a `ProxyJump` in your `~/.ssh/config`. A chain
+is asked of its last hop — the one that can reach the host — with ssh carrying
+the connection through the hops in front of it. A hop Omassh knows only as a
+destination has no key written down for it, so that comes from ssh's own
+config and your agent, exactly as it would if you typed the `ssh` yourself.
+
 Asking costs a connection to the jump host for each host behind it, where a
 dial costs a packet, so a sweep makes four at a time to any one jump host —
 fifty hosts behind one bastion is fifty logins to it, thirteen rounds of four.
@@ -155,13 +163,12 @@ machine. It is what you get when
 - the jump host would not let the probe in. It connects with nobody in front
   of it, so `ssh-add` a key that has a passphrase, and `enter` the jump host
   once to accept a host key ssh has not seen before.
-- the jump host is named as free text — `ops@edge.example.com` — rather than
-  as one of your own hosts. Asking it means connecting to it, which takes its
-  address, its port, its key and its user, and a host of your own is where
-  those are written down.
-- the route is in your `~/.ssh/config`, which only ssh can follow: a
-  `ProxyJump`, or a `ProxyCommand` such as an `aws ssm` session whose host is
-  an instance id rather than an address at all.
+- the route is a `ProxyCommand` — an `aws ssm` session, say, whose host is an
+  instance id rather than an address at all. That is a program only ssh knows
+  how to run, and a program cannot be asked for a connection the way a jump
+  host can.
+- the hop is written in a way Omassh cannot read as a destination, which is
+  `[user@]host[:port]`, what `ssh -J` takes.
 - the host is one the jump host can reach but whose packets are dropped rather
   than refused. The jump host waits on its own connection far longer than the
   probe waits to hear back.
@@ -169,7 +176,8 @@ machine. It is what you get when
 The file is read as ssh reads it for the name it is handed: the host's name
 where the file gives it one, and its address otherwise, which is what patterns
 such as `Host 10.0.1.*` match. The first `ProxyJump` or `ProxyCommand` met
-decides, `none` included, and the detail pane shows it on the `via` line with
+decides, `none` included, and which of the two it was decides whether the
+probe can ask it. The detail pane shows the route on the `via` line with
 `← ~/.ssh/config` beside it. A jump host Omassh gives the host goes on ssh's
 command line, ahead of the file, so that is the one ssh takes, the one shown,
 and the one asked.

@@ -351,39 +351,44 @@ func TestAJumpHostIsReachedByTheNameYourSSHConfigGivesIt(t *testing.T) {
 // names the machine, spelled as the config spells it, and the address
 // otherwise — which is what a block like `Host 10.0.1.*` is matched against.
 // A host with no address is handed nothing, so nothing is asked about it.
+//
+// Which of the two settings wrote the route comes along with it, because a
+// ProxyJump is a destination the probe can ask for itself and a ProxyCommand
+// is a program only ssh can run, and nothing downstream could tell the two
+// free-text values apart.
 func TestAHostYourSSHConfigSendsThroughAJumpHostCarriesIt(t *testing.T) {
 	var asked []string
 	r := NewResolver(nil, nil, nil).
 		WithAliases([]ConfigAlias{{Name: "Prod-Web", Addr: "10.0.0.5", Port: 22}}).
-		WithProxies(func(dest string) string {
+		WithProxies(func(dest string) (string, bool) {
 			asked = append(asked, dest)
 			switch dest {
 			case "Prod-Web":
-				return "bastion"
+				return "bastion", true
 			case "10.0.1.7":
-				return "ssh -W %h:%p bastion"
+				return "ssh -W %h:%p bastion", false
 			}
-			return ""
+			return "", false
 		})
 
 	for _, c := range []struct {
 		host Host
-		want string
+		want ConfigRoute
 	}{
-		{Host{Name: "prod-web", Addr: "10.0.0.5"}, "bastion"},
-		{Host{Name: "db", Addr: "10.0.1.7"}, "ssh -W %h:%p bastion"},
-		{Host{Name: "elsewhere", Addr: "10.9.9.9"}, ""},
-		{Host{Name: "nowhere"}, ""},
+		{Host{Name: "prod-web", Addr: "10.0.0.5"}, ConfigRoute{Via: "bastion", Jump: true}},
+		{Host{Name: "db", Addr: "10.0.1.7"}, ConfigRoute{Via: "ssh -W %h:%p bastion"}},
+		{Host{Name: "elsewhere", Addr: "10.9.9.9"}, ConfigRoute{}},
+		{Host{Name: "nowhere"}, ConfigRoute{}},
 	} {
 		if got := r.Resolve(c.host).ConfigProxy; got != c.want {
-			t.Errorf("%s: ConfigProxy = %q, want %q", c.host.Name, got, c.want)
+			t.Errorf("%s: ConfigProxy = %+v, want %+v", c.host.Name, got, c.want)
 		}
 	}
 	if want := []string{"Prod-Web", "10.0.1.7", "10.9.9.9"}; !slices.Equal(asked, want) {
 		t.Errorf("asked about %q, want %q: the names ssh is handed", asked, want)
 	}
-	if got := NewResolver(nil, nil, nil).Resolve(Host{Name: "db", Addr: "10.0.1.7"}); got.ConfigProxy != "" {
-		t.Errorf("with no config read, ConfigProxy = %q", got.ConfigProxy)
+	if got := NewResolver(nil, nil, nil).Resolve(Host{Name: "db", Addr: "10.0.1.7"}); got.ConfigProxy.Via != "" {
+		t.Errorf("with no config read, ConfigProxy = %+v", got.ConfigProxy)
 	}
 }
 
@@ -393,14 +398,14 @@ func TestAHostYourSSHConfigSendsThroughAJumpHostCarriesIt(t *testing.T) {
 // from its group counts the same as one it names itself.
 func TestAJumpHostOfOmasshsOwnOutranksTheOneYourSSHConfigGives(t *testing.T) {
 	groups := []Group{{ID: "g", Name: "Production", ProxyJump: "edge"}}
-	r := NewResolver(groups, nil, nil).WithProxies(func(string) string { return "bastion" })
+	r := NewResolver(groups, nil, nil).WithProxies(func(string) (string, bool) { return "bastion", true })
 
 	for _, h := range []Host{
 		{Name: "own", Addr: "10.0.1.7", ProxyJump: "edge"},
 		{Name: "inherited", Addr: "10.0.1.8", GroupID: "g"},
 	} {
-		if got := r.Resolve(h); got.ProxyJump != "edge" || got.ConfigProxy != "" {
-			t.Errorf("%s: via %q, and %q from the config; want edge alone", h.Name, got.ProxyJump, got.ConfigProxy)
+		if got := r.Resolve(h); got.ProxyJump != "edge" || got.ConfigProxy.Via != "" {
+			t.Errorf("%s: via %q, and %q from the config; want edge alone", h.Name, got.ProxyJump, got.ConfigProxy.Via)
 		}
 	}
 }

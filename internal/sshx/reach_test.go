@@ -49,19 +49,82 @@ func TestProbeThroughNeverLeavesTheDialUnbounded(t *testing.T) {
 	}
 }
 
-// Asking a hop means connecting to it, which takes its address, its port, its
-// key and its user. A jump host that is one of your own hosts is where those
-// are written down; a hop named as free text is a destination for ssh to
-// resolve, and a route in ssh's own config is one only ssh can follow. Both
-// stay unprobed rather than guessed at.
-func TestProbeThroughDeclinesAHopItCannotSpell(t *testing.T) {
+// A hop named as free text rather than as one of your own hosts is a
+// destination, and asking it means connecting to it — so the destination is
+// read back into a host and the connection spelled out, which is what ssh does
+// for the inner command of its own -J.
+func TestProbeThroughAsksAHopNamedAsFreeText(t *testing.T) {
+	h := store.Host{Addr: "10.0.1.14", ProxyJump: "ops@edge.example.com:2222"}
+
+	args, hop, ok := ProbeThrough(h, 2*time.Second)
+	if !ok {
+		t.Fatal("a hop written as a destination was not asked")
+	}
+	want := []string{
+		"-o", "BatchMode=yes", "-o", "ConnectTimeout=2",
+		"-p", "2222", "-W", "[10.0.1.14]:22", "ops@edge.example.com",
+	}
+	if !slices.Equal(args, want) {
+		t.Errorf("ProbeThrough() = %q, want %q", args, want)
+	}
+	if hop.Addr != "edge.example.com" || hop.Port != 2222 || hop.User != "ops" {
+		t.Errorf("hop = %+v, want the destination taken apart", hop)
+	}
+}
+
+// A ProxyJump in ssh's own config is a destination too, so the probe can ask
+// it. The file is still the only thing that knows it was a ProxyJump and not a
+// ProxyCommand, which is why the resolver carries that along.
+func TestProbeThroughAsksAJumpHostYourSSHConfigNames(t *testing.T) {
+	h := store.Host{Addr: "10.0.1.14", ConfigProxy: store.ConfigRoute{Via: "bastion", Jump: true}}
+
+	args, _, ok := ProbeThrough(h, 2*time.Second)
+	if !ok {
+		t.Fatal("a ProxyJump from ssh's own config was not asked")
+	}
+	want := []string{
+		"-o", "BatchMode=yes", "-o", "ConnectTimeout=2",
+		"-W", "[10.0.1.14]:22", "bastion",
+	}
+	if !slices.Equal(args, want) {
+		t.Errorf("ProbeThrough() = %q, want %q", args, want)
+	}
+}
+
+// A ProxyJump may name hop after hop. The last is the one to ask, since it is
+// the one that can reach the host, and the rest are how to reach it — which is
+// what -J is for, so ssh nests them itself.
+func TestProbeThroughAsksTheLastHopOfAChain(t *testing.T) {
+	h := store.Host{Addr: "10.0.1.14", ProxyJump: "edge,ops@bastion:2222"}
+
+	args, hop, ok := ProbeThrough(h, 2*time.Second)
+	if !ok {
+		t.Fatal("a chain of hops was not asked")
+	}
+	want := []string{
+		"-o", "BatchMode=yes", "-o", "ConnectTimeout=2",
+		"-p", "2222", "-J", "edge", "-W", "[10.0.1.14]:22", "ops@bastion",
+	}
+	if !slices.Equal(args, want) {
+		t.Errorf("ProbeThrough() = %q, want %q", args, want)
+	}
+	if hop.Addr != "bastion" {
+		t.Errorf("hop = %+v, want the last of the chain", hop)
+	}
+}
+
+// A ProxyCommand is a program only ssh knows how to run, to a host whose
+// address may be an instance id and not an address at all, and a destination
+// omassh cannot read is one it would have to guess at. Neither is asked.
+func TestProbeThroughDeclinesWhatItCannotAsk(t *testing.T) {
 	for what, h := range map[string]store.Host{
-		"no route at all":             {Addr: "10.0.1.14"},
-		"a hop named as free text":    {Addr: "10.0.1.14", ProxyJump: "bastion.corp:2222"},
-		"a route in ssh's own config": {Addr: "10.0.1.14", ConfigProxy: "aws ssm start-session --target %h"},
+		"no route at all": {Addr: "10.0.1.14"},
+		"a program only ssh can run": {Addr: "10.0.1.14",
+			ConfigProxy: store.ConfigRoute{Via: "aws ssm start-session --target %h"}},
+		"a hop that is not a destination": {Addr: "10.0.1.14", ProxyJump: "bastion:nope"},
 	} {
 		if _, _, ok := ProbeThrough(h, time.Second); ok {
-			t.Errorf("%s: probed through a hop omassh cannot spell", what)
+			t.Errorf("%s: asked a hop omassh cannot reach", what)
 		}
 	}
 }

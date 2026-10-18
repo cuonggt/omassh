@@ -121,11 +121,18 @@ only stderr tells them apart, so "open failed" is what makes a host down and
 everything else leaves it unprobed. That way round on purpose — both bugs this
 package has had were a fine machine called down, and reading for the failure
 rather than the success means a wording that drifts loses a verdict instead of
-inventing one. Unasked too is a route omassh cannot spell the hop for: a jump
-host given as free text, and a `ProxyJump` or `ProxyCommand` the file gives
-the name ssh is handed, which the resolver records as `Host.ConfigProxy`.
-`Build` never passes that on, since ssh reads the file itself; it is there for
-the probe.
+inventing one. The hop may be named any of three ways, and `sshx.Hop` takes
+them in the order `Build` does: one of your own hosts, arriving resolved with
+its port and its key; a destination, which `store.ParseJumpTarget` reads back
+into a host because an asked hop goes on the command line, where `host:port`
+is a hostname with a colon in it and resolves to nothing; or a route in ssh's
+own config, which the resolver records as `Host.ConfigProxy`. Only a
+`ProxyCommand` is left unasked, being a program rather than somewhere to
+connect to — which is why `portable.SSHConfig.Proxy` reports which of the two
+settings it read and `ConfigProxy` carries that along: both values are free
+text, and nothing downstream could tell `connect` from `bastion`. `Build`
+still never passes the file's route on, since ssh reads the file itself; it is
+there for the probe.
 
 **Two ways to run a session, deliberately.** `internal/sshx/session.go` hands the
 whole terminal to a real ssh through `tea.Exec` (`enter`) — emulation-free by
