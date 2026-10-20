@@ -191,11 +191,15 @@ in terminal may access clipboard"; a tmux of your own needs `set-clipboard on`.
 wheel scrolls and a drag in a session copies. Hold your terminal's modifier —
 `shift` in most — to select anywhere else as usual.
 
-**A tunnel, the file browser or a snippet run cannot log in.** Nobody is there
-to answer a prompt, so those connections never ask. `ssh-add` a key that has a
-passphrase, and connect once with `enter` to accept a host key ssh has not
-seen before. A password credential answers from the keychain; if the host
-refuses it, `C` to type the password again.
+**A tunnel, the file browser, a snippet run or a probe through a jump host
+cannot log in.** Nobody is there to answer a prompt, so those connections
+never ask. `ssh-add` a key that has a passphrase, and connect once with
+`enter` to accept a host key ssh has not seen before. A password credential
+answers from the keychain; if the host refuses it, `C` to type the password
+again. A whole group behind one bastion reading `◌` is usually this — the
+probe asks the bastion, and a bastion that will not let it in can say nothing
+about what is behind it; [hosts](docs/hosts.md#reachability) has the other
+reasons a probe says nothing.
 
 **Something is still running.** Sessions and tunnels live on Omassh's own tmux
 server, apart from your own: `tmux -L omassh ls` lists them.
