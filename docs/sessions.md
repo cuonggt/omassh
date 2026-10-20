@@ -52,6 +52,7 @@ behind `ctrl+b`:
 | `ctrl+\ d` | detach; the session keeps running, and `t` reattaches |
 | `ctrl+\ X` | end the session for good |
 | `ctrl+\ k` / `ctrl+\ j` | scroll back / forward a page |
+| `ctrl+\ /` | find back through the output; `↵` again for the next match |
 | `ctrl+\ G` | return to the live view |
 | `ctrl+\ r` | redraw the screen |
 | `ctrl+\ ctrl+\` | send a literal `ctrl+\` to the remote |
@@ -73,6 +74,29 @@ returns on its own, since a terminal that stayed scrolled back while you typed
 would hide your own output. With tmux the history belongs to it — 10,000
 lines, surviving restarts — and these keys drive its copy mode; without tmux
 the pane keeps 2,000 lines itself.
+
+### Finding
+
+`ctrl+\ /` opens a box to search the output from, and `↵` looks back through
+it. The match goes to the top of the view, since a line found by searching is
+usually read downwards from. `ctrl+\ /` and `↵` on the empty box looks further
+back, to the match before that one, and `ctrl+\ G` returns to the live view.
+
+A session's keys belong to the remote, which is why the box is behind the
+prefix — it has to be typed into — and why there is no key of its own for the
+next match: `n` and `p` already step between the sessions that are running,
+and an empty box asking for the last search again is how `less` and `vi` have
+always done it.
+
+What you type is a pattern, matched without regard to case: `ne+dle`,
+`^error`, `warn|fail`. That is what tmux's copy mode makes of it, and a pane
+that has lost its tmux should not quietly start answering a different
+question; a pattern that will not compile is looked for literally, since
+somebody searching for `a(b` meant those three characters. With tmux the
+search is tmux's own, over the whole history it keeps, and tmux highlights
+what it found. Without tmux the pane searches the 2,000 lines it kept itself.
+
+A search that finds nothing says so and leaves the view where it was.
 
 ### The mouse
 

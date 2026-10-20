@@ -548,6 +548,7 @@ func (m Model) helpLines() []string {
 			{"prefix w", "back to the host list; the session keeps running"},
 			{"prefix n / p", "the next or previous host with a session running"},
 			{"prefix k / j", "scroll back and forward a page through the output"},
+			{"prefix /", "find back through the output, ↵ again for the next match"},
 			{"prefix G", "return to the live view"},
 			{"prefix d", "detach — the session keeps running, " + m.keys.Key(keymap.Pane) + " to reattach"},
 			{"prefix X", "end the session for good"},
@@ -660,6 +661,12 @@ func (m Model) statusBar() string {
 		hints = hint("↑↓", "preview") + sep() + hint("↵", "keep") + sep() + hint("esc", "cancel")
 	case modeFilter:
 		hints = hint("↑↓", "select") + sep() + hint("↵", "keep") + sep() + hint("esc", "clear")
+	case modeFind:
+		// The box goes where the hints go, because it is what the keyboard is
+		// doing: in a session every key but the prefix goes to the remote, and
+		// this is the one moment that is not so.
+		hints = theme.Fg(theme.Accent).Render("/ ") + m.find.View() + sep() +
+			hint("↵", "find back") + sep() + hint("esc", "cancel")
 	case modeHelp:
 		hints = hint("any key", "back")
 		if m.helpOverflow() > 0 {
@@ -676,10 +683,15 @@ func (m Model) statusBar() string {
 	default:
 		switch {
 		case m.prefixArmed:
+			// "list" rather than "host list", which is what it said before
+			// there was a find key to fit beside it. The line gives way to
+			// the status from the right, so every column it does not need is
+			// a hint further along that survives.
 			hints = theme.Fg(theme.Yellow).Render("prefix: ") +
-				hint("w", "host list") + sep() + hint("n/p", "switch") + sep() +
+				hint("w", "list") + sep() + hint("n/p", "switch") + sep() +
 				hint("d", "detach") + sep() + hint("X", "end") + sep() +
-				hint("k/j", "scroll") + sep() + hint("G", "live")
+				hint("k/j", "scroll") + sep() + hint("/", "find") + sep() +
+				hint("G", "live")
 		case m.focus == panelSession && m.attached != nil && !m.attached.Alive():
 			// The remote is gone, so neither of the live hints is true any
 			// more: there is nothing to detach from and nothing for a key to

@@ -165,6 +165,19 @@ server pins `mode-keys emacs`: tmux picks vi copy mode for anyone whose
 `$VISUAL` or `$EDITOR` mentions vi, and vi's selection takes the cell under
 the pointer too, which only a run from such a shell shows.
 
+Finding text in a pane is the same split (`internal/term/find.go`). tmux's
+copy mode searches the history tmux holds — the whole of what the session has
+said, where the emulator here has only what it was shown — and says whether it
+matched in `#{search_present}` rather than by printing anything, so nothing
+reads its words for this one. A pane with no tmux searches the lines it kept
+itself, as it selects from the screen it is showing. Both take a pattern,
+without regard to case, because that is what tmux makes of one. A match tmux
+finds on the screen already in view scrolls nothing, which is why the pane
+records that a search is in progress at all: `ScrollToBottom` decides whether
+to leave copy mode from how far back the view is, and at zero it left tmux in
+copy mode, where the next key typed was taken as a command of tmux's instead
+of reaching the shell.
+
 The wheel is decided a notch at a time in `Pane.Wheel`: a shell's goes to the
 history, a full-screen program gets arrow keys, and one that asked for the
 mouse gets the wheel. With tmux that means asking tmux — the emulator is tmux's

@@ -139,6 +139,7 @@ In a session in the main pane, behind the `ctrl+\` prefix:
 | `ctrl+\ n` / `ctrl+\ p` | the next / previous host with a session running |
 | `ctrl+\ d` / `ctrl+\ X` | detach / end the session |
 | `ctrl+\ k` / `ctrl+\ j` | scroll back / forward a page |
+| `ctrl+\ /` | find back through the output, `↵` again for the next |
 | `ctrl+\ G` | back to the live view |
 | `ctrl+\ r` | redraw the screen |
 

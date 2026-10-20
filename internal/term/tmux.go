@@ -317,6 +317,34 @@ func tmuxCopyCancel(session string) error {
 	return exec.Command("tmux", "-L", tmuxSocket(), "send-keys", "-t", session, "-X", "cancel").Run()
 }
 
+// tmuxSearchPresent is whether copy mode's last search found anything.
+//
+// Asked of tmux rather than read off what it said: a search that matches
+// nothing says nothing at all, and send-keys exits zero either way. The format
+// is tmux's own record of the search it just ran, which is also what draws the
+// highlight on the match.
+func tmuxSearchPresent(session string) bool {
+	out, err := exec.Command("tmux", "-L", tmuxSocket(), "display-message", "-p", "-t", session,
+		"-F", "#{search_present}").Output()
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "1"
+}
+
+// tmuxSearchBack searches a session's history for pattern, or, with no
+// pattern, for whatever the last search looked for — further back each time.
+func tmuxSearchBack(session, pattern string) error {
+	// Entering copy mode is idempotent; -e leaves it automatically when
+	// scrolled back to the bottom, as it does for a scroll.
+	exec.Command("tmux", "-L", tmuxSocket(), "copy-mode", "-e", "-t", session).Run()
+	args := []string{"-L", tmuxSocket(), "send-keys", "-t", session, "-X", "search-again"}
+	if pattern != "" {
+		args = []string{"-L", tmuxSocket(), "send-keys", "-t", session, "-X", "search-backward", pattern}
+	}
+	return exec.Command("tmux", args...).Run()
+}
+
 // tmuxProgram reports what the program in a session has asked of its
 // terminal: whether the pane is in copy mode, whether the program is on the
 // alternate screen, and whether it wants the mouse. ok is false when tmux

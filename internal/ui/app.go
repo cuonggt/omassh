@@ -47,6 +47,7 @@ const (
 	modeCredentials
 	modeSnippets
 	modeSnippetRun
+	modeFind
 )
 
 const (
@@ -168,6 +169,10 @@ type Model struct {
 	filter  textinput.Model
 	matches []store.Host
 
+	// find is the box a session's output is searched from. A session's keys
+	// belong to the remote, so it is the one moment they do not.
+	find textinput.Model
+
 	// helpScroll is how far the cheatsheet has been scrolled. It is longer
 	// than a short terminal, and there is nothing to select on it, so an
 	// offset is all the state it needs.
@@ -257,12 +262,17 @@ func New(st *store.Store, opts Options) Model {
 	ti.Prompt = ""
 	ti.Placeholder = "fuzzy search all hosts"
 
+	find := textinput.New()
+	find.SetStyles(inputStyles())
+	find.Prompt = ""
+	find.Placeholder = "find back through this session's output"
+
 	if opts.ProbeTimeout <= 0 {
 		opts.ProbeTimeout = 2 * time.Second
 	}
 
 	m := Model{opts: opts, keys: opts.Keys, st: st,
-		focus: panelHosts, filter: ti,
+		focus: panelHosts, filter: ti, find: find,
 		transfers: make(chan transferMsg, 32), copying: &copying{},
 		probeCh: make(chan probeEvent, 64), probes: map[string]probe.State{},
 		runCh: make(chan snippetEvent, 64)}
@@ -486,6 +496,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleSnippetsKey(msg)
 	case modeSnippetRun:
 		return m.handleSnippetRunKey(msg)
+	case modeFind:
+		return m.handleFindKey(msg)
 	}
 	return m.handleBrowseKey(msg)
 }

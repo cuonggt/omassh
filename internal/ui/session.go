@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
@@ -323,6 +324,8 @@ func (m Model) sessionCommand(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "j", "down", "pgdown":
 		m.scrollAttached(m.sessionPage())
 		m.prefixArmed, m.scrollArmed = true, true
+	case "/":
+		return m.openFind()
 	case "G", "end":
 		m.attached.ScrollToBottom()
 		m.setStatus("live view")
@@ -362,6 +365,78 @@ func (m *Model) scrollAttached(lines int) {
 		m.setStatus(fmt.Sprintf("scrolled back %d of %d lines — %s G for the live view", off, avail, prefixKey))
 	} else {
 		m.setStatus("live view")
+	}
+}
+
+// --- finding -----------------------------------------------------------
+
+// openFind puts the keyboard on a box to search the session's output from.
+//
+// Behind the prefix because the box has to be typed into, and in a session
+// every key that is not the prefix goes to the remote. The box is emptied each
+// time rather than kept: an empty box is what asks for the last search to be
+// run again, so leaving the words in it would make the next enter find the
+// same line it found before.
+func (m Model) openFind() (tea.Model, tea.Cmd) {
+	m.mode = modeFind
+	m.find.SetValue("")
+	return m, m.find.Focus()
+}
+
+func (m Model) handleFindKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, tea.Quit
+	case "esc":
+		// The view stays where it is. Someone who has found what they were
+		// looking for and stopped searching is looking at it.
+		m.mode = modeBrowse
+		m.find.Blur()
+		return m, nil
+	case "enter":
+		m.mode = modeBrowse
+		m.find.Blur()
+		return m.runFind(strings.TrimSpace(m.find.Value()))
+	}
+	var cmd tea.Cmd
+	m.find, cmd = m.find.Update(msg)
+	return m, cmd
+}
+
+// runFind looks back through the session's output and says what came of it.
+//
+// An empty box means again, further back, with whatever the last search looked
+// for — which is how a scrollback is walked in less and in vi, and why there
+// is no key of its own for the next match. The keys that are left in a session
+// are few, and n and p already step between the sessions that are running.
+func (m Model) runFind(pattern string) (tea.Model, tea.Cmd) {
+	if m.attached == nil {
+		return m, nil
+	}
+	if pattern == "" {
+		if !m.attached.FindAgain() {
+			m.setStatus("no more matches — " + prefixKey + " G for the live view")
+			return m, nil
+		}
+		m.sayFound()
+		return m, nil
+	}
+	if !m.attached.Find(pattern) {
+		m.setStatus("no match for " + pattern)
+		return m, nil
+	}
+	m.sayFound()
+	return m, nil
+}
+
+// sayFound says where the match was, in the words a scroll uses for the same
+// thing.
+func (m *Model) sayFound() {
+	again := prefixKey + " / again for the next"
+	if off, avail := m.attached.ScrollOffset(); off > 0 {
+		m.setStatus(fmt.Sprintf("found %d of %d lines back — %s", off, avail, again))
+	} else {
+		m.setStatus("found on this screen — " + again)
 	}
 }
 

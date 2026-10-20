@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -84,6 +85,17 @@ type Pane struct {
 
 	// press is the left button while it is down in the pane. Guarded by mu.
 	press *press
+
+	// findRe is what the last search looked for, so that searching again has
+	// something to look for without being told twice. Guarded by mu.
+	findRe *regexp.Regexp
+
+	// finding is whether a search has left tmux in copy mode. It is not the
+	// same question as tmuxOffset above: a match on the screen already in
+	// view scrolls nothing, and a pane left in copy mode with the offset at
+	// zero took the next key typed as a copy-mode command rather than
+	// sending it to the shell. Guarded by mu.
+	finding bool
 
 	// copied is what tmux last copied from the session, until the interface
 	// takes it, and released when the button last came up here — which is
@@ -385,12 +397,15 @@ func (p *Pane) ScrollDown(lines int) {
 // the key is sent — tmux would otherwise take it as a copy-mode command — but
 // only when the view is actually scrolled. It used to be done for every key,
 // scrolled or not, at the cost of a tmux launch each time. A drag still in
-// progress counts as scrolled, since it is tmux's copy mode that draws it.
+// progress counts as scrolled, since it is tmux's copy mode that draws it, and
+// so does a search, which can find its match on the screen already in view
+// and leave copy mode on with nothing scrolled to show it.
 func (p *Pane) ScrollToBottom() {
 	if p.session != "" {
 		p.mu.Lock()
-		scrolled := p.tmuxOffset > 0 || p.press != nil && p.press.tmux && p.press.moved
-		p.tmuxOffset = 0
+		scrolled := p.tmuxOffset > 0 || p.finding ||
+			p.press != nil && p.press.tmux && p.press.moved
+		p.tmuxOffset, p.finding = 0, false
 		p.mu.Unlock()
 		if scrolled {
 			tmuxCopyCancel(p.session)
