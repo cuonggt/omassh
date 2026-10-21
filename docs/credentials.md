@@ -6,7 +6,9 @@ make, change and remove them.
 
 There are three kinds:
 
-- **key** — a user and a path to a private key, which becomes `ssh -i`
+- **key** — a user and a path to a private key, which becomes `ssh -i`. `↓`
+  offers the keys you have, as a host's own key field does
+  ([hosts](hosts.md))
 - **agent** — a user, with the key left to ssh-agent
 - **password** — a user, for a machine that takes no key at all
 

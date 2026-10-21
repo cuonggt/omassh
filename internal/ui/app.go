@@ -15,6 +15,7 @@ import (
 	"github.com/sahilm/fuzzy"
 
 	"github.com/cuonggt/omassh/internal/keymap"
+	"github.com/cuonggt/omassh/internal/keys"
 	"github.com/cuonggt/omassh/internal/probe"
 	"github.com/cuonggt/omassh/internal/secret"
 	"github.com/cuonggt/omassh/internal/sftpx"
@@ -151,6 +152,12 @@ type Options struct {
 	// which is what the tests want: a suite that read its runner's own config
 	// would build different commands on every machine it ran on.
 	SSHConfig string
+
+	// KeyDir is where the private keys a form offers are looked for. main
+	// supplies ~/.ssh. Empty looks nowhere, for the same reason as above: a
+	// suite that offered its runner's own keys would be asserting on whatever
+	// they happen to keep in there.
+	KeyDir string
 }
 
 // Model is the root Bubble Tea model.
@@ -1231,9 +1238,10 @@ func (m Model) saveForm() (tea.Model, tea.Cmd) {
 // rather than passed one slice at a time, so adding another picker later does
 // not mean threading a new argument through every caller.
 type hostChoices struct {
-	jumpHosts []string
-	groups    []string
-	tags      []string
+	jumpHosts  []string
+	groups     []string
+	tags       []string
+	identities []string
 	// credential is the name of the one this host already uses, and
 	// credentials every name that could be picked. credUser and credIdentity
 	// are what the chosen one supplies, shown as the placeholder on the
@@ -1261,7 +1269,7 @@ func newHostForm(h store.Host, groupName string, c hostChoices) *form {
 			newField("Port", "22", port),
 			asSuggestion(withChoices(newField("Credential", "none — ↓ to pick", c.credential), c.credentials)),
 			newField("User", credHint(c.credUser, "inherited from group"), h.User),
-			newField("Identity", credHint(c.credIdentity, "path to a private key"), h.Identity),
+			asSuggestion(withChoices(newField("Identity", credHint(c.credIdentity, "↓ to pick, or type a path"), h.Identity), c.identities)),
 			asSuggestion(withChoices(newField("Jump host", "inherited from group — ↓ to pick", h.ProxyJump), c.jumpHosts)),
 			asList(withChoices(newField("Tags", "prod, web — ↓ to pick", strings.Join(h.Tags, ", ")), c.tags)),
 			asSuggestion(withChoices(newField("Group", "↓ to pick, or type to create", groupName), c.groups)),
@@ -1432,6 +1440,49 @@ func strOr(s, fallback string) string {
 	return s
 }
 
+// identityChoices are the keys a form can offer for a key path: the private
+// keys where omassh was told to look, and then the paths the store already
+// holds.
+//
+// Both, because neither is the whole answer. A key in ~/.ssh is the usual
+// case and nobody should have to remember its name; a key kept somewhere else
+// has been typed once already, and typing it again for the next host is the
+// thing worth doing away with. The ones in the directory come first and in
+// order, since that is the list someone is looking for, and what the store
+// adds follows.
+//
+// Shown with ~ for the home directory, which is how anyone writes such a path
+// and what every host in the suite's own fixtures holds. ssh expands it in an
+// -i argument itself.
+func (m Model) identityChoices() []string {
+	// Leading with the empty choice, as every other single-value picker does:
+	// it is how the field is cleared without deleting characters.
+	out := []string{noChoice}
+	seen := map[string]bool{}
+	add := func(p string) {
+		if p = strings.TrimSpace(p); p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	for _, p := range keys.In(m.opts.KeyDir) {
+		add(tildePath(p))
+	}
+
+	var held []string
+	for _, h := range m.d.hosts {
+		held = append(held, h.Identity)
+	}
+	for _, c := range m.d.creds {
+		held = append(held, c.Identity)
+	}
+	slices.Sort(held)
+	for _, p := range held {
+		add(p)
+	}
+	return out
+}
+
 // hostChoices gathers what the host form's pickers offer.
 //
 // The host being edited is left out of the jump hosts: a host cannot jump
@@ -1445,6 +1496,7 @@ func (m Model) hostChoices(excludeID, credID string) hostChoices {
 	c := hostChoices{
 		jumpHosts:   []string{noChoice},
 		groups:      []string{noChoice},
+		identities:  m.identityChoices(),
 		credentials: m.credentialNames(),
 		credential:  m.credentialName(credID),
 	}

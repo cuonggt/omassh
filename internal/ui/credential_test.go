@@ -94,7 +94,7 @@ func TestAPasswordCredentialNeedsAPassword(t *testing.T) {
 	h.press("C")
 	h.press("n")
 	h.m.form = newCredentialForm(store.Credential{
-		Name: "Legacy", Kind: store.CredentialPassword, User: "admin"}, false)
+		Name: "Legacy", Kind: store.CredentialPassword, User: "admin"}, false, nil)
 
 	h.press("enter")
 	if h.m.form == nil {
@@ -112,7 +112,7 @@ func TestAPasswordGoesToTheKeychainAndNotToTheStore(t *testing.T) {
 	h.press("C")
 	h.press("n")
 	h.m.form = newCredentialForm(store.Credential{
-		Name: "Legacy", Kind: store.CredentialPassword, User: "admin"}, false)
+		Name: "Legacy", Kind: store.CredentialPassword, User: "admin"}, false, nil)
 	h.m.form.fields[3].input.SetValue("hunter2")
 
 	h.press("enter")
@@ -148,7 +148,7 @@ func TestChangingAwayFromAPasswordTakesItOutOfTheKeychain(t *testing.T) {
 	h.press("C")
 	h.m.form = newCredentialForm(store.Credential{
 		ID: c.ID, Name: "Legacy", Kind: store.CredentialKey,
-		User: "admin", Identity: "~/.ssh/k"}, true)
+		User: "admin", Identity: "~/.ssh/k"}, true, nil)
 	h.m.mode, h.m.returnTo = modeForm, modeCredentials
 	h.press("enter")
 	if h.m.form != nil {
@@ -206,7 +206,7 @@ func TestWithNoKeychainTheFormSaysSoRatherThanLosingThePassword(t *testing.T) {
 	h.press("C")
 	h.press("n")
 	h.m.form = newCredentialForm(store.Credential{
-		Name: "Legacy", Kind: store.CredentialPassword, User: "admin"}, false)
+		Name: "Legacy", Kind: store.CredentialPassword, User: "admin"}, false, nil)
 	h.m.form.fields[3].input.SetValue("hunter2")
 	h.press("enter")
 

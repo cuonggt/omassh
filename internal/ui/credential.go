@@ -67,7 +67,7 @@ func (m Model) selectedCredential() (store.Credential, bool) {
 }
 
 func (m Model) openCredentialForm(c store.Credential) (tea.Model, tea.Cmd) {
-	m.form = newCredentialForm(c, c.ID != "" && m.hasPassword(c.ID))
+	m.form = newCredentialForm(c, c.ID != "" && m.hasPassword(c.ID), m.identityChoices())
 	m.returnTo, m.mode = modeCredentials, modeForm
 	return m, m.form.focusCurrent()
 }
@@ -82,7 +82,7 @@ func (m Model) hasPassword(id string) bool {
 	return err == nil
 }
 
-func newCredentialForm(c store.Credential, stored bool) *form {
+func newCredentialForm(c store.Credential, stored bool, identities []string) *form {
 	title := "New credential"
 	if c.ID != "" {
 		title = "Edit " + c.Name
@@ -100,7 +100,7 @@ func newCredentialForm(c store.Credential, stored bool) *form {
 		"Kind": asSuggestion(withChoices(newField("Kind", "key, agent or password — ↓ to pick", kind),
 			[]string{string(store.CredentialKey), string(store.CredentialAgent), string(store.CredentialPassword)})),
 		"User":     newField("User", "deploy", c.User),
-		"Identity": newField("Identity", "path to a private key", c.Identity),
+		"Identity": asSuggestion(withChoices(newField("Identity", "↓ to pick, or type a path", c.Identity), identities)),
 		"Password": newSecretField("Password", pwHint),
 	}
 	var fields []field
@@ -139,7 +139,7 @@ func (m *Model) reshapeCredentialForm() {
 		Kind:     store.CredentialKind(strings.TrimSpace(values["Kind"])),
 		User:     values["User"],
 		Identity: values["Identity"],
-	}, f.passwordStored)
+	}, f.passwordStored, m.identityChoices())
 	rebuilt.title, rebuilt.passwordStored = f.title, f.passwordStored
 	// The password is not in the Credential above — it never goes near the
 	// store — so it is carried across by hand.

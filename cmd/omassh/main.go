@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -188,6 +189,9 @@ func browse(args []string) error {
 	// file, and every host is reached by its address.
 	if path, err := portable.DefaultSSHConfig(); err == nil {
 		opts.SSHConfig = path
+		// The keys are kept beside it, and a form offers them rather than
+		// asking for a path from memory.
+		opts.KeyDir = filepath.Dir(path)
 	}
 	final, err := tea.NewProgram(ui.New(st, opts)).Run()
 	// An SFTP session or an embedded pane owns an ssh child of its own; close

@@ -210,7 +210,10 @@ store plus tmux, rebuilt by `load()`. `~/.ssh/config` is read there only for
 the names it gives machines and what it sends them through, from
 `Options.SSHConfig`, which `main` sets and the tests leave empty so the suite
 never reads its runner's own file; its hosts reach the list only through
-`import-ssh-config`. `view.go` draws.
+`import-ssh-config`. The private keys a form offers on a key path come the
+same way and for the same reason, from `Options.KeyDir` through
+`internal/keys`, which reads each candidate's first line rather than trusting
+its name. `view.go` draws.
 
 **Config errors are reported, never ignored.** `internal/config` refuses a
 malformed file at startup — an unknown key, a bad palette colour name, a second

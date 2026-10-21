@@ -593,13 +593,14 @@ func (m Model) helpLines() []string {
 		}},
 		{"Forms", [][2]string{
 			{"tab / shift+tab", "next and previous field"},
-			{"↓", "pick what you already use: a host's jump host, group"},
-			{"", "or tags, and a group's parent or jump host"},
+			{"↓", "pick what you already use: a host's key, jump host,"},
+			{"", "group or tags, and a group's parent or jump host"},
 			{"", "Tags is a set: space toggles an entry, ✓ marks the"},
 			{"", "ones chosen, and ↵ finishes"},
 			{"↵ / esc", "save / cancel"},
-			{"", "both stay free text: any ssh destination works as a"},
-			{"", "jump host, and an unknown group name creates it"},
+			{"", "all stay free text: a key kept anywhere, any ssh"},
+			{"", "destination as a jump host, and an unknown group"},
+			{"", "name creates it"},
 		}},
 		{"Groups", [][2]string{
 			{"", "a group holds the hosts beneath it as well as its own,"},

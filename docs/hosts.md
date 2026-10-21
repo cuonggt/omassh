@@ -37,11 +37,20 @@ children would otherwise look empty.
 `/` searches every host at once, fuzzily, by name, address and tag; `esc`
 clears it.
 
-In a form, `↓` offers what you already use: the jump hosts, groups and tags
-for a host, and the parents and jump hosts for a group. Tags are a set —
-`space` toggles one, `✓` marks those chosen and `↵` finishes. The jump host
-and group fields stay free text: any ssh destination works as a jump host, and
-a group name that does not exist yet is created.
+In a form, `↓` offers what you already use: the key paths, jump hosts, groups
+and tags for a host, and the parents and jump hosts for a group. Tags are a
+set — `space` toggles one, `✓` marks those chosen and `↵` finishes. The key
+path, jump host and group fields stay free text: a key kept anywhere works,
+any ssh destination works as a jump host, and a group name that does not exist
+yet is created.
+
+The keys offered are the private keys in `~/.ssh`, and then the paths your
+other hosts and credentials already name — so a key kept somewhere else is
+typed once and offered from then on. A key is recognised by reading its first
+line rather than by its name, since `id_ed25519`, `id_rsa` and `deploy.pem`
+are all real names for one and `config` is in that directory on every machine.
+The public half beside a key, `known_hosts` and a certificate are not offered,
+and nothing in there is read further than that first line.
 
 ## How a host is reached
 
