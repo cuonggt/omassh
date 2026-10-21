@@ -52,6 +52,16 @@ are all real names for one and `config` is in that directory on every machine.
 The public half beside a key, `known_hosts` and a certificate are not offered,
 and nothing in there is read further than that first line.
 
+`ctrl+g` on that field makes a key, by handing the terminal to `ssh-keygen`
+the way `enter` hands it to ssh. ssh-keygen asks for the passphrase itself,
+and that is the point rather than a convenience: it takes one interactively or
+in its argument list, an argument list is readable by everything running on
+the machine, and Omassh holds no secrets of its own. What it makes is an
+`ed25519` key named after the host — `~/.ssh/prod-web` for a host called
+prod-web — or one at the path already in the field, and the field is filled in
+with it afterwards. Whether to overwrite a key already there is ssh-keygen's
+question too, as is refusing to.
+
 ## How a host is reached
 
 Every connection Omassh makes — a full-screen session, the pane, SFTP, a

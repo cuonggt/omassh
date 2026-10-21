@@ -57,8 +57,9 @@ goreleaser release --snapshot --clean  # archives, checksums and cask locally, p
   that the tmux path then replaced. Both are invisible to a test that calls the
   function and reads what it returns. Anything going through `tea.Exec` belongs
   here for the same reason: `Update` returns a command and nothing in a unit
-  test runs it, so a snippet's trip to `$EDITOR` is only ever exercised by a
-  terminal it can actually be handed.
+  test runs it, so a snippet's trip to `$EDITOR`, and a key path's to
+  `ssh-keygen`, are only ever exercised by a terminal they can actually be
+  handed.
 - **CI runs all of this** on Linux and macOS on every push, plus `-race` over
   the whole tree and the keychain tests against a real libsecret keyring:
   `.github/workflows/test.yml`. It asserts tmux, ssh and ssh-keygen are there

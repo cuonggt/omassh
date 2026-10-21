@@ -598,6 +598,8 @@ func (m Model) helpLines() []string {
 			{"", "Tags is a set: space toggles an entry, ✓ marks the"},
 			{"", "ones chosen, and ↵ finishes"},
 			{"↵ / esc", "save / cancel"},
+			{"ctrl+g", "on a key path: make one, ssh-keygen asking for the"},
+			{"", "passphrase itself"},
 			{"", "all stay free text: a key kept anywhere, any ssh"},
 			{"", "destination as a jump host, and an unknown group"},
 			{"", "name creates it"},

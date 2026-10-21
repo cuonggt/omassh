@@ -110,6 +110,25 @@ func (f *form) focusCurrent() tea.Cmd {
 	return f.fields[f.idx].input.Focus()
 }
 
+// setField writes a value and the choices offered beside it, found by name:
+// the index a field sits at is a fact about the form's shape, and the shape
+// changes with a credential's kind.
+//
+// Not marked as suggested, as a value filled in from a credential is: this one
+// was asked for deliberately, and typing should go on from it rather than
+// replace it.
+func (f *form) setField(label, value string, choices []string) {
+	for i := range f.fields {
+		if f.fields[i].label != label {
+			continue
+		}
+		f.fields[i].input.SetValue(value)
+		f.fields[i].choices = choices
+		f.fields[i].suggested = false
+		return
+	}
+}
+
 func (f *form) value(label string) string {
 	for _, x := range f.fields {
 		if x.label == label {
@@ -215,6 +234,12 @@ func (f *form) render(w int) string {
 	// is possible at all.
 	if f.kind == formSnippet {
 		b.WriteString("\n" + theme.Dim.Render("  ctrl+e opens $EDITOR, for a script longer than a line") + "\n")
+	}
+	// Said while the cursor is on the key path, which is the only field it
+	// does anything to, and said here rather than among the footer keys for
+	// the same reason as the line above: there is no room left in them.
+	if f.fields[f.idx].label == keyPathField {
+		b.WriteString("\n" + theme.Dim.Render("  ctrl+g hands the terminal to ssh-keygen, to make a key") + "\n")
 	}
 	b.WriteString("\n" + theme.Dim.Render("  ") +
 		hint("tab", "next field") + theme.Dim.Render("  ·  ") +

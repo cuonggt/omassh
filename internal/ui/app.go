@@ -359,6 +359,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sftpConnectedMsg:
 		return m.sftpConnected(msg)
 
+	case keyMadeMsg:
+		return m.handleKeyMade(msg)
 	case scriptEditedMsg:
 		return m.handleScriptEdited(msg)
 
@@ -762,6 +764,17 @@ func (m Model) handleFormKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		// the key is not bound, and falls through to the field.
 		if m.form.kind == formSnippet {
 			return m, editScript(m.form.script)
+		}
+	case "ctrl+g":
+		// Only a key path has anywhere to put a key; elsewhere this falls
+		// through to the field as ctrl+e does.
+		if m.form.fields[m.form.idx].label == keyPathField {
+			path, err := m.keyPathFor(m.form)
+			if err != nil {
+				m.form.problem = err.Error()
+				return m, nil
+			}
+			return m, makeKey(path)
 		}
 	case "enter":
 		return m.saveForm()
