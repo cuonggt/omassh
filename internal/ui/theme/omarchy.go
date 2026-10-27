@@ -49,11 +49,16 @@ func OmarchyPath() string {
 // Two things go into it. Omarchy writes a token to theme.generation every time
 // a theme is set, and reads it back itself to tell whether a switch it is
 // partway through has been superseded — it is the one file in the directory
-// whose whole job is to say the theme changed. And the colours file's own size
-// and time, because current/theme is a symlink: a switch repoints it at
-// another directory, so the same path stats as a different file. The second
-// covers an Omarchy too old to write the token, and a colors.toml edited by
-// hand, which changes nothing else.
+// whose whole job is to say the theme changed. And the colours themselves,
+// which cover an Omarchy too old to write a token, and a colors.toml edited by
+// hand, that changes nothing else.
+//
+// The colours are compared as they are written rather than by size and time,
+// which is what this did first and is not good enough: every theme Omarchy
+// ships is generated from one template, so thirteen of the twenty-three have
+// byte-identical files, and they are installed in a single checkout that can
+// give them all one timestamp. Switching between two of those changed neither
+// number. Reading six hundred bytes on a tick costs nothing worth saving.
 //
 // Omarchy writes the token before it repoints the symlink, so a read can land
 // between the two and see the new token beside the old colours. Nothing has to
@@ -64,12 +69,8 @@ func OmarchyStamp() string {
 		return ""
 	}
 	token, _ := os.ReadFile(omarchyGenerationPath(OmarchyFile))
-
-	var colours string
-	if fi, err := os.Stat(OmarchyFile); err == nil {
-		colours = fmt.Sprintf("%d:%d", fi.ModTime().UnixNano(), fi.Size())
-	}
-	return strings.TrimSpace(string(token)) + "\x00" + colours
+	colours, _ := os.ReadFile(OmarchyFile)
+	return strings.TrimSpace(string(token)) + "\x00" + string(colours)
 }
 
 // omarchyGenerationPath is where Omarchy writes the token, given where it

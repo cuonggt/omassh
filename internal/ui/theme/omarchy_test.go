@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // write puts a colors.toml somewhere the test owns, and gives back its path.
@@ -190,10 +191,19 @@ func TestTheStampChangesForEitherHalfOfASwitch(t *testing.T) {
 	OmarchyFile = filepath.Join(dir, "colors.toml")
 	generation := filepath.Join(filepath.Dir(dir), "theme.generation")
 
+	// Every file is given one fixed timestamp, because that is how Omarchy's
+	// themes arrive: a single checkout, stamping all of them together. Left to
+	// the clock, each write here would land a few nanoseconds after the last
+	// and the case below could not happen at all.
+	const checkout = "2026-01-01T00:00:00Z"
 	write := func(path, body string) {
 		t.Helper()
 		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 			t.Fatalf("write %s: %v", path, err)
+		}
+		at, _ := time.Parse(time.RFC3339, checkout)
+		if err := os.Chtimes(path, at, at); err != nil {
+			t.Fatalf("timestamp %s: %v", path, err)
 		}
 	}
 
@@ -210,12 +220,17 @@ func TestTheStampChangesForEitherHalfOfASwitch(t *testing.T) {
 	}
 
 	// The colours alone, for an Omarchy too old to write a token and for a
-	// colors.toml changed by hand. Of a different length as well as at a
-	// different moment, so this cannot come down to how finely the filesystem
-	// records a time.
-	write(OmarchyFile, "accent = \"#222222\"\nforeground = \"#333333\"\n")
+	// colors.toml changed by hand.
+	//
+	// The same length as what it replaces, and written in the same instant,
+	// because that is the case this got wrong: the stamp was the file's size
+	// and timestamp, and every theme Omarchy ships is generated from one
+	// template, so thirteen of the twenty-three files are byte-identical in
+	// length and arrive in a single checkout that timestamps them together.
+	// Switching between two of them moved neither number.
+	write(OmarchyFile, "accent = \"#333333\"\n")
 	if third := OmarchyStamp(); third == second {
-		t.Error("the stamp did not change when the colours themselves did")
+		t.Error("the stamp did not change for colours of the same length written in the same instant")
 	}
 }
 
