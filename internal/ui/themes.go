@@ -54,6 +54,13 @@ func (m Model) themeNames() []string {
 	for _, n := range theme.BuiltinNames() {
 		seen[n], names = true, append(names, n)
 	}
+	// Omarchy's own current theme, where there is an Omarchy to read it from.
+	// Offered only there, because a name in this list is a thing you can look
+	// at: one that previewed as nothing on every machine but a few would be a
+	// row that does not answer to the key that moved onto it.
+	if theme.OmarchyAvailable() {
+		seen[theme.OmarchyName], names = true, append(names, theme.OmarchyName)
+	}
 	for n := range m.opts.Themes {
 		if !seen[n] {
 			names = append(names, n)
@@ -64,11 +71,20 @@ func (m Model) themeNames() []string {
 }
 
 // palette resolves a name the same way the config file does.
+//
+// A name that will not resolve previews as the empty palette, which Apply
+// draws in the terminal's own colours. That is what an unknown name has always
+// done here, and it is the right answer for omarchy on a machine that has lost
+// its theme file between the list being built and the cursor reaching it.
 func (m Model) palette(name string) theme.Palette {
 	if p, ok := m.opts.Themes[name]; ok {
 		return p
 	}
-	return theme.Builtin[name]
+	p, err := theme.Resolve(name)
+	if err != nil {
+		return theme.Palette{}
+	}
+	return p
 }
 
 // applyTheme recolours the interface. Apply rebuilds the styles the theme

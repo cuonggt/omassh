@@ -2,7 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -171,6 +173,38 @@ func TestALongThemeNameIsListedInFull(t *testing.T) {
 	h.press("T")
 	walkTo(t, h, longTheme)
 	h.mustContain(longTheme)
+}
+
+// Omarchy's own current theme is offered where there is an Omarchy to read it
+// from, and nowhere else. A name in this list is a thing you can look at, so
+// one that previewed as nothing on every machine but a few would be a row that
+// does not answer to the key that moved onto it.
+func TestThePickerOffersOmarchysOwnThemeOnlyWhereOmarchyIs(t *testing.T) {
+	h, _ := themeHarness(t)
+
+	h.press("T")
+	if slices.Contains(h.m.themes.names, theme.OmarchyName) {
+		t.Error("omarchy is offered with no Omarchy theme on this machine to read")
+	}
+	h.press("esc")
+
+	was := theme.OmarchyFile
+	t.Cleanup(func() { theme.OmarchyFile = was })
+	theme.OmarchyFile = filepath.Join("theme", "testdata", "tokyo-night-colors.toml")
+
+	h.press("T")
+	if !slices.Contains(h.m.themes.names, theme.OmarchyName) {
+		t.Fatalf("omarchy is not offered though its theme reads: %v", h.m.themes.names)
+	}
+
+	// Moving onto it has to recolour the interface like any other row, which
+	// is the thing that proves the picker resolves it rather than merely
+	// listing it.
+	walkTo(t, h, theme.OmarchyName)
+	h.mustContain(theme.OmarchyName)
+	if got, want := accent(), fmt.Sprint(theme.Builtin["tokyo-night"].Accent); !strings.Contains(got, "122") {
+		t.Errorf("the accent previewed as %s, want the #7aa2f7 the file names (%s)", got, want)
+	}
 }
 
 // Every built-in is offered, which since the list is windowed is not the same

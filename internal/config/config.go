@@ -252,12 +252,10 @@ func (c Config) Palette() (theme.Palette, error) {
 		}
 		return p, nil
 	}
-	// Lookup rather than the map, so a palette that has been renamed still
-	// resolves under the name a config file already has for it.
-	if p, ok := theme.Lookup(name); ok {
-		return p, nil
-	}
-	return theme.Palette{}, fmt.Errorf("unknown theme %q (built in: %v)", name, theme.BuiltinNames())
+	// Resolve rather than the map: a palette that has been renamed still
+	// answers to the name a config file already has for it, and omarchy is
+	// read from Omarchy's own current theme rather than being built in.
+	return theme.Resolve(name)
 }
 
 // ThemeName is the theme in effect, with the default filled in — what the
@@ -327,8 +325,10 @@ func commentList(names []string) string {
 const exampleBody = `# Every setting is optional; delete anything you do not want to change.
 
 # terminal draws in your terminal's own colours, so it suits whatever scheme
-# the terminal has, light or dark — under Omarchy, that is the Omarchy theme.
-# The rest are Omarchy's own themes in hex, and are made for a dark
+# the terminal has, light or dark. omarchy draws in the theme Omarchy itself
+# is set to, read from Omarchy's own current theme, so it changes when you
+# change that — it needs Omarchy on the machine, and says so if there is none.
+# The rest are Omarchy's themes written out in hex, and are made for a dark
 # background. Or name one defined below. Built in:
 %s
 theme: terminal

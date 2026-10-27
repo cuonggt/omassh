@@ -224,6 +224,18 @@ struct by reflection, so the complaint about a wrong one cannot drift from the
 struct. The theme picker writes back into the same file through
 `config.SetTheme`, so a theme picked and a theme typed are one setting.
 
+`theme.Resolve` is the one place a theme name becomes colours, which is what
+lets `omarchy` be a theme at all: it is not built in but read off the disk from
+Omarchy's own current theme, with `theme.OmarchyFile` naming the file. `main`
+sets that before `config.Load`, since Load validates the theme the file names;
+the tests leave it empty, so the suite never reads the colours of whoever is
+running it — the bargain `Options.SSHConfig` makes with `~/.ssh/config`.
+`internal/ui/theme/omarchy.go` follows `omarchy-theme-color`'s own fallback
+cascade rather than guessing at an omitted role, so Omassh and the rest of the
+desktop cannot disagree about what the theme is, and
+`testdata/tokyo-night-colors.toml` is Omarchy's file as it ships: reading it
+has to produce the `tokyo-night` built-in, which is where both came from.
+
 ## Conventions
 
 - **Comments say why, and usually name the bug.** The prose is long by design and

@@ -66,6 +66,29 @@ terminal, reads as well on a light background as on a dark one, and follows
 the terminal when its scheme changes — under Omarchy, that means it follows
 the Omarchy theme without being told about it.
 
+`omarchy` follows it on purpose rather than by side effect. It draws in the
+theme Omarchy is actually set to, read from Omarchy's own current theme at
+`~/.local/state/omarchy/current/theme/colors.toml` — a symlink Omarchy
+repoints as the theme changes, which is what makes the name mean "whatever is
+set now" rather than one particular palette. Where `terminal` picks up only
+what the terminal's own scheme carries, this gets the whole palette: the
+accent, the selection, the muted border. Start Omassh again after switching
+themes and it follows. On a machine without Omarchy, naming it is a startup
+error saying so rather than a quietly different palette, and the theme picker
+does not offer it there at all.
+
+A theme is allowed to leave roles out, and Omarchy has a documented cascade so
+that every program reading the file lands on the same palette — `fg` for
+`foreground`, `color8` for `muted`, `purple` for `magenta`, and so on. Omassh
+follows that cascade rather than guessing, so the host list cannot disagree
+with the bar at the top of the screen about what the theme is. Values Omassh
+cannot draw — the gradients and `rgba()` that other consumers use — count as
+roles the theme did not set, and anything still unset falls back to `terminal`.
+
+Omarchy's light themes are excluded from the built-in list but not from this:
+if Omarchy is set to one, that is what you get, and it is right, because the
+terminal it is drawn in went light at the same moment.
+
 The rest are Omarchy's own themes, each colour taken from the theme's
 `colors.toml`, so the list `T` offers is the list `omarchy-theme-set` offers
 and a machine running one of them can be asked for the same name here:

@@ -142,6 +142,13 @@ func browse(args []string) error {
 		return nil
 	}
 
+	// Where Omarchy keeps the theme it is set to, for a config asking to
+	// follow it. Set before the config is read, since Load validates the
+	// theme it names and this says whether that one can be drawn. The tests
+	// leave it empty, which is how the suite never reads the colours of
+	// whoever is running it.
+	theme.OmarchyFile = theme.OmarchyPath()
+
 	// A broken config is reported rather than ignored: settings that silently
 	// do nothing are worse than a startup error that says why.
 	cfg, err := config.Load(*cfgPath)

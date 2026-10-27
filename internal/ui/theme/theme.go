@@ -310,15 +310,31 @@ var Builtin = map[string]Palette{
 // now lists.
 var themeAliases = map[string]string{"tokyonight": "tokyo-night"}
 
-// Lookup is the built-in palette a name asks for, following a rename. Every
-// place that resolves a theme name comes through here, so what starts Omassh
-// and what the picker shows cannot disagree about which palette a name means.
+// Lookup is the built-in palette a name asks for, following a rename.
 func Lookup(name string) (Palette, bool) {
 	if to, ok := themeAliases[name]; ok {
 		name = to
 	}
 	p, ok := Builtin[name]
 	return p, ok
+}
+
+// Resolve is the palette a name asks for: a built-in, a built-in under the
+// name it used to have, or Omarchy's own current theme, which is read off the
+// disk rather than being built in at all. Every place that resolves a theme
+// name comes through here, so what starts Omassh and what the picker shows
+// cannot disagree about which palette a name means.
+//
+// The error is for someone editing a config file by hand, so it says what to
+// write instead rather than what went wrong.
+func Resolve(name string) (Palette, error) {
+	if name == OmarchyName {
+		return ReadOmarchy(OmarchyFile)
+	}
+	if p, ok := Lookup(name); ok {
+		return p, nil
+	}
+	return Palette{}, fmt.Errorf("unknown theme %q (built in: %v)", name, BuiltinNames())
 }
 
 // BuiltinNames lists the palettes, for error messages and documentation. The

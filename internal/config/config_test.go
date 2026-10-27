@@ -88,6 +88,33 @@ themes:
 	}
 }
 
+// theme: omarchy draws in whatever theme Omarchy is set to, read from
+// Omarchy's own file rather than from anything here. Where there is no such
+// file the config is refused at startup, like any other setting that could not
+// be honoured: a theme that quietly came out as some other palette would be
+// the silence this package exists to avoid.
+func TestTheOmarchyThemeComesFromOmarchysOwnCurrentTheme(t *testing.T) {
+	was := theme.OmarchyFile
+	t.Cleanup(func() { theme.OmarchyFile = was })
+
+	if _, err := Load(write(t, "theme: omarchy\n")); err == nil {
+		t.Error("theme: omarchy was accepted on a machine with no Omarchy theme to read")
+	}
+
+	theme.OmarchyFile = filepath.Join("..", "ui", "theme", "testdata", "tokyo-night-colors.toml")
+	c, err := Load(write(t, "theme: omarchy\n"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	p, err := c.Palette()
+	if err != nil {
+		t.Fatalf("Palette: %v", err)
+	}
+	if want := theme.Builtin["tokyo-night"]; p != want {
+		t.Errorf("the palette is %+v, want what Omarchy's own file says", p)
+	}
+}
+
 // The picker offers every palette in the file, so every one is checked, and
 // not only the one theme: names. A colour in a palette not in use was never
 // read at startup, and when the picker came to it, it quietly drew the
