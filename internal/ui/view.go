@@ -398,13 +398,18 @@ func (m Model) hostsBody(w, rows int) string {
 			continue
 		}
 
-		line := gutter(st) + theme.Fg(markColour).Render(mark) + theme.Normal.Render(" "+h.Name)
+		line := theme.Fg(markColour).Render(mark) + theme.Normal.Render(" "+h.Name)
 		if m.filtering() {
 			if trail := m.d.breadcrumb(h.GroupID); trail != "" {
 				line += theme.Dim.Render("  " + trail)
 			}
 		}
-		line = ansi.Truncate(line, keep, "…")
+		// The cursor's cell goes on after the cut, not before it. Truncating
+		// the two together spent one of the name's cells on the gutter, so a
+		// name too long for the row gained a character when the cursor
+		// arrived — the row growing under the cursor, which reserving the
+		// column is there to prevent.
+		line = gutter(st) + ansi.Truncate(line, keep, "…")
 		if badge != "" {
 			line += theme.Fg(badgeColour).Render(" " + badge)
 		}

@@ -166,6 +166,49 @@ func TestTheStatusBarOffersOnlyTheKeysThatWillDoSomething(t *testing.T) {
 	h.mustContain("connect")
 }
 
+// A name too long for the row is cut at the same place whether or not the
+// cursor is on it. Reserving the cursor's cell on every row is only half of
+// it: the cell has to come out of the width once, and it was being taken off
+// the name as well as held open, so arriving at a long-named host revealed one
+// more character of it and the row grew under the cursor.
+func TestALongNameIsCutAtTheSameColumnWhetherOrNotTheCursorIsOnIt(t *testing.T) {
+	h := newHarness(t)
+	const long = "a-very-long-host-name-that-will-not-fit-in-the-sidebar"
+	h.addHost(long, "10.0.0.1")
+	h.addHost("b-"+long, "10.0.0.2")
+	h.reload()
+	h.press("2")
+
+	// The same host drawn both ways: the cursor starts on it, then moves off.
+	drawn := func() string {
+		t.Helper()
+		side := h.m.layout().side
+		for _, l := range strings.Split(h.screen(), "\n") {
+			r := []rune(l)
+			cut := string(r[:min(side, len(r))])
+			if strings.Contains(cut, "a-very-long") && !strings.Contains(cut, "b-a-very-long") {
+				return strings.TrimRight(cut, " ")
+			}
+		}
+		t.Fatalf("the long-named host is not drawn:\n%s", h.screen())
+		return ""
+	}
+
+	withCursor := drawn()
+	h.press("j")
+	without := drawn()
+
+	// Compared by the name each row shows, since the gutter differs by design.
+	name := func(s string) string {
+		_, rest, _ := strings.Cut(s, "○ ")
+		return rest
+	}
+	if name(withCursor) != name(without) {
+		t.Errorf("the name is cut at %q under the cursor and %q away from it",
+			name(withCursor), name(without))
+	}
+}
+
 // The cursor's cell is reserved on every row, not just the one it is on, so
 // arriving at a row does not move it. A bar prefixed to the cursor's row alone
 // shifted that row's text one cell right of all the others.
