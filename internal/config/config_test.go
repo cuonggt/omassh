@@ -71,9 +71,9 @@ func TestAPaletteCanNameTheTerminalsOwnColours(t *testing.T) {
 themes:
   mine:
     accent: 4
-    text: default
-    selected_bg: 236
-    border: "#444444"
+    foreground: default
+    selection: 236
+    muted: "#444444"
 `))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -82,7 +82,7 @@ themes:
 	if err != nil {
 		t.Fatalf("Palette: %v", err)
 	}
-	want := theme.Palette{Accent: "4", Text: "default", Selected: "236", Border: "#444444"}
+	want := theme.Palette{Accent: "4", Selection: "236", Muted: "#444444", Foreground: "default"}
 	if p != want {
 		t.Errorf("the palette is %+v, want %+v", p, want)
 	}
@@ -342,7 +342,7 @@ func TestAKeyThatIsNotASettingIsNamedInOmasshsWords(t *testing.T) {
 			// should fail this and be added deliberately.
 			body: "themes:\n  mine:\n    bg: \"#101014\"\n",
 			want: []string{`"bg" is not a palette colour`, "line 3",
-				"text, text_dim, text_bright, accent, green, yellow, red, magenta, border, selected_bg"},
+				"accent, selection, muted, foreground, dark_foreground, bright_foreground, red, yellow, green, magenta"},
 		},
 	}
 	for name, tc := range cases {
@@ -388,7 +388,7 @@ func TestEveryMistakeInAFileIsReported(t *testing.T) {
 // named as wrong by the very message meant to help.
 func TestEveryColourTheComplaintOffersIsAccepted(t *testing.T) {
 	keys := theme.PaletteKeys()
-	if !slices.Contains(keys, "selected_bg") {
+	if !slices.Contains(keys, "selection") {
 		t.Fatalf("PaletteKeys does not list the palette: %v", keys)
 	}
 	for _, key := range keys {

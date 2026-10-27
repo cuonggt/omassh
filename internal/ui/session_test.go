@@ -137,7 +137,7 @@ func TestTheWheelOverASessionScrollsItRatherThanTypingIntoIt(t *testing.T) {
 	h.m.setStatus("something else")
 
 	l := h.m.layout()
-	h.wheel(l.side+2, 1, true)
+	h.wheel(l.side+l.gapX+2, 1, true)
 
 	// A session this short has nothing to go back to, so it says where it is.
 	if !strings.Contains(h.m.status, "live view") {

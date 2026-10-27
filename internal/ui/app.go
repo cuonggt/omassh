@@ -59,6 +59,14 @@ const (
 	sidebarMax   = 44
 	statusHeight = 1
 
+	// panelGap is the blank cell between two panels. Omarchy's panels are
+	// tiled windows with a gap between them — Hyprland's gaps_in — rather
+	// than boxes whose borders touch, and two borders touching draw a divider
+	// two cells thick where the design calls for a hairline. Nothing is spent
+	// at the frame's own edge: the terminal window is itself the window
+	// Hyprland already put gaps_out around.
+	panelGap = 1
+
 	// The smallest frame the layout can be drawn in: narrower or shorter than
 	// this and the boxes cannot fit their own borders.
 	minWidth  = 30

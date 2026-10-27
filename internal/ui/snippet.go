@@ -300,12 +300,8 @@ func (m Model) snippetsBody(w, content int) string {
 	lines := []string{""}
 	for i, s := range m.d.snippets[start:end] {
 		i += start
-		mark, colour := "  ", theme.Text
-		if i == m.snipIdx {
-			mark, colour = "▸ ", theme.Accent
-		}
-		row := pad(ansi.Truncate(s.Name, nameW, "…"), nameW) + "  " + s.Describe()
-		lines = append(lines, theme.Fg(colour).Render("  "+mark+ansi.Truncate(row, max(w-6, 8), "…")))
+		text := pad(ansi.Truncate(s.Name, nameW, "…"), nameW) + "  " + s.Describe()
+		lines = append(lines, "  "+row(text, cursorState(i == m.snipIdx, true), w-2))
 	}
 
 	lines = append(lines, "", theme.Dim.Render("  ↵ run  ·  p paste  ·  n/e/d new/edit/delete  ·  esc close"))

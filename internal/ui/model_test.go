@@ -1041,7 +1041,7 @@ func TestClickSelectsAHost(t *testing.T) {
 	}
 
 	l := h.m.layout()
-	h.click(2, l.groupsH+1+2) // third host row
+	h.click(2, l.hostsTop()+1+2) // third host row
 
 	if h.m.focus != panelHosts {
 		t.Errorf("focus = %v, want panelHosts", h.m.focus)
@@ -1078,15 +1078,15 @@ func TestClickOnNothingSelectsNothing(t *testing.T) {
 	h := newHarness(t)
 	h.addHost("alpha", "10.0.0.1")
 	h.addHost("bravo", "10.0.0.2")
-	h.click(2, h.m.layout().groupsH+1+1) // bravo
+	h.click(2, h.m.layout().hostsTop()+1+1) // bravo
 	before, _ := h.m.selectedHost()
 
 	l := h.m.layout()
 	for _, y := range []int{
-		l.groupsH,         // the Hosts box's top border
-		l.groupsH + 1 + 5, // past the last host
-		l.content - 1,     // the bottom border
-		l.content,         // the status bar
+		l.hostsTop(),         // the Hosts box's top border
+		l.hostsTop() + 1 + 5, // past the last host
+		l.content - 1,        // the bottom border
+		l.content,            // the status bar
 	} {
 		h.click(2, y)
 		got, _ := h.m.selectedHost()
@@ -1104,7 +1104,7 @@ func TestClickIsIgnoredWhileADialogIsOpen(t *testing.T) {
 
 	h.press("n") // a form over the list
 	l := h.m.layout()
-	h.click(2, l.groupsH+1+1)
+	h.click(2, l.hostsTop()+1+1)
 
 	if h.m.mode != modeForm {
 		t.Errorf("mode = %v, want the form still open", h.m.mode)
@@ -1346,7 +1346,7 @@ func TestClickSelectsTheRightHostAfterScrolling(t *testing.T) {
 	}
 
 	l := h.m.layout()
-	h.click(2, l.groupsH+1) // the first visible row
+	h.click(2, l.hostsTop()+1) // the first visible row
 
 	got, _ := h.m.selectedHost()
 	if got.Name == "host-00" {
@@ -2776,11 +2776,11 @@ func TestTheWheelMovesTheListUnderThePointer(t *testing.T) {
 
 	// Over the hosts box.
 	start := h.m.hostIdx
-	h.wheel(1, l.groupsH+2, false)
+	h.wheel(1, l.hostsTop()+2, false)
 	if h.m.hostIdx != start+1 {
 		t.Errorf("hostIdx = %d after a notch down, want %d", h.m.hostIdx, start+1)
 	}
-	h.wheel(1, l.groupsH+2, true)
+	h.wheel(1, l.hostsTop()+2, true)
 	if h.m.hostIdx != start {
 		t.Errorf("hostIdx = %d after a notch back up, want %d", h.m.hostIdx, start)
 	}
@@ -2788,7 +2788,7 @@ func TestTheWheelMovesTheListUnderThePointer(t *testing.T) {
 	// It focuses what it moves: an unfocused list draws no selection, so the
 	// cursor would travel invisibly.
 	h.press("1")
-	h.wheel(1, l.groupsH+2, false)
+	h.wheel(1, l.hostsTop()+2, false)
 	if h.m.focus != panelHosts {
 		t.Error("the wheel moved the host list without focusing it")
 	}
@@ -2809,7 +2809,7 @@ func TestTheWheelStopsAtTheEndsOfTheList(t *testing.T) {
 	h.reload()
 	h.press("2")
 	l := h.m.layout()
-	y := l.groupsH + 2
+	y := l.hostsTop() + 2
 
 	for range 20 {
 		h.wheel(1, y, true)
@@ -2841,7 +2841,7 @@ func TestTheWheelLeavesAloneWhatIsNotAList(t *testing.T) {
 		name string
 		x, y int
 	}{
-		{"the main pane", l.side + 2, l.groupsH + 2},
+		{"the main pane", l.side + l.gapX + 2, l.hostsTop() + 2},
 		{"the status bar", 1, l.content},
 	} {
 		h.wheel(spot.x, spot.y, false)
@@ -2855,7 +2855,7 @@ func TestTheWheelLeavesAloneWhatIsNotAList(t *testing.T) {
 	if h.m.mode != modeForm {
 		t.Fatal("n did not open a form")
 	}
-	h.wheel(1, l.groupsH+2, false)
+	h.wheel(1, l.hostsTop()+2, false)
 	if h.m.hostIdx != 3 {
 		t.Errorf("the wheel reached the list behind a dialog: %d", h.m.hostIdx)
 	}

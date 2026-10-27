@@ -10,6 +10,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"gopkg.in/yaml.v3"
 )
 
 // restore puts the default back afterwards. The palette in effect is global,
@@ -23,9 +24,10 @@ func restore(t *testing.T) {
 // it.
 func active() map[string]color.Color {
 	return map[string]color.Color{
-		"text": Text, "text_dim": TextDim, "text_bright": TextBrt,
-		"accent": Accent, "green": Green, "yellow": Yellow, "red": Red,
-		"magenta": Magenta, "border": Border, "selected_bg": SelBg,
+		"accent": Accent, "selection": Selection, "muted": Muted,
+		"foreground": Foreground, "dark_foreground": DarkFg,
+		"bright_foreground": BrightFg, "green": Green, "yellow": Yellow,
+		"red": Red, "magenta": Magenta,
 	}
 }
 
@@ -75,32 +77,108 @@ func TestEveryBuiltInPaletteIsCompleteAndOneAConfigFileCouldHold(t *testing.T) {
 	}
 }
 
-// The terminal's own background is no highlight at all, so a palette that
-// gives the selection none of its own gets the terminal's own highlight: its
-// colours swapped. That swap leaves text_bright out. A colour of ours as the
-// bar could be the colour of the page — white, on a light terminal — and the
-// row under the cursor would vanish rather than stand out.
-func TestASelectionWithNoBackgroundOfItsOwnIsTheTerminalsOwnHighlight(t *testing.T) {
+// A palette that gives the selection no colour of its own has no fill to draw
+// the cursor's row with, so the row is marked where Omarchy would have put the
+// emphasis regardless: on its edge, by the bar in box.go, with the text going
+// accent and bold to agree with it.
+//
+// It brings no colour of its own into the row and does not reverse it, which
+// is what it used to do. The swap read well enough but painted over the badges
+// on whichever row it landed on, and reverse on a light terminal is the one
+// treatment whose result nothing here can predict.
+func TestACursorRowWithNoSelectionColourIsAccentTextRatherThanAFill(t *testing.T) {
 	restore(t)
 	for name, p := range map[string]Palette{
 		"the default":            Builtin[DefaultName],
-		"a bright text of yours": {TextBrt: "#ffffff"},
+		"a bright text of yours": {BrightFg: "#ffffff"},
 	} {
 		Apply(p)
-		got := params(Selected.Render("web-01"))
-		if !slices.Contains(got, "7") {
-			t.Errorf("%s: the selected row is not drawn in reverse: %q", name, got)
+		got := params(Cursor.Render("web-01"))
+		if slices.Contains(got, "48") {
+			t.Errorf("%s: the cursor's row is filled, with no colour to fill it: %q", name, got)
 		}
-		if slices.Contains(got, "38") || slices.Contains(got, "48") {
-			t.Errorf("%s: the selected row brings a colour of its own into the swap: %q", name, got)
+		if slices.Contains(got, "7") {
+			t.Errorf("%s: the cursor's row is drawn in reverse: %q", name, got)
+		}
+		if !slices.Contains(got, "1") {
+			t.Errorf("%s: the cursor's row is not bold, so the bar is marking it alone: %q", name, got)
 		}
 	}
+}
 
-	// A palette that names a background still gets a bar of exactly that.
-	Apply(Builtin["tokyonight"])
-	got := params(Selected.Render("web-01"))
-	if !strings.Contains(strings.Join(got, ";"), "48;2;40;52;87") || slices.Contains(got, "7") {
-		t.Errorf("tokyonight's selection is %q, want its own #283457 bar and no reverse", got)
+// A palette that does name a selection colour gets a bar of exactly that, with
+// bright_foreground on it — the pairing Omarchy gives the selection role, and
+// the one pair a theme has promised can be read against each other.
+func TestACursorRowWithASelectionColourIsFilledWithItAndBrightText(t *testing.T) {
+	restore(t)
+	Apply(Builtin["tokyo-night"])
+	got := strings.Join(params(Cursor.Render("web-01")), ";")
+
+	if !strings.Contains(got, "48;2;41;46;66") {
+		t.Errorf("tokyo-night's cursor row is %q, want its own #292e42 bar", got)
+	}
+	if !strings.Contains(got, "38;2;192;202;245") {
+		t.Errorf("tokyo-night's cursor row is %q, want its #c0caf5 bright text on it", got)
+	}
+	if strings.Contains(got, ";7;") {
+		t.Errorf("tokyo-night's cursor row is drawn in reverse: %q", got)
+	}
+}
+
+// The colours are Omarchy's roles, and a config file written before they were
+// still loads: the names changed and what they stand for did not. Refusing one
+// would have stopped Omassh at startup rather than drawing something slightly
+// wrong, since the decoder is run with KnownFields.
+func TestAPaletteIsReadUnderTheColourNamesItUsedToHave(t *testing.T) {
+	var p Palette
+	if err := yaml.Unmarshal([]byte(
+		"text: \"#111111\"\ntext_dim: \"#222222\"\ntext_bright: \"#333333\"\n"+
+			"border: \"#444444\"\nselected_bg: \"#555555\"\naccent: \"#666666\"\n"), &p); err != nil {
+		t.Fatalf("a palette in the old names was refused: %v", err)
+	}
+
+	for name, got := range map[string]string{
+		"foreground": p.Foreground, "dark_foreground": p.DarkFg,
+		"bright_foreground": p.BrightFg, "muted": p.Muted,
+		"selection": p.Selection, "accent": p.Accent,
+	} {
+		if want := map[string]string{
+			"foreground": "#111111", "dark_foreground": "#222222",
+			"bright_foreground": "#333333", "muted": "#444444",
+			"selection": "#555555", "accent": "#666666",
+		}[name]; got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+}
+
+// A name that is neither is still refused, saying which line it is on and what
+// the colours are actually called — the two things someone editing the file by
+// hand cannot work out for themselves.
+func TestAColourNameThatIsNeitherIsRefusedByNameAndLine(t *testing.T) {
+	err := yaml.Unmarshal([]byte("accent: \"#ff8800\"\nbg: \"#000000\"\n"), new(Palette))
+	if err == nil {
+		t.Fatal("bg was accepted as a palette colour")
+	}
+	for _, want := range []string{`"bg"`, "line 2", "selection", "dark_foreground"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the complaint does not say %s: %v", want, err)
+		}
+	}
+}
+
+// A palette that has been renamed still resolves under the name a config file
+// already has for it, and the old name is not offered back as one of the list.
+func TestAPaletteThatWasRenamedStillResolvesUnderItsOldName(t *testing.T) {
+	was, ok := Lookup("tokyonight")
+	if !ok {
+		t.Fatal("tokyonight no longer resolves to anything")
+	}
+	if now, _ := Lookup("tokyo-night"); was != now {
+		t.Errorf("tokyonight resolves to %+v, want the same palette as tokyo-night", was)
+	}
+	if slices.Contains(BuiltinNames(), "tokyonight") {
+		t.Error("tokyonight is listed as well as tokyo-night, so the picker offers it twice")
 	}
 }
 
@@ -160,10 +238,10 @@ func TestAPaletteThatSetsOneColourTakesTheRestFromTheTerminal(t *testing.T) {
 	if Accent != (color.RGBA{0xff, 0x88, 0x00, 0xff}) {
 		t.Errorf("accent = %#v, want the palette's own", Accent)
 	}
-	if Text != (lipgloss.NoColor{}) {
-		t.Errorf("text = %#v, want the terminal's own", Text)
+	if Foreground != (lipgloss.NoColor{}) {
+		t.Errorf("foreground = %#v, want the terminal's own", Foreground)
 	}
-	if TextDim != ansi.BasicColor(8) {
-		t.Errorf("text_dim = %#v, want the terminal's grey", TextDim)
+	if DarkFg != ansi.BasicColor(8) {
+		t.Errorf("dark_foreground = %#v, want the terminal's grey", DarkFg)
 	}
 }

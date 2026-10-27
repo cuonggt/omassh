@@ -497,7 +497,7 @@ func (m Model) runPrompt(w int) string {
 	r := m.running
 	lines := []string{""}
 	for _, l := range strings.Split(strings.TrimRight(r.snippet.Script, "\n"), "\n") {
-		lines = append(lines, "  "+theme.Fg(theme.Text).Render(ansi.Truncate(l, max(w-4, 8), "…")))
+		lines = append(lines, "  "+theme.Fg(theme.Foreground).Render(ansi.Truncate(l, max(w-4, 8), "…")))
 	}
 	lines = append(lines, "")
 
@@ -506,11 +506,8 @@ func (m Model) runPrompt(w int) string {
 		labelW = max(labelW, ansi.StringWidth(c.label))
 	}
 	for i, c := range r.choices {
-		mark, colour := "  ", theme.Text
-		if i == r.target {
-			mark, colour = "▸ ", theme.Accent
-		}
-		lines = append(lines, theme.Fg(colour).Render("  "+mark+pad(c.label, labelW))+
+		st := cursorState(i == r.target, true)
+		lines = append(lines, "  "+gutter(st)+cursorText(pad(c.label, labelW), st)+
 			"  "+theme.Dim.Render(c.detail))
 	}
 
@@ -537,16 +534,16 @@ func (m Model) runPickBody(w, content int) string {
 	lines := []string{""}
 	for i, h := range r.all[start:end] {
 		i += start
-		mark, colour := "  ", theme.Text
-		if i == r.pickIdx {
-			mark, colour = "▸ ", theme.Accent
-		}
+		st := cursorState(i == r.pickIdx, true)
+		// The box is which hosts are chosen and the bar is which row the
+		// keyboard is on; they are two different things and the list says
+		// both, rather than one highlight standing in for the pair.
 		box := "☐ "
 		if r.chosen[h.ID] {
 			box = "☑ "
 		}
 		name := pad(ansi.Truncate(h.Name, nameW, "…"), nameW)
-		lines = append(lines, theme.Fg(colour).Render("  "+mark+box+name)+
+		lines = append(lines, "  "+gutter(st)+cursorText(box+name, st)+
 			"  "+theme.Dim.Render(ansi.Truncate(h.Addr, max(w-nameW-10, 8), "…")))
 	}
 	// Two lines, because one holding the tally and four keys runs past the
@@ -573,13 +570,13 @@ func (m Model) runTable(w, content int) string {
 	lines := []string{""}
 	for i, h := range r.hosts[start:end] {
 		i += start
-		cursor := "  "
-		if i == r.idx {
-			cursor = "▸ "
-		}
+		st := cursorState(i == r.idx, true)
+		// The mark keeps the colour of what the run is doing. It used to be
+		// drawn in one span with the cursor, so moving the cursor onto a row
+		// recoloured the thing the row was reporting.
 		mark, colour, status := runMark(r, h)
 		name := pad(ansi.Truncate(h.Name, nameW, "…"), nameW)
-		body := theme.Fg(colour).Render(cursor+mark+" ") + theme.Fg(theme.Text).Render(name) + "  " +
+		body := gutter(st) + theme.Fg(colour).Render(mark+" ") + cursorText(name, st) + "  " +
 			theme.Dim.Render(ansi.Truncate(status, max(w-nameW-10, 8), "…"))
 		lines = append(lines, "  "+body)
 	}
@@ -601,13 +598,13 @@ func runMark(r *snippetRun, h store.Host) (string, color.Color, string) {
 	res := r.results[h.ID]
 	switch {
 	case res == nil && r.stopping:
-		return "○", theme.TextDim, "stopping…"
+		return "○", theme.DarkFg, "stopping…"
 	case res == nil && !r.begun[h.ID]:
 		// Not started: the sweep runs a few at a time, and saying "running"
 		// here would claim an ssh session that has not been opened.
-		return "○", theme.TextDim, "queued"
+		return "○", theme.DarkFg, "queued"
 	case res == nil:
-		return "○", theme.TextDim, "running…"
+		return "○", theme.DarkFg, "running…"
 	case res.Err != nil:
 		return "◌", theme.Yellow, "stopped"
 	case res.ExitCode == sshx.ConnectionFailed:

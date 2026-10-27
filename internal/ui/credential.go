@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/cuonggt/omassh/internal/secret"
 	"github.com/cuonggt/omassh/internal/store"
@@ -347,17 +346,13 @@ func (m Model) credentialsBody(w, content int) string {
 	lines := []string{""}
 	for i, c := range m.d.creds[start:end] {
 		i += start
-		mark, colour := "  ", theme.Text
-		if i == m.credIdx {
-			mark, colour = "▸ ", theme.Accent
-		}
 		// The kind as a word, the way a forward writes local or remote: a
 		// symbol would need a legend, and there are only three of them.
-		row := fmt.Sprintf("%-9s %s", string(c.Kind), c.Name)
+		text := fmt.Sprintf("%-9s %s", string(c.Kind), c.Name)
 		if d := c.Describe(); d != "" {
-			row += "  " + d
+			text += "  " + d
 		}
-		lines = append(lines, theme.Fg(colour).Render("  "+mark+ansi.Truncate(row, max(w-6, 8), "…")))
+		lines = append(lines, "  "+row(text, cursorState(i == m.credIdx, true), w-2))
 	}
 
 	lines = append(lines, "")

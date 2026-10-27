@@ -856,7 +856,13 @@ func (h *harness) stillConnected() {
 // the point of pasting rather than running.
 func TestPastingLeavesYouLookingAtTheSession(t *testing.T) {
 	h := newHarness(t)
-	h.openSession("alpha")
+	// A session that stays up, because this asserts on what pasting into one
+	// does. It used to be openSession — a connection to a port that answers
+	// nothing, which ends on its own — guarded by a liveness check before the
+	// keystroke. The check and the paste are not the same moment, so the
+	// session could be alive at one and gone at the other, and the test was
+	// left timing a race it could only lose.
+	h.openLiveSession("alpha")
 	// Back to the list first: a focused session takes every key, so S there
 	// is typed at the remote rather than opening anything. That is the route
 	// a person takes too.
@@ -864,9 +870,6 @@ func TestPastingLeavesYouLookingAtTheSession(t *testing.T) {
 	h.press("w")
 	h.addSnippet(store.Snippet{Name: "uptime", Script: "uptime\n"})
 
-	// Checked here rather than at the top: this session is a connection to a
-	// port that answers nothing, so it ends on its own, and everything above
-	// is time for it to do so. Under -race that is long enough.
 	h.stillConnected()
 	h.press("S", "p")
 	if h.m.mode != modeBrowse {

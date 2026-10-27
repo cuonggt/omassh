@@ -209,8 +209,7 @@ func attachedMessage(shared bool) string {
 
 // sessionArea is the emulator size inside the main pane's border.
 func (m Model) sessionArea() (int, int) {
-	side := m.sidebar()
-	return max(m.w-side-4, 20), max(m.h-statusHeight-2, 5)
+	return max(m.layout().main(m.w)-4, 20), max(m.h-statusHeight-2, 5)
 }
 
 // attachedTo reports whether the live session belongs to this host, so the
@@ -623,7 +622,7 @@ func (m Model) sessionCursor() *tea.Cursor {
 	if m.attached == nil || !m.attached.Alive() || m.focus != panelSession {
 		return nil
 	}
-	side := m.sidebar()
+	l := m.layout()
 	x, y := m.attached.CursorPosition()
-	return tea.NewCursor(side+x+2, y+1)
+	return tea.NewCursor(l.side+l.gapX+x+2, y+1)
 }

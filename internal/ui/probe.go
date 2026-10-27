@@ -99,12 +99,12 @@ func (m Model) hostMarker(key string) (string, color.Color) {
 	case probe.Down:
 		return "✖", theme.Red
 	case probe.Skipped:
-		return "◌", theme.TextDim
+		return "◌", theme.DarkFg
 	case probe.NotChecked:
 		// The same mark as never-probed, because that is what it is.
-		return "○", theme.TextDim
+		return "○", theme.DarkFg
 	default:
-		return "○", theme.TextDim
+		return "○", theme.DarkFg
 	}
 }
 

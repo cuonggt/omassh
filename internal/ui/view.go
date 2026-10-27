@@ -161,8 +161,10 @@ func (m Model) dialog(content int) (string, bool) {
 		// built-ins are one word but a palette from the config file is named
 		// by whoever wrote it.
 		tw := clamp(m.themeWidth(), 20, m.w-4)
-		body := m.themeBody(tw - 4)
-		return box("Theme", true, tw, dialogHeight(body, content), body), true
+		body := m.themeBody(tw-4, content)
+		title := "Theme" +
+			listPosition(m.themes.idx, len(m.themes.names), m.themeListRows(content))
+		return box(title, true, tw, dialogHeight(body, content), body), true
 	}
 	return "", false
 }
@@ -173,27 +175,31 @@ func dialogHeight(body string, content int) int {
 }
 
 func (m Model) browserBody(content int) string {
-	side := m.sidebar()
-	main := m.w - side
-
-	// Groups takes what it needs; Hosts gets the rest, since it is the list
-	// you actually scroll.
-	groupsH := clamp(len(m.d.tree)+2, 4, content/3)
-	hostsH := content - groupsH
+	// The same geometry hit-testing reads, so a click lands on the row that
+	// was drawn there rather than on one a second copy of these sums worked
+	// out.
+	l := m.layout()
+	side, main := l.side, l.main(m.w)
 
 	hostsTitle := "Hosts"
 	if m.filtering() || m.mode == modeFilter {
 		hostsTitle = "Search"
 	}
-	groupRows, hostRows := max(groupsH-2, 1), max(hostsH-2, 1)
+	groupRows, hostRows := max(l.groupsH-2, 1), max(l.hostsH-2, 1)
 	hostsTitle += listPosition(m.hostIdx, len(m.visibleHosts()), hostRows-m.searchLines())
 
-	sidebar := lipgloss.JoinVertical(lipgloss.Left,
+	panels := []string{
 		box("Groups"+listPosition(m.groupIdx, len(m.d.tree), groupRows),
-			m.focus == panelGroups && m.mode == modeBrowse, side, groupsH, m.groupsBody(side-4, groupRows)),
-		box(hostsTitle, m.focus == panelHosts || m.mode == modeFilter,
-			side, hostsH, m.hostsBody(side-4, hostRows)),
-	)
+			m.focus == panelGroups && m.mode == modeBrowse, side, l.groupsH, m.groupsBody(side-4, groupRows)),
+	}
+	// Appended rather than always joined: lipgloss counts an empty block as a
+	// line of its own, so a gap of nothing would still take a row.
+	if l.gapY > 0 {
+		panels = append(panels, gapBlock(side, l.gapY))
+	}
+	panels = append(panels, box(hostsTitle, m.focus == panelHosts || m.mode == modeFilter,
+		side, l.hostsH, m.hostsBody(side-4, hostRows)))
+	sidebar := lipgloss.JoinVertical(lipgloss.Left, panels...)
 
 	title, detail := m.detailBody()
 	// A live session takes the main pane; the sidebar stays usable beside it.
@@ -202,7 +208,22 @@ func (m Model) browserBody(content int) string {
 		title, detail = m.sessionTitle(main), m.attached.Render()
 		mainFocused = m.focus == panelSession
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, sidebar, box(title, mainFocused, main, content, detail))
+	beside := []string{sidebar}
+	if l.gapX > 0 {
+		beside = append(beside, gapBlock(l.gapX, content))
+	}
+	beside = append(beside, box(title, mainFocused, main, content, detail))
+	return lipgloss.JoinHorizontal(lipgloss.Top, beside...)
+}
+
+// gapBlock is the blank space between two panels: w cells wide and h rows
+// tall, so that joining it to its neighbours leaves the frame exactly the size
+// the terminal is.
+func gapBlock(w, h int) string {
+	if w <= 0 || h <= 0 {
+		return ""
+	}
+	return strings.TrimRight(strings.Repeat(strings.Repeat(" ", w)+"\n", h), "\n")
 }
 
 // pickerList renders the open choice list for the focused field.
@@ -234,7 +255,7 @@ func (m Model) pickerList(w int) string {
 	// A row sits inside the list's border (w-4) behind a two-space indent.
 	rows := make([]string, 0, end-start)
 	for i := start; i < end; i++ {
-		rows = append(rows, "  "+row(label(choices[i]), i == f.pickIdx, w-6))
+		rows = append(rows, "  "+row(label(choices[i]), cursorState(i == f.pickIdx, true), w-6))
 	}
 	if end < len(choices) {
 		rows = append(rows, "  "+theme.Dim.Render(fmt.Sprintf("  +%d more", len(choices)-end)))
@@ -288,12 +309,21 @@ func (m Model) groupsBody(w, rows int) string {
 		n := len(m.d.hostsIn(g.ID))
 		text := fmt.Sprintf("%s %d", pad(m.groupLabel(g, max(w-4, 1)), max(w-4, 1)), n)
 
-		selected := i == m.groupIdx && m.focus == panelGroups && !m.filtering()
-		if isSynthetic(g.ID) && !selected {
-			lines = append(lines, theme.Fg(theme.Magenta).Render(ansi.Truncate(text, w, "…")))
+		// Which panel the keyboard is going to is the box's border to say, so
+		// the row only says where the cursor is and keeps its mark when focus
+		// moves away. There is no cursor at all while a search is on, since
+		// the filter spans every group rather than the selected one.
+		st := cursorState(i == m.groupIdx && !m.filtering(),
+			m.focus == panelGroups && m.mode == modeBrowse)
+		if isSynthetic(g.ID) && st != rowCursor {
+			// Ungrouped is derived rather than stored, and derived facts are
+			// secondary information, so it is drawn as secondary text. It used
+			// to have the palette's magenta to itself: a whole colour spent on
+			// one row, standing for nothing anywhere else on the screen.
+			lines = append(lines, gutter(st)+theme.Dim.Render(ansi.Truncate(text, max(w-1, 0), "…")))
 			continue
 		}
-		lines = append(lines, row(text, selected, w))
+		lines = append(lines, row(text, st, w))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -324,9 +354,9 @@ func (m Model) hostsBody(w, rows int) string {
 			}
 		}
 
-		// Badges must appear whether or not the row is selected. The selection
-		// style paints the whole line, so a coloured badge would be half
-		// overridden; the selected row gets the same marks unstyled.
+		// Badges must appear whether or not the cursor is on the row. The
+		// cursor style paints the whole line, so a coloured badge would be
+		// half overridden; the cursor's row gets the same marks unstyled.
 		//
 		// The live session is the more useful fact, and unlike d.live it is
 		// always current, so it wins when a host is both connected and has a
@@ -344,7 +374,7 @@ func (m Model) hostsBody(w, rows int) string {
 		if m.d.forwardsUp(h.ID) > 0 {
 			tunnel = "▶"
 		}
-		selected := i == m.hostIdx && (m.focus == panelHosts || m.mode == modeFilter)
+		st := cursorState(i == m.hostIdx, m.focus == panelHosts || m.mode == modeFilter)
 
 		// The marks come off the width first. They are fixed and they are the
 		// only thing the row says that is not in the name — a session waiting,
@@ -358,14 +388,17 @@ func (m Model) hostsBody(w, rows int) string {
 		if tunnel != "" {
 			marks += " " + tunnel
 		}
-		keep := max(w-ansi.StringWidth(marks), 0)
+		// The cursor's own cell comes off the width too, on every row and not
+		// just the one it is on, so that the name starts in the same column
+		// the whole way down the list.
+		keep := max(w-1-ansi.StringWidth(marks), 0)
 
-		if selected {
-			lines = append(lines, row(ansi.Truncate(mark+" "+label, keep, "…")+marks, true, w))
+		if st == rowCursor {
+			lines = append(lines, row(ansi.Truncate(mark+" "+label, keep, "…")+marks, st, w))
 			continue
 		}
 
-		line := theme.Fg(markColour).Render(mark) + theme.Normal.Render(" "+h.Name)
+		line := gutter(st) + theme.Fg(markColour).Render(mark) + theme.Normal.Render(" "+h.Name)
 		if m.filtering() {
 			if g := m.d.groupName(h.GroupID); g != "" {
 				line += theme.Dim.Render("  " + g)
@@ -464,7 +497,13 @@ func (m Model) detailBody() (string, string) {
 		theme.Normal.Render("    "+history),
 		"",
 		theme.Dim.Render("  command"),
-		theme.Fg(theme.Green).Render("    ssh "+strings.Join(sshx.Build(r.Host), " ")),
+		// Magenta, which is what this palette spends on code — the one thing
+		// on the screen that is neither prose nor a state, and is meant to be
+		// read as something you could type yourself. It was green, the colour
+		// of a host that answered and a tunnel that is up, so the line that
+		// only ever says what ssh would be run read as a report that something
+		// had succeeded.
+		theme.Fg(theme.Magenta).Render("    ssh "+strings.Join(sshx.Build(r.Host), " ")),
 	)
 	return h.Name, strings.Join(lines, "\n")
 }
@@ -484,7 +523,7 @@ func (m Model) confirmBody(w int) string {
 	// Truncating at the border took exactly that off, and left the group
 	// things were moving to half spelled, so the dialog stopped answering
 	// either of the questions it exists to answer.
-	return "\n  " + wrapIndented(m.confirm.prompt, w, theme.Fg(theme.TextBrt).Bold(true)) +
+	return "\n  " + wrapIndented(m.confirm.prompt, w, theme.Strong) +
 		"\n\n  " + wrapIndented(m.confirm.detail, w, theme.Dim) +
 		"\n\n  " + hint("y", "yes") + theme.Dim.Render("  ·  ") + hint("n", "no")
 }
@@ -642,9 +681,13 @@ func (m Model) helpLines() []string {
 		}
 	}
 
-	lines := []string{theme.Title.Render(name) + theme.Dim.Render("  keyboard-driven SSH client")}
+	lines := []string{theme.Strong.Render(name) + theme.Dim.Render("  keyboard-driven SSH client")}
 	for _, s := range sections {
-		lines = append(lines, "", theme.Fg(theme.Yellow).Render("  "+s.title))
+		// A section heading is bold secondary text, which is what Omarchy
+		// makes of one. It used to be yellow — a status colour spent on
+		// decoration, so that a heading here read as the same kind of thing
+		// as a tunnel running on what it was started with.
+		lines = append(lines, "", theme.Dim.Bold(true).Render("  "+s.title))
 		for _, r := range s.rows {
 			pad := strings.Repeat(" ", max(col-ansi.StringWidth(r[0]), 0))
 			lines = append(lines, theme.Key.Render("  "+r[0]+pad)+theme.Normal.Render(r[1]))
@@ -719,7 +762,13 @@ func (m Model) statusBar() string {
 	}
 
 	left := " " + hints
-	col := theme.Yellow
+	// Body text, not yellow. Yellow was the colour of every status message
+	// whatever it said, so "27 hosts" arrived looking exactly as urgent as
+	// "port forwarding needs tmux" — and the places that really do mean
+	// something by yellow, a tunnel gone stale or a transfer still running,
+	// had nothing left to say it with. It now means one thing: a state that
+	// is not the resting one.
+	col := theme.Foreground
 	if m.failed {
 		col = theme.Red
 	}

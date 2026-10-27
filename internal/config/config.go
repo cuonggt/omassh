@@ -49,16 +49,12 @@ func DefaultPath() (string, error) {
 
 // words is what this file's settings are called, for yamlerr to complain in.
 //
-// yaml says "field bg not found in type theme.Palette", which names a Go type
-// at someone choosing colours and never says what the name should have been —
-// and for a palette that matters, since the keys are text_bright and
-// selected_bg rather than anything guessable.
+// yaml says "field probe_time not found in type config.Config", which names a
+// Go type at someone editing a config file. A palette's own colours are not
+// here: theme.Palette unmarshals itself, so that complaint is its own and
+// names the line the colour is on.
 var words = yamlerr.Vocabulary{
 	Field: func(name, typ string) string {
-		if strings.HasSuffix(typ, "Palette") {
-			return fmt.Sprintf("%q is not a palette colour — they are %s",
-				name, strings.Join(theme.PaletteKeys(), ", "))
-		}
 		return fmt.Sprintf("%q is not a setting", name)
 	},
 	// The schema is six types wide and fixed; one that is not here is left in
@@ -153,7 +149,7 @@ func blankColours(raw []byte) []string {
 		}
 		for j := 0; j+1 < len(palette.Content); j += 2 {
 			key, value := palette.Content[j], palette.Content[j+1]
-			if !slices.Contains(theme.PaletteKeys(), key.Value) ||
+			if !theme.IsPaletteKey(key.Value) ||
 				value.Kind != yaml.ScalarNode || value.ShortTag() != "!!null" {
 				continue
 			}
@@ -256,7 +252,9 @@ func (c Config) Palette() (theme.Palette, error) {
 		}
 		return p, nil
 	}
-	if p, ok := theme.Builtin[name]; ok {
+	// Lookup rather than the map, so a palette that has been renamed still
+	// resolves under the name a config file already has for it.
+	if p, ok := theme.Lookup(name); ok {
 		return p, nil
 	}
 	return theme.Palette{}, fmt.Errorf("unknown theme %q (built in: %v)", name, theme.BuiltinNames())
@@ -295,16 +293,18 @@ func (c Config) ProbeDuration() (time.Duration, error) {
 // the path so the output names the file the user should actually write, which
 // differs by platform.
 //
-// The two lists people cannot guess — what the actions are called, and what
-// the palette colours are called — are spliced in from the same places the
-// errors about them read from, so the example cannot come to describe a
-// program this one is not. It used to say "run omassh -print-config to see
-// every action name", printed by omassh -print-config, which listed none: the
-// one instruction in the file sent you to where you already were, for
-// something that was not there.
+// The three lists people cannot guess — the themes, what the palette colours
+// are called, and what the actions are called — are spliced in from the same
+// places the errors about them read from, so the example cannot come to
+// describe a program this one is not. It used to say "run omassh -print-config
+// to see every action name", printed by omassh -print-config, which listed
+// none: the one instruction in the file sent you to where you already were,
+// for something that was not there. The themes were a sentence naming four of
+// them, which went stale the moment there were twenty.
 func Example(path string) string {
 	return "# " + path + "\n" + fmt.Sprintf(exampleBody,
-		commentList(theme.PaletteKeys()), commentList(keymap.Names()))
+		commentList(theme.BuiltinNames()), commentList(theme.PaletteKeys()),
+		commentList(keymap.Names()))
 }
 
 // commentList sets a long list of names out as comment lines, wrapped so the
@@ -327,21 +327,25 @@ func commentList(names []string) string {
 const exampleBody = `# Every setting is optional; delete anything you do not want to change.
 
 # terminal draws in your terminal's own colours, so it suits whatever scheme
-# the terminal has, light or dark. Also built in: gruvbox, mono, nord and
-# tokyonight. Or name one defined below.
+# the terminal has, light or dark — under Omarchy, that is the Omarchy theme.
+# The rest are Omarchy's own themes in hex, and are made for a dark
+# background. Or name one defined below. Built in:
+%s
 theme: terminal
 
-# Define your own palette. A colour is "#rrggbb", a number for one of the
-# terminal's own (0 black, 1 red, 2 green, 3 yellow, 4 blue, 5 magenta,
-# 6 cyan, 7 white, and 8 to 15 the same again brighter, 8 being grey), or
-# default: the terminal's text colour, or as selected_bg its own highlight.
-# A hex colour needs its quotes, since a bare # starts a comment. Omitted
-# colours come from the terminal palette. The colours are:
+# Define your own palette. The colours are the roles an Omarchy theme's
+# colors.toml names, so one can be copied straight across. A colour is
+# "#rrggbb", a number for one of the terminal's own (0 black, 1 red, 2 green,
+# 3 yellow, 4 blue, 5 magenta, 6 cyan, 7 white, and 8 to 15 the same again
+# brighter, 8 being grey), or default: the terminal's text colour, or as
+# selection no fill at all. A hex colour needs its quotes, since a bare #
+# starts a comment. Omitted colours come from the terminal palette. The
+# colours are:
 %s
 # themes:
 #   mine:
 #     accent: "#ff8800"
-#     border: 8
+#     muted: 8
 
 # Rebind any action. Arrow keys and ctrl+c are reserved and always work.
 # The actions are:

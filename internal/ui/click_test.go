@@ -64,7 +64,7 @@ func TestClickingAHostRowSelectsTheHostDrawnOnIt(t *testing.T) {
 
 			l := h.m.layout()
 			checked := 0
-			for y := l.groupsH; y < l.content; y++ {
+			for y := l.hostsTop(); y < l.content; y++ {
 				screen := strings.Split(h.screen(), "\n")
 				if y >= len(screen) {
 					break

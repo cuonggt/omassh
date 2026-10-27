@@ -20,23 +20,45 @@ import (
 // the three lines a terminal scrolls for one.
 const wheelLines = 3
 
-// sidebarLayout is where the browser's boxes sit in the frame.
+// sidebarLayout is where the browser's boxes sit in the frame. browserBody
+// draws from it and hit-testing reads it, so there is one answer to where a
+// panel is rather than two that have to be kept identical.
 type sidebarLayout struct {
-	side    int // sidebar width; the main pane starts here
+	side    int // sidebar width; the main pane starts at side+gapX
+	gapX    int // the blank column between the sidebar and the main pane
 	groupsH int // rows given to the Groups box, borders included
+	gapY    int // the blank row between the two sidebar boxes
 	hostsH  int // rows given to the Hosts box
 	content int // rows above the status bar
 }
 
+// main is the width left for the pane beside the sidebar.
+func (l sidebarLayout) main(w int) int { return w - l.side - l.gapX }
+
+// hostsTop is the first row of the Hosts box, the gap above it included.
+func (l sidebarLayout) hostsTop() int { return l.groupsH + l.gapY }
+
 func (m Model) layout() sidebarLayout {
 	content := m.h - statusHeight
-	groupsH := clamp(len(m.d.tree)+2, 4, content/3)
-	return sidebarLayout{
-		side:    m.sidebar(),
-		groupsH: groupsH,
-		hostsH:  content - groupsH,
-		content: content,
+	l := sidebarLayout{side: m.sidebar(), gapX: panelGap, gapY: panelGap, content: content}
+
+	// Groups takes what it needs; Hosts gets the rest, since it is the list
+	// you actually scroll.
+	l.groupsH = clamp(len(m.d.tree)+2, 4, content/3)
+
+	// The gap comes out of the content, so where there is nothing to spare it
+	// is the first thing to go. clamp returns its floor when the ceiling is
+	// below it, so on a short frame Groups keeps its four rows and Hosts is
+	// left with one or none; a row spent on a gap there would have drawn a
+	// frame one line taller than the terminal.
+	if content-l.groupsH-l.gapY < 2 {
+		l.gapY = 0
 	}
+	l.hostsH = content - l.groupsH - l.gapY
+	if l.main(m.w) < 4 {
+		l.gapX = 0 // box draws nothing below four cells wide
+	}
+	return l
 }
 
 // handleMouseClick moves the selection to whatever was clicked.
@@ -57,7 +79,7 @@ func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
 	// The main pane: a live session takes it, otherwise it is host detail and
 	// there is nothing to focus. Over the session itself the left button
 	// goes to the session as well, where it starts a selection.
-	if e.X >= l.side {
+	if e.X >= l.side+l.gapX {
 		if m.attached != nil {
 			m.focus = panelSession
 			if x, y, inside := m.paneCell(e); inside && e.Button == tea.MouseLeft {
@@ -66,6 +88,9 @@ func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	}
+	if e.X >= l.side {
+		return m, nil // the gap between the panels is neither of them
 	}
 
 	switch {
@@ -78,13 +103,13 @@ func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
 			m.groupIdx = i
 			m.hostIdx = 0
 		}
-	default:
+	case e.Y >= l.hostsTop():
 		// The search box and the blank line under it push the list down.
 		offset := m.searchLines()
 		hosts := m.visibleHosts()
 		rows := max(l.hostsH-2-offset, 1)
 		start, _ := listWindow(m.hostIdx, len(hosts), rows)
-		if i, ok := rowIndex(e.Y, l.groupsH+offset, l.hostsH-offset, len(hosts), start); ok {
+		if i, ok := rowIndex(e.Y, l.hostsTop()+offset, l.hostsH-offset, len(hosts), start); ok {
 			m.focus = panelHosts
 			m.hostIdx = i
 		}
@@ -100,9 +125,9 @@ func (m Model) handleMouseClick(e tea.Mouse) (tea.Model, tea.Cmd) {
 // and does not start doing anything else. The lists it lands on are windowed
 // and have somewhere to go.
 //
-// It focuses the list it moves, as a click does. An unfocused list draws no
-// selection at all, so the cursor would otherwise travel invisibly and the
-// window would scroll under a highlight that was not there.
+// It focuses the list it moves, as a click does — which is also why an
+// unfocused list keeps showing where its cursor is: the wheel moves whichever
+// list it is over, and a cursor nothing draws is one that travels invisibly.
 func (m Model) handleMouseWheel(e tea.Mouse) (tea.Model, tea.Cmd) {
 	var step int
 	switch e.Button {
@@ -138,7 +163,7 @@ func (m Model) handleMouseWheel(e tea.Mouse) (tea.Model, tea.Cmd) {
 	// A program that has the whole screen is offered the notch first, since
 	// the history behind it is the shell's from before it started; Wheel says
 	// whether it was taken. See term.Pane.Wheel.
-	if e.X >= l.side {
+	if e.X >= l.side+l.gapX {
 		if m.attached != nil {
 			x, y, _ := m.paneCell(e)
 			if !m.attached.Wheel(x, y, step < 0, wheelLines) {
@@ -147,12 +172,16 @@ func (m Model) handleMouseWheel(e tea.Mouse) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if e.X >= l.side {
+		return m, nil // the gap, as for a click
+	}
 
-	if e.Y < l.groupsH {
+	switch {
+	case e.Y < l.groupsH:
 		m.focus = panelGroups
 		m.groupIdx = clamp(m.groupIdx+step, 0, max(len(m.d.tree)-1, 0))
 		m.hostIdx = 0
-	} else {
+	case e.Y >= l.hostsTop():
 		m.focus = panelHosts
 		m.hostIdx = clamp(m.hostIdx+step, 0, max(len(m.visibleHosts())-1, 0))
 	}
@@ -196,14 +225,16 @@ func (m Model) handleMouseRelease(e tea.Mouse) (tea.Model, tea.Cmd) {
 // edge, and tmux, given a cell that is not in its pane, would drop the motion
 // rather than move the selection.
 func (m Model) paneCell(e tea.Mouse) (x, y int, inside bool) {
+	l := m.layout()
 	w, h := m.attached.Size()
 	// sessionArea never makes a pane narrower than its floor, so on a narrow
 	// frame part of one lies past the edge of the screen, where nothing can be
 	// pointed at.
-	w = min(w, m.w-m.sidebar()-4)
+	w = min(w, l.main(m.w)-4)
 	h = min(h, m.h-statusHeight-2)
-	// The border and the space inside it come before the first cell.
-	x, y = e.X-m.sidebar()-2, e.Y-1
+	// The gap beside the sidebar, then the border and the space inside it,
+	// come before the first cell.
+	x, y = e.X-l.side-l.gapX-2, e.Y-1
 	inside = x >= 0 && x < w && y >= 0 && y < h
 	return clamp(x, 0, max(w-1, 0)), clamp(y, 0, max(h-1, 0)), inside
 }
@@ -215,8 +246,12 @@ func (m Model) wheelFilePane(e tea.Mouse, step int) (tea.Model, tea.Cmd) {
 	if m.w < minWidth || content < minHeight || e.Y < 0 || e.Y >= body {
 		return m, nil
 	}
+	leftW, gap, _ := m.sftpSplit()
+	if e.X >= leftW && e.X < leftW+gap {
+		return m, nil // the gap between the panes
+	}
 	pane := 0
-	if e.X >= m.w/2 {
+	if e.X >= leftW+gap {
 		pane = 1
 	}
 	p := &m.panes[pane]
@@ -255,8 +290,12 @@ func (m Model) clickFilePane(e tea.Mouse) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	leftW, gap, _ := m.sftpSplit()
+	if e.X >= leftW && e.X < leftW+gap {
+		return m, nil // the gap, as for the wheel
+	}
 	i := 0
-	if e.X >= m.w/2 {
+	if e.X >= leftW+gap {
 		i = 1
 	}
 	p := m.panes[i]

@@ -173,7 +173,15 @@ Nothing needs configuring. The config file is
 palettes, key bindings, ssh options and the probe timeout. A mistake in it is
 an error at startup that names the line, never a setting silently ignored.
 `omassh -print-config` writes a documented example, its first line naming the
-path it belongs at. More in [configuration](docs/configuration.md).
+path it belongs at.
+
+The interface follows [Omarchy](https://omarchy.org)'s design language — square
+corners, thin borders, a gap between panels, focus on an accent border, and no
+colour spent on decoration. `T` offers Omarchy's own themes under the names
+Omarchy uses, and a palette is written with the roles a theme's `colors.toml`
+names, so one can be copied straight across. The default, `terminal`, draws in
+the terminal's own colours, which under Omarchy means it follows whatever
+theme is set. More in [configuration](docs/configuration.md).
 
 ## Troubleshooting
 

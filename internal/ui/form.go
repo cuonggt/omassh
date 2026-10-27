@@ -199,13 +199,14 @@ func (f *form) render(w int) string {
 	var b strings.Builder
 	b.WriteString("\n")
 	for i, x := range f.fields {
-		marker := "  "
-		if i == f.idx {
-			marker = theme.Fg(theme.Accent).Render("▸ ")
-		}
+		// The same bar a list's cursor uses, for the same reason: this is the
+		// field the keyboard is going to. A field is not a list row, though,
+		// so it keeps the two-cell indent its value is laid out against.
+		st := cursorState(i == f.idx, true)
+		marker := gutter(st) + " "
 		label := theme.Dim.Render(pad(x.label, labelW) + "  ")
 		if i == f.idx {
-			label = theme.Fg(theme.TextBrt).Render(pad(x.label, labelW) + "  ")
+			label = theme.Strong.Render(pad(x.label, labelW) + "  ")
 		}
 		value := x.input.View()
 		if x.readonly {

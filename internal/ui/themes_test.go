@@ -40,9 +40,6 @@ func TestPickingAThemeRecoloursAndSavesIt(t *testing.T) {
 
 	h.press("T")
 	h.mustContain("Theme")
-	for _, name := range theme.BuiltinNames() {
-		h.mustContain(name)
-	}
 
 	// The list opens on the theme in effect, so moving once lands somewhere
 	// else and the interface changes colour under the dialog.
@@ -151,6 +148,20 @@ func withLongTheme(o *Options) {
 	o.Themes = map[string]theme.Palette{longTheme: {Accent: "#ff8800"}}
 }
 
+// walkTo moves the picker's cursor onto a theme. The list is windowed, so a
+// name is on screen only while the window is over it, and a test that wants to
+// look at one has to go there the way a person would.
+func walkTo(t *testing.T, h *harness, name string) {
+	t.Helper()
+	for range len(h.m.themes.names) {
+		if h.m.themes.names[h.m.themes.idx] == name {
+			return
+		}
+		h.press("j")
+	}
+	t.Fatalf("the picker never reached %q, walking the whole list", name)
+}
+
 // The picker is the only place a palette's name is written, and it was drawn
 // in a box fixed at 34 cells however much room there was — so a name from the
 // config file lost its end on a terminal with a hundred columns to spare, and
@@ -158,10 +169,18 @@ func withLongTheme(o *Options) {
 func TestALongThemeNameIsListedInFull(t *testing.T) {
 	h, _ := themeHarness(t, withLongTheme)
 	h.press("T")
+	walkTo(t, h, longTheme)
 	h.mustContain(longTheme)
-	// The built-ins are what the narrow box was for; widening for one long
-	// name must not stop them being listed.
+}
+
+// Every built-in is offered, which since the list is windowed is not the same
+// as every one being on screen at once: the picker has to be walked to see
+// them, and walking it has to reach all of them.
+func TestThePickerOffersEveryBuiltInPalette(t *testing.T) {
+	h, _ := themeHarness(t)
+	h.press("T")
 	for _, name := range theme.BuiltinNames() {
+		walkTo(t, h, name)
 		h.mustContain(name)
 	}
 }
@@ -175,6 +194,32 @@ func TestTheThemePickerIsUnchangedForTheBuiltIns(t *testing.T) {
 	if got := h.m.themeWidth(); got != 34 {
 		t.Errorf("the picker is %d cells wide for the built-ins, want the 34 it has always been", got)
 	}
+}
+
+// The picker windows its list, like every other list here, and says how far
+// through it the cursor is — once a list scrolls, the border alone no longer
+// shows that there is more below.
+//
+// It used to draw every palette there was. That was fine while five were built
+// in; with Omarchy's twenty the list ran out of the bottom of the dialog, and
+// a config file with a dozen palettes of its own had always done so. The cap
+// is tighter than the frame on purpose: the picker is for the recoloured
+// interface around it, which a list long enough to fill the terminal covers.
+func TestTheThemePickerWindowsItsListRatherThanSpillingPastItsBorder(t *testing.T) {
+	h, _ := themeHarness(t)
+	h.press("T")
+
+	content := testH - statusHeight
+	rows := h.m.themeListRows(content)
+	if len(h.m.themes.names) <= rows {
+		t.Fatalf("%d themes fit in %d rows, so nothing here is windowed",
+			len(h.m.themes.names), rows)
+	}
+
+	if got := strings.Count(h.m.themeBody(h.m.themeWidth()-4, content), "\n") + 1; got != rows {
+		t.Errorf("the picker drew %d rows, want the %d it has room for", got, rows)
+	}
+	h.mustContain(fmt.Sprintf("%d/%d", h.m.themes.idx+1, len(h.m.themes.names)))
 }
 
 // Widening stops at the frame. Where the name will not fit it is cut with an
@@ -264,7 +309,7 @@ func TestTheDefaultThemeDrawsEveryScreenInTheTerminalsOwnColours(t *testing.T) {
 // being typed in — and on a light terminal white is the colour of the page, so
 // every value in a form but the one under the cursor was all but invisible.
 func TestAFormsFieldsAreDrawnInThePalettesColours(t *testing.T) {
-	theme.Apply(theme.Palette{Text: "#123456", TextDim: "#654321"})
+	theme.Apply(theme.Palette{Foreground: "#123456", DarkFg: "#654321"})
 	t.Cleanup(func() { theme.Apply(theme.Builtin[theme.DefaultName]) })
 	h := newHarness(t)
 
@@ -286,7 +331,7 @@ func TestAFormsFieldsAreDrawnInThePalettesColours(t *testing.T) {
 // omassh started, so it has to be handed each palette the picker shows —
 // including the one esc puts back.
 func TestAKeptFilterIsRecolouredWithEverythingElse(t *testing.T) {
-	one, two := theme.Palette{Text: "#111111"}, theme.Palette{Text: "#222222"}
+	one, two := theme.Palette{Foreground: "#111111"}, theme.Palette{Foreground: "#222222"}
 	theme.Apply(one)
 	h, _ := themeHarness(t, func(o *Options) {
 		o.Theme = "one"

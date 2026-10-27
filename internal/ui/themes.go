@@ -93,7 +93,7 @@ func inputStyles() textinput.Styles {
 		st.Text, st.Prompt = theme.Normal, theme.Normal
 		st.Placeholder, st.Suggestion = theme.Dim, theme.Dim
 	}
-	s.Cursor.Color = theme.Text
+	s.Cursor.Color = theme.Foreground
 	return s
 }
 
@@ -149,23 +149,42 @@ func (m Model) keepTheme() (tea.Model, tea.Cmd) {
 func (m Model) themeWidth() int {
 	w := 34
 	for _, n := range m.themes.names {
-		// Two cells of marker, four of border and padding.
-		w = max(w, ansi.StringWidth(n)+6)
+		// One cell of cursor, two of marker, four of border and padding.
+		w = max(w, ansi.StringWidth(n)+7)
 	}
 	return w
 }
 
+// themeMaxRows caps the picker's height. The point of the picker is the
+// recoloured interface around it, so it is not allowed to grow until it covers
+// the thing being previewed: there are twenty-odd themes, and a list of all of
+// them filled a terminal from top to bottom and left nothing to look at.
+const themeMaxRows = 12
+
+// themeListRows is how many palettes fit inside the picker's border.
+func (m Model) themeListRows(content int) int {
+	return clamp(themeMaxRows, 1, max(content-2, 1))
+}
+
 // themeBody lists the palettes, marking the one that is actually configured
 // so that looking through the list does not lose track of where you started.
-func (m Model) themeBody(w int) string {
+// That mark is a separate thing from the cursor, and says so: one is the
+// theme in effect and the other is the one being looked at.
+//
+// Windowed, like every other list here. It drew all of them, which was fine
+// while there were five built in and is not now there are twenty — and was
+// never fine for a config file with a dozen palettes of its own, where the
+// list ran out of the bottom of the dialog.
+func (m Model) themeBody(w, content int) string {
 	p := m.themes
-	rows := make([]string, 0, len(p.names))
-	for i, n := range p.names {
+	start, end := listWindow(p.idx, len(p.names), m.themeListRows(content))
+	rows := make([]string, 0, end-start)
+	for i := start; i < end; i++ {
 		mark := "  "
-		if n == p.was {
+		if p.names[i] == p.was {
 			mark = "● "
 		}
-		rows = append(rows, row(mark+n, i == p.idx, w))
+		rows = append(rows, row(mark+p.names[i], cursorState(i == p.idx, true), w))
 	}
 	return strings.Join(rows, "\n")
 }

@@ -242,6 +242,20 @@ struct. The theme picker writes back into the same file through
   `github.com/charmbracelet/x/ansi`** — `StringWidth`, `Truncate`, `Wrap` — never
   `len()` or byte slicing. `ansi.Wrap` hard-breaks a long word; `ansi.Wordwrap`
   lets it overflow the box.
+- **The chrome follows Omarchy's design language**, and
+  `docs/configuration.md#how-it-is-drawn` is the reference — read it before
+  changing anything about how a panel, a row or a colour is drawn, so a change
+  has the rule and not just the result. In short: square corners, one-cell
+  borders in `muted`, a blank cell between panels, focus carried by an accent
+  border *and* a bold title, the cursor a `▌` at the row's edge rather than a
+  solid fill, and colour only where it stands for a state. The palette's roles
+  are the ones an Omarchy theme's `colors.toml` names, which is also why
+  `theme.Palette` unmarshals itself: the five older names are still accepted,
+  and the decoder runs with `KnownFields`, so a rename without an alias would
+  refuse an existing config at startup rather than drawing it slightly wrong.
+  `box.go` holds all of it — the only border in the program, the only cursor,
+  and `rowState`, which keeps the cursor, the persistent choice and which panel
+  has focus apart.
 - **Nothing secret is stored.** A host names a key *path*; passphrases are
   ssh-agent's job. Export files are meant to live in dotfiles repos, so keep it
   that way.

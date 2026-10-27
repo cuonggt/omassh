@@ -29,7 +29,7 @@ theme: terminal
 themes:
   mine:
     accent: "#ff8800"
-    border: 8
+    muted: 8
 
 keys:
   connect: o
@@ -61,31 +61,86 @@ write by hand are the same setting, and neither quietly outranks the other. A
 palette defined under `themes:` is offered alongside the built-ins.
 
 The default, `terminal`, draws in your terminal's own colours: its text
-colour, the sixteen its scheme sets, and its own reverse video for the
-selection. So Omassh looks like the rest of the terminal, reads as well on a
-light background as on a dark one, and follows the terminal when its scheme
-changes. The other built-ins — `tokyonight`, `gruvbox` and `nord` — are
-colours of their own, in hex, made for a dark background. On a terminal
-without truecolor they render in 256 colours, and `mono` exists for terminals
-with less than that.
+colour and the sixteen its scheme sets. So Omassh looks like the rest of the
+terminal, reads as well on a light background as on a dark one, and follows
+the terminal when its scheme changes — under Omarchy, that means it follows
+the Omarchy theme without being told about it.
+
+The rest are Omarchy's own themes, each colour taken from the theme's
+`colors.toml`, so the list `T` offers is the list `omarchy-theme-set` offers
+and a machine running one of them can be asked for the same name here:
+`catppuccin`, `everforest`, `gruvbox`, `kanagawa`, `matte-black`, `nord`,
+`ristretto`, `tokyo-night` and the others. They are hex, and made for a dark
+background; on a terminal without truecolor they render in 256 colours, and
+`mono` exists for terminals with less than that. Omarchy's light themes are
+not among them: Omassh paints no background of its own, so a light foreground
+would land on whatever the terminal already had behind it.
+
+Some of those themes are nearly monochrome — `vantablack` and `solitude` give
+`red` and `green` as greys. Nothing breaks, because no colour here is ever the
+only thing saying what it means: a failure is red *and* `✖`, a tunnel is green
+*and* `▶`.
 
 ## Palettes of your own
 
-A palette sets any of `text`, `text_dim`, `text_bright`, `accent`, `green`,
-`yellow`, `red`, `magenta`, `border` and `selected_bg`, each to one of:
+The colours are the roles an Omarchy theme names, so a palette can be copied
+straight out of a `colors.toml`. One sets any of `accent`, `selection`,
+`muted`, `foreground`, `dark_foreground`, `bright_foreground`, `red`,
+`yellow`, `green` and `magenta`, each to one of:
 
 - `"#rrggbb"`, in quotes, because a bare `#` starts a YAML comment
 - a number from the terminal's palette: `4` is its blue, `8` its grey, and
   anything up to `255` works
-- `default`, the terminal's own text colour — which, as `selected_bg`, means
-  its own highlight
+- `default`, the terminal's own text colour — which, as `selection`, means no
+  fill at all, leaving the row under the cursor marked by its edge
+
+These used to be named `text`, `text_dim`, `text_bright`, `border` and
+`selected_bg`. A config file written against those still loads: the names
+changed and the colours they stand for did not.
+
+Omarchy's surface roles — `background` and its lighter and darker kin — are
+not here, because Omassh paints no background. The terminal's own is the
+surface, which is what lets the default palette read on a light terminal as
+well as a dark one.
 
 Colours a palette leaves out come from `terminal`, so `accent: "#ff8800"` on
 its own is the terminal's colours with an orange accent. That is also the way
 out for a scheme whose grey is its background, as the original Solarized
 Dark's is: `terminal` draws dim text and borders in the grey, colour `8`, as
 most terminal programs do, so under that scheme they vanish, and
-`text_dim: 10` with `border: 10` brings them back.
+`dark_foreground: 10` with `muted: 10` brings them back.
+
+## How it is drawn
+
+The chrome follows Omarchy's design language, so that one rule answers what
+used to be decided screen by screen:
+
+- **Square corners and one-cell borders.** Omarchy rounds nothing by default,
+  and a terminal has no half-cell to round with.
+- **A blank cell between panels**, the way Hyprland puts `gaps_in` between
+  tiled windows, rather than two borders touching and drawing a divider twice
+  as thick as the hairline intended. Nothing is spent at the frame's edge —
+  the terminal window already has `gaps_out` around it. On a terminal too
+  short for the gap it gives way rather than pushing the layout off the
+  bottom.
+- **Focus is the accent border and a bold title.** Only one panel has it, and
+  colour is never the only thing saying so.
+- **The cursor is a bar at the row's edge**, `▌` in the accent, with the
+  palette's `selection` behind the text where it names one. Omarchy carries
+  emphasis on an edge rather than in a solid fill, and the bar is the one mark
+  every palette can draw. Its column is held open on every row, so arriving at
+  a row never shifts it.
+- **A cursor and which panel has focus are different things.** Tab away from a
+  list and it keeps showing where you were, in `muted` instead of the accent.
+  Where a list also has a persistent choice — the tags on a form, the hosts a
+  snippet will run on, the theme actually configured — that is marked
+  separately, with `✓`, `☑` or `●`.
+- **Colour means something or is not used.** `red` is a failure, `green` a
+  success or something running, `yellow` a state that is not the resting one —
+  a tunnel carrying what it was started with, a transfer still going, the
+  session prefix armed — and `magenta` is code, the `ssh …` line you could
+  type yourself. Body text, headings and keycaps are weight and brightness
+  rather than hue, and `accent` is kept for focus and the cursor.
 
 ## Keys
 
@@ -140,7 +195,7 @@ than carried to every connection to fail there.
 A malformed config is reported at startup rather than ignored, because a
 setting that silently does nothing is worse than an error that says why. So is
 a key that is not a setting: `ssh_option` without its `s`, or a palette with
-`selected` where it means `selected_bg`, is named with its line rather than
+`select` where it means `selection`, is named with its line rather than
 skipped past, since skipping looks exactly like the file not being read at
 all. More than one YAML document in the file is refused for the same reason,
 since only the first would take effect. So is a hex colour without its quotes,

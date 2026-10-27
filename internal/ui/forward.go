@@ -393,7 +393,7 @@ func forwardMarker(st term.ForwardState, known, stale bool) (string, color.Color
 	case known && st.Failed():
 		return "✖", theme.Red
 	default:
-		return "■", theme.TextDim
+		return "■", theme.DarkFg
 	}
 }
 
@@ -455,11 +455,13 @@ func (m Model) forwardsBody(w, content int) string {
 		mark, col := forwardMarker(st, known, forwardStale(m.forwardTarget(), f, st))
 		text := fmt.Sprintf("%s %s %s", mark, pad(string(f.Kind), 7), f.Route())
 
-		if i == m.forwardIdx {
-			lines = append(lines, "  "+row(text, true, w-2))
+		// cur, not st: st is already what the tunnel is doing.
+		cur := cursorState(i == m.forwardIdx, true)
+		if cur == rowCursor {
+			lines = append(lines, "  "+row(text, cur, w-2))
 			continue
 		}
-		lines = append(lines, "  "+theme.Fg(col).Render(mark)+
+		lines = append(lines, "  "+gutter(cur)+theme.Fg(col).Render(mark)+
 			theme.Dim.Render(" "+pad(string(f.Kind), 7))+theme.Normal.Render(" "+f.Route()))
 	}
 

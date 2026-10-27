@@ -565,15 +565,31 @@ func singleFieldForm(kind formKind, title, label, hint, value string) *form {
 
 // --- rendering ---------------------------------------------------------
 
+// sftpSplit is how the file browser's two panes divide the frame: the same
+// blank cell between them that the host list has beside its sidebar, and none
+// of it where the frame is too narrow for both panes to draw their borders.
+// The view and hit-testing both come through here, so a click lands in the
+// pane it was drawn over.
+func (m Model) sftpSplit() (leftW, gap, rightW int) {
+	gap = panelGap
+	if (m.w-gap)/2 < 4 {
+		gap = 0 // box draws nothing below four cells wide
+	}
+	leftW = (m.w - gap) / 2
+	return leftW, gap, m.w - leftW - gap
+}
+
 func (m Model) sftpView(content int) string {
-	leftW := m.w / 2
-	rightW := m.w - leftW
+	leftW, gap, rightW := m.sftpSplit()
 	body := content - 1 // one row for the transfer strip
 
 	rows := max(body-2, 1) // the box's own borders
-	left := box(m.paneTitle(0, rows, leftW), m.paneFocus == 0, leftW, body, m.paneBody(0, leftW-4, rows))
-	right := box(m.paneTitle(1, rows, rightW), m.paneFocus == 1, rightW, body, m.paneBody(1, rightW-4, rows))
-	return lipgloss.JoinHorizontal(lipgloss.Top, left, right) + "\n" + m.transferStrip()
+	panes := []string{box(m.paneTitle(0, rows, leftW), m.paneFocus == 0, leftW, body, m.paneBody(0, leftW-4, rows))}
+	if gap > 0 {
+		panes = append(panes, gapBlock(gap, body))
+	}
+	panes = append(panes, box(m.paneTitle(1, rows, rightW), m.paneFocus == 1, rightW, body, m.paneBody(1, rightW-4, rows)))
+	return lipgloss.JoinHorizontal(lipgloss.Top, panes...) + "\n" + m.transferStrip()
 }
 
 func (m Model) paneTitle(i, rows, w int) string {
@@ -626,16 +642,22 @@ func (m Model) paneBody(i, w, rows int) string {
 		}
 		text := fmt.Sprintf("%s %s", pad(ansi.Truncate(name, max(w-12, 4), "…"), max(w-12, 4)), lpad(size, 8))
 
-		selected := j == p.idx && m.paneFocus == i
-		if selected {
-			lines = append(lines, row(text, true, w))
+		// The pane without focus keeps showing where its cursor is, so tabbing
+		// across and back does not lose the file you were on.
+		st := cursorState(j == p.idx, m.paneFocus == i)
+		if st == rowCursor {
+			lines = append(lines, row(text, st, w))
 			continue
 		}
+		// A directory is where this list is navigable, which is the nearest
+		// thing a file pane has to a link, so it keeps the accent — and it
+		// keeps the trailing slash above, since colour alone is never what
+		// says a thing is one.
 		style := theme.Normal
 		if e.IsDir {
 			style = theme.Fg(theme.Accent)
 		}
-		lines = append(lines, style.Render(text))
+		lines = append(lines, gutter(st)+style.Render(text))
 	}
 	return strings.Join(lines, "\n")
 }

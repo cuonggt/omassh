@@ -35,7 +35,8 @@ func (h *harness) deliver(cmd tea.Cmd) tea.Cmd {
 func (h *harness) drawnRow() (left, y int, drawn string) {
 	h.t.Helper()
 	w, ht := h.m.attached.Size()
-	left = h.m.layout().side + 2 // the border, and the space inside it
+	l := h.m.layout()
+	left = l.side + l.gapX + 2 // the gap, the border, and the space inside it
 	rows := strings.Split(h.screen(), "\n")
 	for y := 1; y <= ht && y < len(rows); y++ {
 		drawn := strings.TrimRight(ansi.Cut(rows[y], left, left+w), " ")
@@ -92,7 +93,7 @@ func TestOnlyAPressOnTheSessionStartsASelection(t *testing.T) {
 	h.openLiveSession("alpha")
 	l := h.m.layout()
 
-	for _, x := range []int{l.side, l.side + 1} {
+	for _, x := range []int{l.side + l.gapX, l.side + l.gapX + 1} {
 		h.m.focus = panelHosts
 		h.click(x, 5)
 		if h.m.focus != panelSession {
@@ -104,11 +105,11 @@ func TestOnlyAPressOnTheSessionStartsASelection(t *testing.T) {
 		h.send(tea.MouseReleaseMsg{X: x, Y: 5, Button: tea.MouseLeft})
 	}
 
-	h.click(l.side+2, 5)
+	h.click(l.side+l.gapX+2, 5)
 	if h.m.dragPane != h.m.attached {
 		t.Error("a press on the session did not start a selection in it")
 	}
-	h.send(tea.MouseReleaseMsg{X: l.side + 2, Y: 5, Button: tea.MouseLeft})
+	h.send(tea.MouseReleaseMsg{X: l.side + l.gapX + 2, Y: 5, Button: tea.MouseLeft})
 	if h.m.dragPane != nil {
 		t.Error("the selection outlived the button coming up")
 	}
