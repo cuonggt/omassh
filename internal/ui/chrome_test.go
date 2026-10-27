@@ -117,6 +117,55 @@ func TestAPanelThatLosesFocusKeepsShowingWhereItsCursorIs(t *testing.T) {
 	}
 }
 
+// The search spans the whole tree, so a result says where it came from as a
+// trail rather than only naming the group nearest it: "edge" says which group,
+// since a name is unique across the store, but not whether that is the edge
+// under Production or the one under Staging.
+func TestTheSearchSaysWhereInTheTreeAHostSits(t *testing.T) {
+	h := newHarness(t)
+	prod := h.addGroup("Production", "")
+	edge := h.addGroup("edge", prod.ID)
+	h.addGroupedHost("web-01", edge.ID)
+	h.reload()
+
+	h.press("/")
+	h.type_("web")
+
+	if !h.contains("Production › edge") {
+		t.Errorf("a result does not say where in the tree it is:\n%s", h.screen())
+	}
+}
+
+// The status bar offers the keys that will actually do something. Connecting
+// and opening a pane both act on a host, and with none selected they did
+// nothing at all while the line went on offering them — a screen saying the
+// list is not empty when it is.
+func TestTheStatusBarOffersOnlyTheKeysThatWillDoSomething(t *testing.T) {
+	h := newHarness(t)
+	h.addGroup("Empty", "")
+	h.addHost("web-01", "10.0.0.1")
+	h.reload()
+
+	h.selectGroup("Empty")
+	if _, ok := h.m.selectedHost(); ok {
+		t.Fatal("a group with nothing in it has a host selected")
+	}
+	for _, gone := range []string{"connect", "in pane"} {
+		if h.contains(gone) {
+			t.Errorf("the status bar offers %q with no host to do it to:\n%s", gone, h.screen())
+		}
+	}
+	// The keys that still work are still there.
+	h.mustContain("search")
+	h.mustContain("quit")
+
+	h.selectGroup("Ungrouped")
+	if _, ok := h.m.selectedHost(); !ok {
+		t.Fatal("the group with the host in it has nothing selected")
+	}
+	h.mustContain("connect")
+}
+
 // The cursor's cell is reserved on every row, not just the one it is on, so
 // arriving at a row does not move it. A bar prefixed to the cursor's row alone
 // shifted that row's text one cell right of all the others.

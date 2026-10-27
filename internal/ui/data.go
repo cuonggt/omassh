@@ -288,6 +288,40 @@ func (d data) groupName(id string) string {
 	return ""
 }
 
+// groupPath is where a group sits in the tree, root first.
+//
+// For the search, which lists hosts from the whole tree at once. A name is
+// unique across the store, so the nearest group's alone does say which group
+// it is — what it does not say is where that group sits, and "edge" means
+// something rather different under Production than under Staging. The trail
+// says both, in the space the name was taking anyway.
+//
+// The walk is bounded by the number of groups, as store's own is: a ParentID
+// that comes back round to itself would otherwise climb forever, and the tree
+// is built to tolerate one rather than refuse the file it came from.
+func (d data) groupPath(id string) []string {
+	byID := make(map[string]store.Group, len(d.groups))
+	for _, g := range d.groups {
+		byID[g.ID] = g
+	}
+	var out []string
+	for range len(byID) + 1 {
+		g, ok := byID[id]
+		if !ok {
+			break
+		}
+		out = append([]string{g.Name}, out...)
+		id = g.ParentID
+	}
+	return out
+}
+
+// breadcrumb is a group path as the search draws it, or empty for a host in no
+// group at all.
+func (d data) breadcrumb(id string) string {
+	return strings.Join(d.groupPath(id), " › ")
+}
+
 // ExpandTilde resolves a leading ~ so paths shown in the UI can also be opened.
 func ExpandTilde(p string) string {
 	if p != "~" && !strings.HasPrefix(p, "~/") {

@@ -35,7 +35,9 @@ children would otherwise look empty.
 ## Finding a host
 
 `/` searches every host at once, fuzzily, by name, address and tag; `esc`
-clears it.
+clears it. Each result says where in the tree it came from, as a trail —
+`web-01  Production › edge` — since a search that spans everything is the one
+place the list no longer tells you that by where the row is.
 
 In a form, `↓` offers what you already use: the key paths, jump hosts, groups
 and tags for a host, and the parents and jump hosts for a group. Tags are a

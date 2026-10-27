@@ -349,8 +349,8 @@ func (m Model) hostsBody(w, rows int) string {
 		mark, markColour := m.hostMarker(h.StatKey())
 		label := h.Name
 		if m.filtering() {
-			if g := m.d.groupName(h.GroupID); g != "" {
-				label += "  " + g
+			if trail := m.d.breadcrumb(h.GroupID); trail != "" {
+				label += "  " + trail
 			}
 		}
 
@@ -400,8 +400,8 @@ func (m Model) hostsBody(w, rows int) string {
 
 		line := gutter(st) + theme.Fg(markColour).Render(mark) + theme.Normal.Render(" "+h.Name)
 		if m.filtering() {
-			if g := m.d.groupName(h.GroupID); g != "" {
-				line += theme.Dim.Render("  " + g)
+			if trail := m.d.breadcrumb(h.GroupID); trail != "" {
+				line += theme.Dim.Render("  " + trail)
 			}
 		}
 		line = ansi.Truncate(line, keep, "…")
@@ -751,9 +751,17 @@ func (m Model) statusBar() string {
 				hint(prefixKey+" d", "detach") + sep() +
 				theme.Dim.Render("every other key goes to the remote")
 		default:
-			hints = hint(m.keys.Key(keymap.Connect), "connect") + sep() +
-				hint(m.keys.Key(keymap.Pane), "in pane") + sep() +
-				hint(m.keys.Key(keymap.Search), "search") + sep() +
+			// What the keys will actually do, given what is selected. Both of
+			// these act on a host, and with none selected — an empty group, a
+			// search that matched nothing — they did nothing at all while the
+			// line went on offering them. A hint for a key that is not
+			// listening is worse than no hint: it is the screen saying the
+			// list is not empty.
+			if _, ok := m.selectedHost(); ok {
+				hints = hint(m.keys.Key(keymap.Connect), "connect") + sep() +
+					hint(m.keys.Key(keymap.Pane), "in pane") + sep()
+			}
+			hints += hint(m.keys.Key(keymap.Search), "search") + sep() +
 				hint(m.keys.Key(keymap.Probe), "probe") + sep() +
 				hint("n/e/d", "new/edit/delete") + sep() +
 				hint(m.keys.Key(keymap.Help), "help") + sep() +
