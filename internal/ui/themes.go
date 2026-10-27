@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
@@ -87,13 +88,81 @@ func (m Model) palette(name string) theme.Palette {
 	return p
 }
 
+// omarchyWatch is how often Omassh asks whether Omarchy's theme has changed.
+//
+// Two seconds, like the forwards list, and for the same reason: it is long
+// enough to cost nothing and short enough that nobody catches Omassh still
+// wearing the old colours. The watch runs only while Omarchy's own theme is
+// the one in effect — a timer waking the program on every machine, for a
+// setting that means nothing on most of them, is a cost with nothing to show
+// for it.
+const omarchyWatch = 2 * time.Second
+
+type omarchyTickMsg struct{}
+
+func omarchyTick() tea.Cmd {
+	return tea.Tick(omarchyWatch, func(time.Time) tea.Msg { return omarchyTickMsg{} })
+}
+
+// watchOmarchy starts following Omarchy's theme, if that is the theme in
+// effect and nothing is following it already.
+//
+// The flag is what keeps there being exactly one of these. Picking omarchy,
+// then something else, then omarchy again inside one tick would otherwise
+// leave the first tick alive beside the one the second pick started, and the
+// pair of them would go on waking the program for as long as it ran.
+func (m *Model) watchOmarchy() tea.Cmd {
+	if m.watchingOmarchy || m.opts.Theme != theme.OmarchyName {
+		return nil
+	}
+	m.watchingOmarchy = true
+	m.omarchyStamp = theme.OmarchyStamp()
+	return omarchyTick()
+}
+
+// handleOmarchyTick repaints if Omarchy has been set to another theme since
+// the last look.
+func (m Model) handleOmarchyTick() (tea.Model, tea.Cmd) {
+	// The theme in effect can have become one of ours since the watch
+	// started, and then there is nothing left to follow.
+	if m.opts.Theme != theme.OmarchyName {
+		m.watchingOmarchy = false
+		return m, nil
+	}
+
+	stamp := theme.OmarchyStamp()
+	if stamp == m.omarchyStamp {
+		return m, omarchyTick()
+	}
+	m.omarchyStamp = stamp
+
+	// Recorded whether or not the colours could be read. A theme file that has
+	// gone — Omarchy removed while Omassh runs — leaves the palette as it is
+	// rather than throwing the interface back to the terminal's colours, and
+	// the stamp changes again if it comes back.
+	if p, err := theme.Resolve(theme.OmarchyName); err == nil {
+		m.applyTheme(p)
+	}
+	return m, omarchyTick()
+}
+
 // applyTheme recolours the interface. Apply rebuilds the styles the theme
-// package keeps; the filter is the one input that holds colours of its own and
-// lives through a trip to the picker, so it is handed the new ones here. A
-// form's inputs are built when it opens, and take them then.
+// package keeps; the inputs are what hold colours of their own, and they are
+// handed the new ones here.
+//
+// The filter lives through a trip to the picker, and so does a form now that a
+// theme can change underneath one: a form's fields take their colours when it
+// opens, which was the whole story while a theme only ever changed in the
+// picker, and is not one while Omarchy can change it from outside.
 func (m *Model) applyTheme(p theme.Palette) {
 	theme.Apply(p)
 	m.filter.SetStyles(inputStyles())
+	m.find.SetStyles(inputStyles())
+	if m.form != nil {
+		for i := range m.form.fields {
+			m.form.fields[i].input.SetStyles(inputStyles())
+		}
+	}
 }
 
 // inputStyles colours a text input from the palette.
@@ -140,18 +209,23 @@ func (m Model) keepTheme() (tea.Model, tea.Cmd) {
 	m.themes, m.mode = nil, m.returnTo
 	m.opts.Theme = name
 
+	// Picking Omarchy's own theme starts following it, as naming it in the
+	// config file does. Picking away from it stops at the next tick, which
+	// finds the theme is no longer this one.
+	watch := m.watchOmarchy()
+
 	if m.opts.SaveTheme == nil {
 		m.setStatus("theme " + name + " for this session")
-		return m, nil
+		return m, watch
 	}
 	if err := m.opts.SaveTheme(name); err != nil {
 		// The colours are already applied, so say what is true: it worked,
 		// and it will not survive a restart.
 		m.setErr(fmt.Errorf("using %s, but saving it failed: %w", name, err))
-		return m, nil
+		return m, watch
 	}
 	m.setStatus("theme " + name)
-	return m, nil
+	return m, watch
 }
 
 // themeWidth is how wide the picker has to be for what it is listing.

@@ -236,6 +236,16 @@ desktop cannot disagree about what the theme is, and
 `testdata/tokyo-night-colors.toml` is Omarchy's file as it ships: reading it
 has to produce the `tokyo-night` built-in, which is where both came from.
 
+Following a theme *switch* is a tick, like the forwards list: `theme.
+OmarchyStamp` is a couple of stats, and the watch runs only while `omarchy` is
+the theme in effect, so no other machine is woken by it. `New` decides whether
+to start it, because `Init` is handed the model by value and cannot remember
+having started anything, and the `watchingOmarchy` flag is what keeps there
+being exactly one tick after a trip through the picker. Omarchy writes its
+generation token before it repoints the colours, so a tick can see a new token
+beside the old palette; nothing guards against that, because the repoint
+changes the stamp again and the next tick lands on the right colours.
+
 ## Conventions
 
 - **Comments say why, and usually name the bug.** The prose is long by design and

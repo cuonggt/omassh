@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"image/color"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -173,6 +175,139 @@ func TestALongThemeNameIsListedInFull(t *testing.T) {
 	h.press("T")
 	walkTo(t, h, longTheme)
 	h.mustContain(longTheme)
+}
+
+// omarchyHome lays out a theme directory the way Omarchy does and points
+// Omassh at it, and gives back a way to switch the theme — the colours, and
+// the token Omarchy writes beside them to say that it has.
+func omarchyHome(t *testing.T, colours string) func(string) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "current", "theme")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("lay out a theme: %v", err)
+	}
+	was := theme.OmarchyFile
+	t.Cleanup(func() { theme.OmarchyFile = was })
+	theme.OmarchyFile = filepath.Join(dir, "colors.toml")
+
+	switches := 0
+	set := func(body string) {
+		t.Helper()
+		switches++
+		if err := os.WriteFile(theme.OmarchyFile, []byte(body), 0o600); err != nil {
+			t.Fatalf("write the colours: %v", err)
+		}
+		token := fmt.Appendf(nil, "%d-switch\n", switches)
+		if err := os.WriteFile(filepath.Join(filepath.Dir(dir), "theme.generation"), token, 0o600); err != nil {
+			t.Fatalf("write the generation: %v", err)
+		}
+	}
+	set(colours)
+	return set
+}
+
+// omarchyHarness is Omassh started on Omarchy's own theme, with the colours
+// applied the way main applies them at startup.
+func omarchyHarness(t *testing.T) *harness {
+	t.Helper()
+	h, _ := themeHarness(t, func(o *Options) { o.Theme = theme.OmarchyName })
+	p, err := theme.Resolve(theme.OmarchyName)
+	if err != nil {
+		t.Fatalf("resolve omarchy: %v", err)
+	}
+	h.m.applyTheme(p)
+	return h
+}
+
+// Switching the Omarchy theme repaints Omassh, rather than leaving it in the
+// colours of the theme that was set when it started. Following Omarchy is what
+// the theme is called and what it is for; following it only until the next
+// time someone switches would be most of a feature.
+func TestOmasshRepaintsWhenOmarchysThemeChangesUnderIt(t *testing.T) {
+	set := omarchyHome(t, "accent = \"#112233\"\n")
+	h := omarchyHarness(t)
+
+	if h.m.Init() == nil {
+		t.Fatal("nothing is following Omarchy's theme, though that is the theme in effect")
+	}
+	was := accent()
+
+	set("accent = \"#445566\"\n")
+	if cmd := h.send(omarchyTickMsg{}); cmd == nil {
+		t.Error("the watch stopped at the first change it saw")
+	}
+
+	if accent() == was {
+		t.Error("Omarchy's theme changed and Omassh kept the colours it had")
+	}
+	if theme.Accent != (color.RGBA{0x44, 0x55, 0x66, 0xff}) {
+		t.Errorf("the accent is %#v, want the one Omarchy was just set to", theme.Accent)
+	}
+}
+
+// A form open while the theme changes is recoloured with everything else. Its
+// fields take their colours when it opens, which was the whole story while a
+// theme could only change in the picker — and is not one now that Omarchy can
+// change it from outside while a form is up.
+func TestAFormOpenWhenOmarchysThemeChangesIsRecolouredToo(t *testing.T) {
+	set := omarchyHome(t, "foreground = \"#112233\"\n")
+	h := omarchyHarness(t)
+
+	h.press("2", "n")
+	h.type_("zanzibar")
+	h.press("tab")
+
+	set("foreground = \"#445566\"\n")
+	h.send(omarchyTickMsg{})
+
+	if got := styleAt(h.m.View().Content, "zanzibar"); !strings.Contains(got, "38;2;68;85;102") {
+		t.Errorf("a field in the open form is drawn with %q, want the colour Omarchy was just set to", got)
+	}
+}
+
+// Nothing is woken for a theme nobody is following. A timer ticking on every
+// machine, for a setting that means something on few of them, is a cost with
+// nothing to show for it.
+func TestNothingFollowsOmarchyUnlessItIsTheThemeInEffect(t *testing.T) {
+	omarchyHome(t, "accent = \"#112233\"\n")
+	h, _ := themeHarness(t) // the default theme, not Omarchy's
+
+	if h.m.Init() != nil {
+		t.Error("a watch was started for a theme that is not Omarchy's")
+	}
+	if cmd := h.send(omarchyTickMsg{}); cmd != nil {
+		t.Error("a tick that arrived anyway scheduled another")
+	}
+}
+
+// Picking away from Omarchy's theme stops following it, and picking it again
+// starts over — with one watch running either way, not one per visit to the
+// picker.
+func TestFollowingOmarchyStartsAndStopsWithTheThemeItself(t *testing.T) {
+	omarchyHome(t, "accent = \"#112233\"\n")
+	h := omarchyHarness(t)
+	h.m.Init()
+
+	h.m.opts.Theme = "nord"
+	if cmd := h.send(omarchyTickMsg{}); cmd != nil {
+		t.Error("the watch kept ticking for a theme that is no longer Omarchy's")
+	}
+	if h.m.watchingOmarchy {
+		t.Error("the watch still says it is running")
+	}
+
+	h.press("T")
+	walkTo(t, h, theme.OmarchyName)
+	h.press("enter")
+	if !h.m.watchingOmarchy {
+		t.Fatal("picking Omarchy's theme did not start following it again")
+	}
+	// A second pick must not leave two of them running.
+	h.press("T")
+	walkTo(t, h, theme.OmarchyName)
+	if cmd := h.m.watchOmarchy(); cmd != nil {
+		t.Error("a second watch was started beside the one already running")
+	}
 }
 
 // Omarchy's own current theme is offered where there is an Omarchy to read it

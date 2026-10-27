@@ -72,10 +72,18 @@ theme Omarchy is actually set to, read from Omarchy's own current theme at
 repoints as the theme changes, which is what makes the name mean "whatever is
 set now" rather than one particular palette. Where `terminal` picks up only
 what the terminal's own scheme carries, this gets the whole palette: the
-accent, the selection, the muted border. Start Omassh again after switching
-themes and it follows. On a machine without Omarchy, naming it is a startup
-error saying so rather than a quietly different palette, and the theme picker
-does not offer it there at all.
+accent, the selection, the muted border. On a machine without Omarchy, naming
+it is a startup error saying so rather than a quietly different palette, and
+the theme picker does not offer it there at all.
+
+Switch themes while Omassh is running and it repaints within a couple of
+seconds, without being asked and without losing your place — an open form and
+a kept search are recoloured along with everything else. It follows by asking,
+every two seconds, whether the theme has changed: Omarchy writes a token to
+`current/theme.generation` each time one is set, which is the file it reads
+back itself to tell whether a switch has been superseded. That watch runs only
+while `omarchy` is the theme in effect, so nothing is woken on a machine
+whose theme is one of ours.
 
 A theme is allowed to leave roles out, and Omarchy has a documented cascade so
 that every program reading the file lands on the same palette — `fg` for

@@ -197,6 +197,13 @@ type Model struct {
 	confirm *confirmation
 	// themes is the open theme picker, nil when there is none.
 	themes *themePicker
+
+	// watchingOmarchy is whether a tick is following Omarchy's own theme, and
+	// omarchyStamp what that theme was at the last look. Held here rather than
+	// asked for each frame because following it means noticing a change, and a
+	// change is only visible against what was there before.
+	watchingOmarchy bool
+	omarchyStamp    string
 	// returnTo is the view a modal came from, so closing one does not always
 	// dump the user back at the host list.
 	returnTo mode
@@ -300,10 +307,21 @@ func New(st *store.Store, opts Options) Model {
 	if m.status == "" {
 		m.status = fmt.Sprintf("%d host%s", len(m.d.hosts), plural(len(m.d.hosts)))
 	}
+	// Set here and not in Init, which is handed the model by value and so
+	// cannot remember having started anything.
+	m.watchOmarchy()
 	return m
 }
 
-func (m Model) Init() tea.Cmd { return nil }
+// Init starts whatever has to be running before the first key. Only the watch
+// on Omarchy's theme, and only where that is the theme in effect — New has
+// already decided that, and left the answer in the model.
+func (m Model) Init() tea.Cmd {
+	if m.watchingOmarchy {
+		return omarchyTick()
+	}
+	return nil
+}
 
 func (m *Model) reload() {
 	d, err := load(m.st, m.opts.SSHConfig)
@@ -360,6 +378,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case forwardTickMsg:
 		return m.handleForwardTick()
+
+	case omarchyTickMsg:
+		return m.handleOmarchyTick()
 
 	case forwardDoneMsg:
 		return m.handleForwardDone(msg)

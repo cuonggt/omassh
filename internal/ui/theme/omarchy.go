@@ -42,6 +42,44 @@ func OmarchyPath() string {
 	return filepath.Join(home, ".local", "state", "omarchy", "current", "theme", "colors.toml")
 }
 
+// OmarchyStamp is a value that changes when Omarchy's current theme does, so
+// that following it costs a couple of stats rather than a reread and a
+// repaint. Empty where there is no Omarchy to follow.
+//
+// Two things go into it. Omarchy writes a token to theme.generation every time
+// a theme is set, and reads it back itself to tell whether a switch it is
+// partway through has been superseded — it is the one file in the directory
+// whose whole job is to say the theme changed. And the colours file's own size
+// and time, because current/theme is a symlink: a switch repoints it at
+// another directory, so the same path stats as a different file. The second
+// covers an Omarchy too old to write the token, and a colors.toml edited by
+// hand, which changes nothing else.
+//
+// Omarchy writes the token before it repoints the symlink, so a read can land
+// between the two and see the new token beside the old colours. Nothing has to
+// be done about that: the repoint changes the stamp again, and whoever is
+// watching reads the file a second time and lands on the right palette.
+func OmarchyStamp() string {
+	if strings.TrimSpace(OmarchyFile) == "" {
+		return ""
+	}
+	token, _ := os.ReadFile(omarchyGenerationPath(OmarchyFile))
+
+	var colours string
+	if fi, err := os.Stat(OmarchyFile); err == nil {
+		colours = fmt.Sprintf("%d:%d", fi.ModTime().UnixNano(), fi.Size())
+	}
+	return strings.TrimSpace(string(token)) + "\x00" + colours
+}
+
+// omarchyGenerationPath is where Omarchy writes the token, given where it
+// writes the colours: current/theme/colors.toml, so the token is two
+// directories up, beside the symlink rather than inside the theme it points
+// at — which is what lets it outlive the theme being switched away from.
+func omarchyGenerationPath(colours string) string {
+	return filepath.Join(filepath.Dir(filepath.Dir(colours)), "theme.generation")
+}
+
 // OmarchyAvailable reports whether Omarchy's current theme can be read here,
 // which is what decides whether the picker offers it. A machine without
 // Omarchy is not offered a theme that cannot be drawn on it.

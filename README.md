@@ -180,9 +180,8 @@ corners, thin borders, a gap between panels, focus on an accent border, and no
 colour spent on decoration. `T` offers Omarchy's own themes under the names
 Omarchy uses, and a palette is written with the roles a theme's `colors.toml`
 names, so one can be copied straight across. On an Omarchy machine,
-`theme: omarchy` draws in whatever theme Omarchy is currently set to, read
-from Omarchy's own current theme. More in
-[configuration](docs/configuration.md).
+`theme: omarchy` draws in whatever theme Omarchy is set to and repaints when
+you switch it. More in [configuration](docs/configuration.md).
 
 ## Troubleshooting
 

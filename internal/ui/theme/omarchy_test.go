@@ -174,6 +174,51 @@ func TestResolveReadsOmarchysThemeAndStillKnowsTheBuiltIns(t *testing.T) {
 	}
 }
 
+// The stamp is how following Omarchy's theme stays cheap: a couple of stats
+// on a tick rather than a reread and a repaint. It has to change for both of
+// the things a switch changes, because Omarchy writes the token first and
+// repoints the colours after, and a watcher that noticed only one of them
+// would settle on whichever it saw first.
+func TestTheStampChangesForEitherHalfOfASwitch(t *testing.T) {
+	was := OmarchyFile
+	t.Cleanup(func() { OmarchyFile = was })
+
+	dir := filepath.Join(t.TempDir(), "current", "theme")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("lay out a theme: %v", err)
+	}
+	OmarchyFile = filepath.Join(dir, "colors.toml")
+	generation := filepath.Join(filepath.Dir(dir), "theme.generation")
+
+	write := func(path, body string) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	write(OmarchyFile, "accent = \"#111111\"\n")
+	write(generation, "1-first\n")
+	first := OmarchyStamp()
+
+	// The token alone, which is what a switch writes before it repoints the
+	// colours at the theme being switched to.
+	write(generation, "2-second\n")
+	second := OmarchyStamp()
+	if second == first {
+		t.Error("the stamp did not change when Omarchy said the theme had")
+	}
+
+	// The colours alone, for an Omarchy too old to write a token and for a
+	// colors.toml changed by hand. Of a different length as well as at a
+	// different moment, so this cannot come down to how finely the filesystem
+	// records a time.
+	write(OmarchyFile, "accent = \"#222222\"\nforeground = \"#333333\"\n")
+	if third := OmarchyStamp(); third == second {
+		t.Error("the stamp did not change when the colours themselves did")
+	}
+}
+
 // The suite must never read the colours of whoever is running it. OmarchyFile
 // is empty unless a test sets it, exactly as Options.SSHConfig is, and a
 // default that pointed at the real file would make the whole suite's idea of
